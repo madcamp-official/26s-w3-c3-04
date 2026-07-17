@@ -81,7 +81,8 @@ namespace Game.View
         {
             AddShake(0.12f);
             EmitSparks(pos, 14);
-            CombatAudio.Hit();
+            CombatAudio.Hit();        // 칼 타격(금속)
+            CombatAudio.EnemyPain();  // 적 신음(유기)
         }
 
         void OnDeath(Vector3 pos)

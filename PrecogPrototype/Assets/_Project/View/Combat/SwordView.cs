@@ -53,7 +53,7 @@ namespace Game.View
             prevDash = dash;
 
             bool block = p.combat.blocking;
-            if (block && !prevBlock) CombatAudio.Block();
+            if (block && !prevBlock) CombatAudio.GuardRaise();   // 켤 때: 스윽(챙은 실제 방어 성공용)
             prevBlock = block;
 
             byte bs = p.combat.backstrikePhase;
