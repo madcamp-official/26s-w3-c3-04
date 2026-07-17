@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Game.Simulation;
+using Game.Prediction;
 
 namespace Game.Runtime
 {
@@ -28,6 +30,11 @@ namespace Game.Runtime
         int   prevAliveEnemies;
         int   prevHp;
 
+        readonly GhostRenderer ghosts = new GhostRenderer();
+        bool previewOn;
+        List<PathPreview.Frame> timeline;
+        int cursor;
+
         void Start()
         {
             Time.fixedDeltaTime = SimConfig.TickDelta;   // 60Hz
@@ -55,7 +62,7 @@ namespace Game.Runtime
 
             Debug.Log($"[Main] 시작. 적 {enemyCount} / HP {world.player.hp} / 대시 {world.player.dashCharges}\n" +
                       "  WASD 이동 · 마우스 시점 · Space 점프 · 좌클릭 평타 · Shift 질풍참 · 우클릭 막기\n" +
-                      "  (커서 잠금 해제: Esc)");
+                      "  Q: 예지(시간정지, 왼쪽+점프 미래) · ← →: 시점 넘기기 · Esc: 커서 잠금 해제");
         }
 
         void Update()
@@ -77,6 +84,47 @@ namespace Game.Runtime
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
+            }
+
+            if (QPressed())
+                TogglePreview();
+
+            // 예지 중: 화살표로 시간축 넘기기
+            if (previewOn && timeline != null && timeline.Count > 0)
+            {
+                int move = 0;
+                if (LeftArrowPressed())  move = -1;
+                if (RightArrowPressed()) move = +1;
+                if (move != 0)
+                {
+                    cursor = Mathf.Clamp(cursor + move, 0, timeline.Count - 1);
+                    ghosts.Render(timeline, cursor);
+                    var f = timeline[cursor];
+                    Debug.Log($"[예지] {f.time:F1}초 시점 " +
+                              (f.playerAlive ? "(생존)" : "(사망 ✗)"));
+                }
+            }
+        }
+
+        /// <summary>예지: 시간 정지 + "왼쪽+점프" 미래를 타임라인으로. 화살표로 스크럽.</summary>
+        void TogglePreview()
+        {
+            previewOn = !previewOn;
+            if (previewOn)
+            {
+                Time.timeScale = 0f;   // 완전 정지
+                timeline = PathPreview.BuildTimeline(in world);
+                cursor = 0;
+                ghosts.Render(timeline, cursor);
+                Debug.Log($"[예지] 시간 정지. 왼쪽 이동+점프 미래 {timeline.Count}프레임(0.5초 간격).\n" +
+                          "  ← → 화살표로 시점 이동. 파란=경로, 초록=현재시점 나, 주황=그때 적 위치.\n" +
+                          "  Q로 재개.");
+            }
+            else
+            {
+                Time.timeScale = 1f;   // 재개
+                ghosts.Hide();
+                timeline = null;
             }
         }
 
@@ -107,6 +155,24 @@ namespace Game.Runtime
         {
             var kb = UnityEngine.InputSystem.Keyboard.current;
             return kb != null && kb.escapeKey.wasPressedThisFrame;
+        }
+
+        static bool QPressed()
+        {
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            return kb != null && kb.qKey.wasPressedThisFrame;
+        }
+
+        static bool LeftArrowPressed()
+        {
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            return kb != null && kb.leftArrowKey.wasPressedThisFrame;
+        }
+
+        static bool RightArrowPressed()
+        {
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            return kb != null && kb.rightArrowKey.wasPressedThisFrame;
         }
 
         static int CountAlive(in SimWorld w)
