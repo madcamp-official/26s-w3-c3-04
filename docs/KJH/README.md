@@ -36,10 +36,11 @@
 | 번호 | 결정 | 상태 |
 | --- | --- | --- |
 | [0001](decisions/0001-knife-not-gun.md) | 총 폐기, 칼 단일 무기 | 확정 |
-| [0002](decisions/0002-enemy-one-shot-kill.md) | 적 전부 한방컷 (health 필드 없음) | 확정 |
+| [0002](decisions/0002-enemy-one-shot-kill.md) | 적 전부 한방컷 | ~~대체됨~~ → 0006 |
 | [0003](decisions/0003-state-trajectory-replay.md) | 상태 궤적 재생 (입력 재생 기각) | 확정 |
 | [0004](decisions/0004-remove-rng-from-ai.md) | 적 AI 난수 완전 제거 | 확정 |
-| [0005](decisions/0005-dash-to-iaijutsu.md) | 대시 → 질풍참 (대미지 0, 스턴 세팅기) | 확정 |
+| [0005](decisions/0005-dash-to-iaijutsu.md) | 대시 → 질풍참 | 개정됨(잠정) |
+| [0006](decisions/0006-enemy-hp-and-universal-stun.md) | 적 HP 2~3 + 만능 스턴, 우클=칼등치기, 막기 폐기 | 잠정 |
 
 ## 검토 기록 (reviews/)
 
