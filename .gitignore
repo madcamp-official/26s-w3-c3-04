@@ -1,0 +1,68 @@
+# ==============================================================
+# Unity 프로젝트 .gitignore
+# 커밋하는 것: Assets/, Packages/, ProjectSettings/
+# 나머지는 Unity가 다른 PC에서 자동 재생성하므로 제외한다.
+# 경로 앞에 / 가 없으면 저장소 어디서든 매칭된다 (하위 PrecogPrototype/ 포함).
+# ==============================================================
+
+# --- Unity 자동 생성 폴더 (수 GB, 절대 커밋 금지) ---
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]serSettings/
+[Mm]emoryCaptures/
+
+# --- 에셋 임포트 캐시 ---
+/[Aa]ssets/[Aa]ssetStoreTools*
+/[Aa]ssets/[Pp]lugins/[Ee]ditor/JetBrains*
+
+# --- IDE / 자동 생성 프로젝트 파일 ---
+.vs/
+.vscode/
+.idea/
+ExportedObj/
+.consulo/
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# --- Rider ---
+/[Aa]ssets/Plugins/Editor/JetBrains*
+
+# --- OS 부산물 ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# --- 빌드 산출물 ---
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# --- 크래시 리포트 ---
+sysinfo.txt
+crashlytics-build.properties
+
+# --- Unity 3D 생성 메타 (특정 폴더에 대해서만) ---
+# .meta 파일은 반드시 커밋해야 하므로 무시하지 않는다.
