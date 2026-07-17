@@ -1,0 +1,16 @@
+{
+    "name": "Game.Prediction",
+    "rootNamespace": "Game.Prediction",
+    "references": [
+        "Game.Simulation"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
