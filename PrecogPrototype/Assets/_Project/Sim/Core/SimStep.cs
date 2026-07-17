@@ -29,13 +29,13 @@ namespace Game.Sim
             float pr = SimConfig.PlayerRadius;
             float er = SimConfig.EnemyRadius;
 
-            // 적 ↔ 적
+            // 적 ↔ 적 (점프 중인 적은 제외 — 궤적 방해 방지)
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive) continue;
+                if (!w.enemies[i].alive || w.enemies[i].descentPhase == DescentPhase.Airborne) continue;
                 for (int j = i + 1; j < w.enemyCount; j++)
                 {
-                    if (!w.enemies[j].alive) continue;
+                    if (!w.enemies[j].alive || w.enemies[j].descentPhase == DescentPhase.Airborne) continue;
                     PushApart(ref w.enemies[i].pos, ref w.enemies[j].pos, er + er,
                               w.enemies[i].id, w.enemies[j].id);
                 }
@@ -44,7 +44,7 @@ namespace Game.Sim
             // 적 ↔ 플레이어 (대칭 — 적도 플레이어를 밈)
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive) continue;
+                if (!w.enemies[i].alive || w.enemies[i].descentPhase == DescentPhase.Airborne) continue;
                 PushApart(ref w.player.pos, ref w.enemies[i].pos, pr + er, -1, w.enemies[i].id);
             }
         }

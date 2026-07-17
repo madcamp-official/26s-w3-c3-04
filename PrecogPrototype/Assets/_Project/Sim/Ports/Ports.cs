@@ -23,14 +23,17 @@ namespace Game.Sim
         bool SampleGround(Vector3 feet, float maxDown, out float groundY);
     }
 
+    /// <summary>다음 이동이 걷기인지, 테두리 점프(NavMesh Link)인지.</summary>
+    public enum MoveKind { None, Walk, Jump }
+
     /// <summary>
-    /// 경로 질의. "from에서 to로 가는 경로의 다음 지점?"만 묻는다.
-    /// 실제 계산은 Bridge(NavMesh.CalculatePath)가 한다. 결정론 검증 완료.
+    /// 경로 질의. "from에서 to로 가는 경로의 다음 지점?"과 그게 걷기인지 점프인지.
+    /// 실제 계산은 Bridge(NavMesh.CalculatePath + NavMeshLink)가 한다.
     /// </summary>
     public interface IPathfinder
     {
-        /// <summary>from→to 경로의 다음 코너. 경로 없으면 false.</summary>
-        bool NextCorner(Vector3 from, Vector3 to, out Vector3 next);
+        /// <summary>from→to 경로의 다음 코너와 이동 종류. 경로 없으면 None.</summary>
+        MoveKind NextCorner(Vector3 from, Vector3 to, out Vector3 next);
     }
 
     /// <summary>Sim이 한 틱 도는 데 필요한 바깥 서비스 묶음.</summary>

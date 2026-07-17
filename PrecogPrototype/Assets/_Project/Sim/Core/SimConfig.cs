@@ -35,5 +35,12 @@ namespace Game.Sim
 
         // 캐릭터끼리 겹침 분리 (대칭)
         public const float SeparationPush = 0.5f;     // 겹친 만큼 * 이 비율씩 양쪽으로
+
+        // 테두리 하강 (NavMesh Link 점프). 전부 잠정.
+        public const int   DescentEdgePauseTicks = 12;   // 멈칫 (0.2초)
+        public const int   DescentRecoveryTicks  = 15;   // 착지 후 회복 (0.25초)
+        public const float DescentJumpSpeed      = 8f;   // 점프 수평 속도(궤적 길이 결정)
+        public const float DescentJumpArcHeight  = 1.5f; // 포물선 위로 솟는 높이
+        public const int   DescentJumpMinTicks   = 12;
     }
 }

@@ -38,6 +38,11 @@ namespace Game.Sim
                 h = MixV(h, e.waypoint);
                 h = Mix(h, e.hasWaypoint ? 1UL : 0UL);
                 h = Mix(h, (ulong)e.repathTicks);
+                h = Mix(h, (ulong)e.descentPhase);
+                h = Mix(h, (ulong)e.descentTicks);
+                h = MixV(h, e.jumpStart);
+                h = MixV(h, e.jumpEnd);
+                h = Mix(h, (ulong)e.jumpDuration);
             }
             return h;
         }
