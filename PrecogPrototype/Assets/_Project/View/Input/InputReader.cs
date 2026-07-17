@@ -1,0 +1,60 @@
+using UnityEngine;
+using UnityEngine.InputSystem;
+using Game.Sim;
+
+namespace Game.View
+{
+    /// <summary>
+    /// 키/마우스 → InputCmd. 표현 계층에만 존재.
+    /// 순간입력(점프/대시)은 Update에서 버퍼링, FixedUpdate에서 소비.
+    /// Yaw(좌우)는 시뮬레이션에, Pitch(상하)는 카메라 전용.
+    /// </summary>
+    public class InputReader
+    {
+        public float Yaw   { get; set; }
+        public float Pitch { get; private set; }
+
+        const float Sens = 0.08f;
+        bool jumpBuf, dashBuf;
+
+        public void PollFrame()
+        {
+            var kb = Keyboard.current; var mouse = Mouse.current;
+            if (kb == null) return;
+            if (mouse != null)
+            {
+                Vector2 d = mouse.delta.ReadValue();
+                Yaw += d.x * Sens;
+                Pitch = Mathf.Clamp(Pitch - d.y * Sens, -85f, 85f);
+            }
+            if (kb.spaceKey.wasPressedThisFrame)     jumpBuf = true;
+            if (kb.leftShiftKey.wasPressedThisFrame) dashBuf = true;
+        }
+
+        public InputCmd Consume()
+        {
+            InputCmd cmd = InputCmd.Empty;
+            cmd.yaw = Yaw;
+            var kb = Keyboard.current;
+            if (kb != null)
+            {
+                Vector2 m = Vector2.zero;
+                if (kb.aKey.isPressed) m.x -= 1f;
+                if (kb.dKey.isPressed) m.x += 1f;
+                if (kb.wKey.isPressed) m.y += 1f;
+                if (kb.sKey.isPressed) m.y -= 1f;
+                cmd.move = m;
+            }
+            cmd.jump = jumpBuf;
+            cmd.dash = dashBuf;
+            jumpBuf = dashBuf = false;
+            return cmd;
+        }
+
+        public bool EscapePressed()
+        {
+            var kb = Keyboard.current;
+            return kb != null && kb.escapeKey.wasPressedThisFrame;
+        }
+    }
+}

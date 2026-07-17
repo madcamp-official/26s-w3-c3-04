@@ -1,0 +1,15 @@
+{
+    "name": "Game.View",
+    "rootNamespace": "Game.View",
+    "references": [
+        "Game.Sim",
+        "Game.Bridge",
+        "Unity.InputSystem",
+        "Unity.AI.Navigation"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "autoReferenced": true,
+    "noEngineReferences": false
+}
