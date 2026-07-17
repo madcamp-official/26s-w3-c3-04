@@ -11,7 +11,7 @@ namespace Game.View
     /// </summary>
     public class Main : MonoBehaviour
     {
-        [SerializeField] float eyeHeight = 1.6f;
+        [SerializeField] float eyeHeight = 1.0f;   // 줄인 키(1.15)에 맞춤
         public bool useSceneGeometry;   // true=씬 지형(Synty) 사용, false=코드 큐브맵
 
         SimWorld world, prevWorld;

@@ -13,11 +13,11 @@ namespace Game.Sim
 
         public const float Gravity = -25f;
 
-        // 플레이어 (캡슐: 발밑 pos 기준, 위로 Height)
+        // 플레이어 (캡슐: 발밑 pos 기준, 위로 Height). 크기 축소(부피 ~1/4), 튜닝 대상
         public const float PlayerMoveSpeed = 7f;
         public const float PlayerJumpSpeed = 9f;
-        public const float PlayerRadius    = 0.4f;
-        public const float PlayerHeight    = 1.8f;
+        public const float PlayerRadius    = 0.28f;
+        public const float PlayerHeight    = 1.15f;
 
         // 질풍참 (이동만 — 스턴/대미지는 전투 단계)
         public const float DashSpeed         = 26f;   // 순간 속도
@@ -25,10 +25,10 @@ namespace Game.Sim
         public const int   DashMaxCharges    = 2;
         public const int   DashRechargeTicks = 90;    // 충전당 1.5초
 
-        // 적
+        // 적. 크기 축소(부피 ~1/4), 튜닝 대상
         public const float EnemyMoveSpeed  = 4f;
-        public const float EnemyRadius     = 0.5f;
-        public const float EnemyHeight     = 1.8f;
+        public const float EnemyRadius     = 0.32f;
+        public const float EnemyHeight     = 1.15f;
         public const float EnemyAggroRange = 40f;
         public const int   EnemyRepathTicks = 15;     // 경로 재계산 주기
         public const float EnemyArriveDist  = 0.6f;   // 코너 도달 판정
