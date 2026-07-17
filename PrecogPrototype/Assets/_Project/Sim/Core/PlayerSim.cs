@@ -17,11 +17,14 @@ namespace Game.Sim
         public int     dashCharges;
         public int     dashRecharge;   // 다음 충전까지 남은 틱
 
+        public PlayerCombatState combat;   // ← combat 세션 소유 (필드는 그쪽 파일에서 늘림)
+
         public static PlayerSim Spawn(Vector3 at) => new PlayerSim
         {
             pos = at,
             grounded = true,
             dashCharges = SimConfig.DashMaxCharges,
+            combat = PlayerCombatState.Initial,
         };
     }
 }

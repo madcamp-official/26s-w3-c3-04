@@ -14,9 +14,12 @@ namespace Game.Sim
             float dt = SimConfig.TickDelta;
 
             PlayerMovement.Step(ref w.player, in cmd, in svc, dt);
+            PlayerCombat.Step(ref w, in cmd, in svc, dt);   // ← combat 세션 (평타/막기/칼등치기)
 
             for (int i = 0; i < w.enemyCount; i++)
                 EnemyMovement.Step(ref w.enemies[i], in w.player, in svc, dt);
+
+            CombatResolve.Run(ref w, in svc, dt);           // ← combat 세션 (대미지/스턴/처치)
 
             Separate(ref w);
 

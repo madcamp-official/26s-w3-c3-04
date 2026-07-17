@@ -18,13 +18,13 @@ namespace Game.View
             Physics.SyncTransforms();
             var surface = new GameObject("NavMeshSurface").AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.All;
-            surface.useGeometry = NavMeshCollectGeometry.RenderMeshes;
+            surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;  // 메시 대신 콜라이더 (Synty 메시 read 불가 회피)
             surface.BuildNavMesh();
 
             var tri = NavMesh.CalculateTriangulation();
             Debug.Log(tri.vertices != null && tri.vertices.Length > 0
-                ? $"[Map] 씬 지형 NavMesh 베이크 완료 — 정점 {tri.vertices.Length}"
-                : "[Map] 씬 지형 NavMesh 실패 — 콜라이더/메시 확인 필요");
+                ? $"[Map] 씬 지형 NavMesh 베이크 완료(콜라이더 기반) — 정점 {tri.vertices.Length}"
+                : "[Map] 씬 지형 NavMesh 실패 — 콜라이더 없음? (Synty 지형에 콜라이더 확인 필요)");
 
             return new List<(Vector3, Vector3)>();   // 하강 링크는 씬에 맞게 나중에
         }

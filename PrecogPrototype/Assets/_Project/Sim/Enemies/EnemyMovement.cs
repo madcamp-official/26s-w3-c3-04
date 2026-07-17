@@ -12,6 +12,9 @@ namespace Game.Sim
         {
             if (!e.alive) return;
 
+            // 스턴 중이면 AI 정지 (combat이 stunTicks 부여, 감소는 CombatResolve가)
+            if (e.combat.stunTicks > 0) { e.vel.x = 0f; e.vel.z = 0f; Move(ref e, Vector3.zero, svc, dt); return; }
+
             // 하강 진행 중이면 상태머신만
             if (e.descentPhase != DescentPhase.None) { StepDescent(ref e, dt); return; }
 

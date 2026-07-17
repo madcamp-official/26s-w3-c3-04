@@ -8,7 +8,9 @@ namespace Game.Sim
         public Vector2 move;   // (x=좌우, y=전후), -1..1
         public float   yaw;    // 바라보는 방향(도)
         public bool    jump;
-        public bool    dash;   // 질풍참 (이동만)
+        public bool    dash;   // 질풍참
+        public bool    attack; // 좌클릭 (평타 / 막기중=칼등치기) — combat 세션
+        public bool    block;  // 우클릭 홀드 (막기) — combat 세션
 
         public static InputCmd Empty => default;
     }

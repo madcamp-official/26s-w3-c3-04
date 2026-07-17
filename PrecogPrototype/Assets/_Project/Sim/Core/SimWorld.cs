@@ -9,6 +9,7 @@ namespace Game.Sim
         public PlayerSim player;
         public EnemySim[] enemies;   // 용량 MaxEnemies 고정
         public int       enemyCount;
+        public uint      rngState;   // 시드 고정 결정론 RNG 상태 (DetRng)
 
         public static SimWorld Create()
         {
@@ -18,6 +19,7 @@ namespace Game.Sim
                 player = PlayerSim.Spawn(Vector3.zero),
                 enemies = new EnemySim[SimConfig.MaxEnemies],
                 enemyCount = 0,
+                rngState = 0x1234_5678u,   // 고정 시드
             };
         }
 

@@ -36,6 +36,12 @@ namespace Game.Sim
         // 캐릭터끼리 겹침 분리 (대칭)
         public const float SeparationPush = 0.5f;     // 겹친 만큼 * 이 비율씩 양쪽으로
 
+        // ── 전투 (combat 세션이 튜닝. rebuild는 스폰·해시에만 씀) ──
+        public const int EnemyNormalHp = 2;   // 일반몹 HP
+        public const int EnemyMidHp    = 3;   // 중형몹 HP
+        public const int GuardMax      = 240; // 가드 게이지 최대(4등분 → 칼등치기 4회)
+        //  스킬 세부 틱(윈드업/액티브/스턴 등)은 combat 소유 파일에 둔다.
+
         // 테두리 하강 (NavMesh Link 점프). 전부 잠정.
         public const int   DescentEdgePauseTicks = 12;   // 멈칫 (0.2초)
         public const int   DescentRecoveryTicks  = 15;   // 착지 후 회복 (0.25초)

@@ -16,6 +16,7 @@ namespace Game.Sim
         {
             ulong h = Offset;
             h = Mix(h, (ulong)w.tick);
+            h = Mix(h, w.rngState);
 
             h = MixV(h, w.player.pos);
             h = MixV(h, w.player.vel);
@@ -25,6 +26,7 @@ namespace Game.Sim
             h = Mix(h, (ulong)w.player.dashTicks);
             h = Mix(h, (ulong)w.player.dashCharges);
             h = Mix(h, (ulong)w.player.dashRecharge);
+            h = CombatHash.MixPlayer(h, in w.player.combat);   // combat 소유 해시
 
             h = Mix(h, (ulong)w.enemyCount);
             for (int i = 0; i < w.enemyCount; i++)
@@ -43,6 +45,7 @@ namespace Game.Sim
                 h = MixV(h, e.jumpStart);
                 h = MixV(h, e.jumpEnd);
                 h = Mix(h, (ulong)e.jumpDuration);
+                h = CombatHash.MixEnemy(h, in e.combat);   // combat 소유 해시
             }
             return h;
         }

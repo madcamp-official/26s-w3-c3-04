@@ -1,0 +1,16 @@
+namespace Game.Sim
+{
+    /// <summary>
+    /// 적 전투 상태. ★ combat 세션 소유.
+    /// stunTicks는 rebuild의 EnemyMovement가 읽는다(스턴 중 AI 정지) — 읽기 전용 접점.
+    /// health/처치는 combat의 CombatResolve가 관리.
+    /// </summary>
+    public struct EnemyCombatState
+    {
+        public int health;      // 스폰 시 설정 (일반 2 / 중형 3)
+        public int stunTicks;   // >0이면 스턴 (AI 정지)
+        public int deathTick;   // 처치된 틱 (사지절단 연출 타이밍용, 0=생존)
+
+        public static EnemyCombatState Spawn(int hp) => new EnemyCombatState { health = hp };
+    }
+}

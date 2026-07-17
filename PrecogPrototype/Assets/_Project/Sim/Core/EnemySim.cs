@@ -29,6 +29,8 @@ namespace Game.Sim
         public bool    hasWaypoint;
         public int     repathTicks;   // 재계산까지 남은 틱
 
+        public EnemyCombatState combat;   // ← combat 세션 소유 (health/stun/처치)
+
         // 테두리 하강
         public DescentPhase descentPhase;
         public int          descentTicks;
@@ -41,6 +43,7 @@ namespace Game.Sim
             alive = true,
             pos = at,
             grounded = true,
+            combat = EnemyCombatState.Spawn(SimConfig.EnemyNormalHp),
         };
     }
 }

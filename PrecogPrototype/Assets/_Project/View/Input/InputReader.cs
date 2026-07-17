@@ -15,7 +15,7 @@ namespace Game.View
         public float Pitch { get; private set; }
 
         const float Sens = 0.08f;
-        bool jumpBuf, dashBuf;
+        bool jumpBuf, dashBuf, attackBuf;
 
         public void PollFrame()
         {
@@ -26,6 +26,7 @@ namespace Game.View
                 Vector2 d = mouse.delta.ReadValue();
                 Yaw += d.x * Sens;
                 Pitch = Mathf.Clamp(Pitch - d.y * Sens, -85f, 85f);
+                if (mouse.leftButton.wasPressedThisFrame) attackBuf = true;   // 평타/칼등치기
             }
             if (kb.spaceKey.wasPressedThisFrame)     jumpBuf = true;
             if (kb.leftShiftKey.wasPressedThisFrame) dashBuf = true;
@@ -45,9 +46,12 @@ namespace Game.View
                 if (kb.sKey.isPressed) m.y -= 1f;
                 cmd.move = m;
             }
+            var mouse = Mouse.current;
+            cmd.block = mouse != null && mouse.rightButton.isPressed;   // 우클릭 홀드=막기
             cmd.jump = jumpBuf;
             cmd.dash = dashBuf;
-            jumpBuf = dashBuf = false;
+            cmd.attack = attackBuf;
+            jumpBuf = dashBuf = attackBuf = false;
             return cmd;
         }
 
