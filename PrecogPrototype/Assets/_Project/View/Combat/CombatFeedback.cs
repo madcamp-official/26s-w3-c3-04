@@ -15,6 +15,10 @@ namespace Game.View
         const float ShakeDecay = 6f;
         float shakeAmp;
 
+        static CombatFeedback inst;
+        /// <summary>다른 연출(플레이어 피격 등)이 같은 셰이크 시스템을 쓰게 하는 정적 진입점.</summary>
+        public static void Shake(float amp) { if (inst != null) inst.AddShake(amp); }
+
         // 적 상태 추적 (인덱스 안정: append-only, 처치해도 배열 유지)
         readonly int[]  prevStun  = new int[SimConfig.MaxEnemies];
         readonly bool[] prevAlive = new bool[SimConfig.MaxEnemies];
@@ -26,7 +30,7 @@ namespace Game.View
 
         ParticleSystem sparks;
 
-        void Awake() => BuildSparks();
+        void Awake() { inst = this; BuildSparks(); }
 
         void Update()
         {

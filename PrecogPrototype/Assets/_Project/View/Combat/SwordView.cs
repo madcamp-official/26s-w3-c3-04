@@ -19,6 +19,7 @@ namespace Game.View
         bool prevDash;
         bool prevBlock;
         byte prevBackstrike;
+        int  prevGuard = int.MinValue;
 
         void Update()
         {
@@ -53,8 +54,17 @@ namespace Game.View
             prevDash = dash;
 
             bool block = p.combat.blocking;
-            if (block && !prevBlock) CombatAudio.GuardRaise();   // 켤 때: 스윽(챙은 실제 방어 성공용)
+            if (block && !prevBlock) CombatAudio.GuardRaise();   // 켤 때: 스윽
             prevBlock = block;
+
+            // 막기 성공(챙): 게이지 감소 + 막는 중 + 칼등치기 아님 → 공격을 막아낸 것(휴리스틱).
+            //   ※ 게이지는 칼등치기로도 소모되나, 그 시작 프레임은 backstrikePhase가 Lunge라 배제됨.
+            //     현재 로직 기준 정확하나 SIM 로직 바뀌면 깨질 수 있는 임시방편.
+            int guard = p.combat.guardGauge;
+            if (prevGuard != int.MinValue && guard < prevGuard
+                && p.combat.blocking && p.combat.backstrikePhase == CombatConfig.BsNone)
+                CombatAudio.Block();
+            prevGuard = guard;
 
             byte bs = p.combat.backstrikePhase;
             if (bs != prevBackstrike)

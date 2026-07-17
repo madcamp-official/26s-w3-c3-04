@@ -16,6 +16,8 @@ namespace Game.View
         AudioClip swing, hit, dash, guardRaise, block, backstrike, death;
         // 몹 SFX (러프·잠정). 대부분 몹 공격 SIM 상태 생기면 그쪽에서 호출.
         AudioClip enWindup, enMelee, enAim, enFire, enPain;
+        AudioClip playerHurt;   // 플레이어 피격("억" + 저음 임팩트)
+        AudioClip prediction;   // 예지 발동(시간정지식 상승 시머)
 
         void Awake()
         {
@@ -47,6 +49,9 @@ namespace Game.View
             enAim    = BuildEnemyAim();
             enFire   = BuildEnemyFire();
             enPain   = BuildEnemyPain();
+
+            playerHurt = BuildPlayerHurt();
+            prediction = BuildPrediction();
         }
 
         // ── 정적 접근자 (null 안전) ──
@@ -67,6 +72,8 @@ namespace Game.View
         public static void EnemyAim()    => Play(inst?.enAim,    0.4f,  0.03f);
         public static void EnemyFire()   => Play(inst?.enFire,   0.6f,  0.05f);
         public static void EnemyPain()   => Play(inst?.enPain,   0.45f, 0.10f);
+        public static void PlayerHurt()  => Play(inst?.playerHurt, 0.75f, 0.06f);  // 플레이어 피격
+        public static void Prediction()  => Play(inst?.prediction, 0.5f,  0.02f);  // 예지 발동
 
         static void Play(AudioClip clip, float vol, float pitchJitter)
         {
@@ -323,6 +330,51 @@ namespace Game.View
                 s[i] = Mathf.Sin(phase) * am * env * 0.6f;
             }
             return Clip("cai_en_pain", s);
+        }
+
+        /// <summary>플레이어 피격: 낮은 "억" 신음 + 저음 임팩트(적 신음보다 더 낮고 묵직).</summary>
+        static AudioClip BuildPlayerHurt()
+        {
+            const float dur = 0.18f;
+            int n = (int)(dur * SR);
+            var s = new float[n];
+            var rng = new System.Random(12);
+            float phase = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / n;
+                float ti = (float)i / SR;
+                float f = Mathf.Lerp(180f, 110f, t);         // 하강(적 신음 220→150보다 낮음)
+                phase += 6.2832f * f / SR;
+                float am = 0.6f + 0.4f * (float)(rng.NextDouble() * 2 - 1);
+                float thud = Mathf.Sin(6.2832f * 70f * ti) * Mathf.Exp(-t * 20f);   // 묵직한 저음
+                float env = Mathf.Clamp01(t * 20f) * Mathf.Exp(-t * 10f);
+                s[i] = (Mathf.Sin(phase) * am * 0.6f + thud * 0.5f) * env;
+            }
+            return Clip("cai_player_hurt", s);
+        }
+
+        /// <summary>예지 발동: 살짝 상승하는 화음 스웰 + 고음 시머(시간정지 느낌). 전투음과 구분.</summary>
+        static AudioClip BuildPrediction()
+        {
+            const float dur = 0.45f;
+            int n = (int)(dur * SR);
+            var s = new float[n];
+            float p1 = 0f, p2 = 0f, p3 = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / n;
+                float bend = Mathf.Lerp(1f, 1.06f, t);          // 살짝 상승
+                p1 += 6.2832f * 392f * bend / SR;
+                p2 += 6.2832f * 587f * bend / SR;
+                p3 += 6.2832f * 784f * bend / SR;
+                float chord = Mathf.Sin(p1) + 0.7f * Mathf.Sin(p2) + 0.5f * Mathf.Sin(p3);
+                float shimmer = 0.15f * Mathf.Sin(6.2832f * 40f * t) * Mathf.Sin(p3 * 1.5f);
+                float env = t < 0.7f ? Mathf.Pow(t / 0.7f, 0.7f)      // 스웰 인
+                                     : Mathf.Lerp(1f, 0f, (t - 0.7f) / 0.3f);
+                s[i] = (chord * 0.22f + shimmer) * env;
+            }
+            return Clip("cai_prediction", s);
         }
 
         static AudioClip Clip(string name, float[] samples)
