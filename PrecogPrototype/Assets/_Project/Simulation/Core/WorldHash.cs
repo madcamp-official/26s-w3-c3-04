@@ -38,6 +38,16 @@ namespace Game.Simulation
             h = Mix(h, (ulong)w.player.jumpCount);
             h = Mix(h, w.player.alive ? 1UL : 0UL);
             h = Mix(h, (ulong)w.player.hp);
+            // 전투 상태 (묶음 B) — 다음 틱 행동에 영향을 주므로 포함
+            h = Mix(h, (ulong)w.player.attackPhase);
+            h = Mix(h, (ulong)w.player.attackPhaseTicks);
+            h = Mix(h, (ulong)w.player.attackCooldownTicks);
+            h = Mix(h, (ulong)w.player.iFrameTicks);
+            h = Mix(h, (ulong)w.player.dashCharges);
+            h = Mix(h, (ulong)w.player.dashRechargeTicks);
+            h = Mix(h, (ulong)w.player.dashTicksRemaining);
+            h = Mix(h, w.player.blocking ? 1UL : 0UL);
+            h = Mix(h, (ulong)w.player.guardGauge);
 
             // 적 (id 오름차순 = 배열 순서)
             h = Mix(h, (ulong)w.enemyCount);

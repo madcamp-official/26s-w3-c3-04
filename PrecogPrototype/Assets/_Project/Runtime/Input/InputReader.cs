@@ -11,18 +11,21 @@ namespace Game.Runtime
     /// 순간 입력(점프/대시/공격)은 매 프레임(Update)에서 눌림을 버퍼에 쌓고,
     /// FixedUpdate에서 Consume할 때 비운다 → 60Hz 틱과 프레임률이 달라도
     /// 눌림이 누락/중복되지 않는다.
+    ///
+    /// Yaw(좌우)는 시뮬레이션에 들어가고, Pitch(상하)는 카메라 전용(뷰)이다.
     /// </summary>
     public class InputReader
     {
-        float yaw;
-        const float MouseSens = 0.1f;
+        public float Yaw   { get; private set; }
+        public float Pitch { get; private set; }   // 카메라 전용, 시뮬레이션 무관
 
-        // Update에서 쌓이는 순간 입력 버퍼
+        const float MouseSens = 0.08f;
+
         bool jumpBuffered;
         bool dashBuffered;
         bool attackBuffered;
 
-        /// <summary>매 프레임(Update)에서 호출. 순간 입력 눌림을 버퍼에 쌓는다.</summary>
+        /// <summary>매 프레임(Update)에서 호출. 시선 갱신 + 순간 입력 버퍼링.</summary>
         public void PollFrame()
         {
             var kb = Keyboard.current;
@@ -30,18 +33,22 @@ namespace Game.Runtime
             if (kb == null) return;
 
             if (mouse != null)
-                yaw += mouse.delta.ReadValue().x * MouseSens;
+            {
+                Vector2 d = mouse.delta.ReadValue();
+                Yaw   += d.x * MouseSens;
+                Pitch  = Mathf.Clamp(Pitch - d.y * MouseSens, -85f, 85f);
+            }
 
             if (kb.spaceKey.wasPressedThisFrame)     jumpBuffered = true;
             if (kb.leftShiftKey.wasPressedThisFrame) dashBuffered = true;
             if (mouse != null && mouse.leftButton.wasPressedThisFrame) attackBuffered = true;
         }
 
-        /// <summary>FixedUpdate에서 호출. 지속 입력 + 버퍼된 순간 입력을 합쳐 cmd 생성 후 버퍼 비움.</summary>
+        /// <summary>FixedUpdate에서 호출. 지속 입력 + 버퍼된 순간 입력 → cmd. 버퍼 비움.</summary>
         public InputCmd Consume()
         {
             InputCmd cmd = InputCmd.Empty;
-            cmd.yaw = yaw;
+            cmd.yaw = Yaw;
 
             var kb = Keyboard.current;
             var mouse = Mouse.current;
