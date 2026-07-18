@@ -1,16 +1,28 @@
+using Game.Sim;
+
 namespace Game.Prediction
 {
     /// <summary>
     /// Beam Search 결과 1개. docs/shared/PREDICTION_CONTRACT.md 11장 "후보 결과 계약"의
-    /// 필드를 최대한 반영하되, `controls`(InputCmd[] 전체 틱)·`predictedFrames`·
-    /// `actionEvents`는 이번 범위에 없다 — 계약 스스로 "상위 후보만 최초 스냅샷에서
-    /// 60Hz로 다시 실행해 만든다"고 못박은 별도 단계(최종 후보 정밀 재검증)라서, 매크로
-    /// 행동 시퀀스(`actions`)만 담고 그 단계는 다음 마일스톤으로 남긴다.
+    /// 필드를 담는다. `controls`·`predictedFrames`·`actionEvents`는 Beam 확장 중에는 비워둔다
+    /// (계약: "Beam 확장 중에는 전체 프레임 궤적을 저장하지 않는다") — 최종 후보로 뽑힌
+    /// 다음 `CandidateReplayer.Replay`가 최초 스냅샷에서 60Hz로 다시 실행해서 채운다.
     /// </summary>
     public sealed class CandidatePath
     {
         public int candidateId;
         public MacroAction[] actions;
+
+        /// <summary>매 틱 실제로 넣은 입력. CandidateReplayer.Replay 이후에만 채워진다.</summary>
+        public InputCmd[] controls;
+
+        /// <summary>최초 스냅샷에서 60Hz로 다시 실행해 얻은 매 틱 프레임. 리듬 판정·경로선·잔상은
+        /// 여기서만 샘플링한다(계약 3.1.1절). CandidateReplayer.Replay 이후에만 채워진다.</summary>
+        public PredictedFrame[] predictedFrames;
+
+        /// <summary>실제 Sim 상태머신에서 행동이 시작된 정확한 틱들. CandidateReplayer.Replay
+        /// 이후에만 채워진다.</summary>
+        public PredictedActionEvent[] actionEvents;
 
         public int killCount;
         public int damageDealt;

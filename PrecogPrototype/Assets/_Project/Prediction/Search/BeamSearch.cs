@@ -362,9 +362,10 @@ namespace Game.Prediction
 
         /// <summary>
         /// 탐색용 간이 조준: 가장 가까운 생존 적을 바라본다. 실제 카메라 입력을 대신하는
-        /// 이번 마일스톤의 단순화이며, 없으면 현재 yaw를 유지한다.
+        /// 이번 마일스톤의 단순화이며, 없으면 현재 yaw를 유지한다. CandidateReplayer가
+        /// 최종 후보를 재실행할 때도 그대로 재사용한다(같은 조준 규칙이어야 궤적이 일치).
         /// </summary>
-        static float ComputeAimYaw(in SimWorld world)
+        public static float ComputeAimYaw(in SimWorld world)
         {
             float best = float.MaxValue;
             Vector3 target = default;
