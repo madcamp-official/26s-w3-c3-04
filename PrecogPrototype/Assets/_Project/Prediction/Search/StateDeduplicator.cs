@@ -34,6 +34,8 @@ namespace Game.Prediction
             h = Mix(h, (ulong)(player.combat.lungeCooldown / CooldownBucketTicks));
             h = Mix(h, (ulong)player.combat.attackPhase);
             h = Mix(h, (ulong)player.combat.lungePhase);
+            // 글로리킬 컷신 중엔 무적·조작잠금이라 완전히 다른 위상이다 — 뭉치면 안 됨.
+            h = Mix(h, (ulong)player.combat.gloryPhase);
 
             for (int i = 0; i < world.enemyCount; i++)
             {
@@ -46,6 +48,8 @@ namespace Game.Prediction
                 h = Mix(h, (ulong)enemy.combat.health);
                 h = Mix(h, IsThreatening(enemy.ai.state) ? 1UL : 0UL);
                 h = Mix(h, (ulong)(enemy.ai.attackCooldown / CooldownBucketTicks));
+                // 처형 확정(gloryStage>0)은 이후 alive=false와 별개로 이미 결과가 잠긴 상태다.
+                h = Mix(h, enemy.combat.gloryStage > 0 ? 1UL : 0UL);
             }
 
             // 활성 투사체가 다른 후보를 같은 상태로 합치면 미래 피격 결과가 달라질 수 있다.

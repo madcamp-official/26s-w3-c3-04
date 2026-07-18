@@ -120,7 +120,11 @@ namespace Game.Prediction
                         int killedNormalThisStep = 0, killedMidThisStep = 0;
                         for (int i = 0; i < parentWorld.enemyCount; i++)
                         {
-                            if (parentWorld.enemies[i].alive && !finalWorld.enemies[i].alive)
+                            // 대형몹은 처형(글로리킬) 트리거 시 gloryStage>0로 즉시 결과가 잠기고,
+                            // alive=false는 ~77틱 뒤(컷신 종료)에야 뒤따른다 — 트리거 시점에 바로 인정한다.
+                            bool wasDefeated = !parentWorld.enemies[i].alive || parentWorld.enemies[i].combat.gloryStage > 0;
+                            bool isDefeated = !finalWorld.enemies[i].alive || finalWorld.enemies[i].combat.gloryStage > 0;
+                            if (!wasDefeated && isDefeated)
                             {
                                 if (finalWorld.enemies[i].ai.archetype == Archetype.LargeMelee) killedMidThisStep++;
                                 else killedNormalThisStep++;

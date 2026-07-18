@@ -53,7 +53,8 @@ namespace Game.Prediction
 
             s.safety = world.player.combat.hp * PredictionScoreConfig.HpWeight
                      + SafetyBonus(in world) * PredictionScoreConfig.SafeDistanceWeight
-                     - SurroundedExcess(in world) * PredictionScoreConfig.SurroundedWeight;
+                     - SurroundedExcess(in world) * PredictionScoreConfig.SurroundedWeight
+                     - ProjectileThreatPenalty(in world);
             // difficulty는 이번 롤백에서 비움(계약의 대시 보존/반복 페널티가 회귀 원인이라 제외).
             return s;
         }
@@ -72,6 +73,19 @@ namespace Game.Prediction
             }
             if (!anyAlive) return PredictionScoreConfig.SafeDistanceCap;
             return Mathf.Min(nearest, PredictionScoreConfig.SafeDistanceCap);
+        }
+
+        /// <summary>
+        /// 원거리 솔저 투사체가 명중 궤도(FutureThreatObserver 기준)면, 임박할수록 커지는 감점을 준다.
+        /// 명중이 이번 매크로 스텝 시야 밖(더 뒤)이어도 미리 피하도록 유도 — 새 원거리 적 인지용 항목.
+        /// </summary>
+        static float ProjectileThreatPenalty(in SimWorld world)
+        {
+            FutureThreatObservation obs = FutureThreatObserver.Observe(in world);
+            if (obs.nearestProjectileImpactTicks >= PredictionScoreConfig.ProjectileImpactHorizonTicks)
+                return 0f;
+            int urgency = PredictionScoreConfig.ProjectileImpactHorizonTicks - obs.nearestProjectileImpactTicks;
+            return urgency * PredictionScoreConfig.ProjectileImpactWeight;
         }
 
         static int SurroundedExcess(in SimWorld world)

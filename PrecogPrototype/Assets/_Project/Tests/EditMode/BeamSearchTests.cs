@@ -98,6 +98,25 @@ namespace Game.Sim.Tests
             Assert.Greater(result.durationTicks, 0);
         }
 
+        /// <summary>대형몹 처형(글로리킬)은 트리거 즉시 gloryStage>0로 결과가 잠기고 alive=false는
+        /// ~77틱 뒤(컷신 종료)에야 따라온다. Mini 탐색(45틱 지평)은 컷신 완료를 못 보므로,
+        /// 트리거 시점에 즉시 킬로 인정하는지 확인한다.</summary>
+        [Test]
+        public void MiniSearch_CreditsGloryKill_AssoonAsTriggered()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(new Vector3(0f, 0f, 1f));
+            world.enemies[0] = EnemySim.Spawn(0, new Vector3(0f, 0f, 1f), Archetype.LargeMelee);
+            world.enemies[0].combat.health = 1; // 다음 평타 한 대로 처형 트리거
+
+            SimServices services = StubServices.Create();
+            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Mini)[0];
+
+            Assert.GreaterOrEqual(result.killCount, 1,
+                "짧은 탐색 지평 안에서도 글로리킬 트리거는 즉시 킬로 인정돼야 함");
+        }
+
         [Test]
         public void FullSearch_DoesNotReturnConsecutiveWait_WhenScoresTie()
         {

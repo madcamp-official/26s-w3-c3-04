@@ -16,6 +16,11 @@ namespace Game.Prediction
         public const int SurroundedTolerance = 4;
         public const float SurroundedWeight = 2f;
 
+        /// <summary>원거리 솔저 투사체가 명중 궤도일 때의 감점(임박할수록 커짐). 회귀 이력 때문에
+        /// 기존 가중치는 안 건드리고 새 항목으로만 추가한다 — ThreatEvaluator.cs 참고.</summary>
+        public const float ProjectileImpactWeight = 3f;
+        public const int ProjectileImpactHorizonTicks = 45;
+
         /// <summary>사망 후보도 서로 순위를 매길 수 있도록 유한값 유지(무한대면 전멸 폴백 시
         /// "가장 덜 나쁜" 후보를 고를 수 없다) — 이건 계약 반영과 무관하게 유지하는 개선.</summary>
         public const float PlayerDeath = -10000f;

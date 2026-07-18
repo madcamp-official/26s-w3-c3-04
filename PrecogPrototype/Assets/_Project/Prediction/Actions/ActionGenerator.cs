@@ -76,7 +76,7 @@ namespace Game.Prediction
             for (int i = 0; i < world.enemyCount; i++)
             {
                 ref readonly EnemySim enemy = ref world.enemies[i];
-                if (!enemy.alive) continue;
+                if (!enemy.alive || enemy.combat.gloryStage > 0) continue;
                 if (Mathf.Abs(enemy.pos.y - world.player.pos.y) > CombatConfig.AttackHeightTolerance) continue;
                 if (CombatMath.InCone(world.player.pos, forward, enemy.pos,
                         CombatConfig.AttackConeRange + enemy.radius, CombatConfig.AttackConeHalfAngle))
@@ -155,24 +155,24 @@ namespace Game.Prediction
         static bool CanTargetForLunge(in PlayerSim player, in EnemySim enemy, in SimServices services, out Vector3 destination)
         {
             destination = player.pos;
-            if (!enemy.alive) return false;
+            if (!enemy.alive || enemy.combat.gloryStage > 0) return false;
             if (Mathf.Abs(enemy.pos.y - player.pos.y) > CombatConfig.LungeHeightTolerance) return false;
 
             float distance = CombatMath.FlatDistance(player.pos, enemy.pos);
-            if (distance < CombatConfig.LungeMinRange || distance > CombatConfig.LungeMaxRange) return false;
+            if (distance < CombatConfig.LungeMinRange || distance > CombatConfig.LungeMaxRange + enemy.radius) return false;
 
             Vector3 forward = CombatMath.Forward(player.yaw);
             if (!CombatMath.InCone(
                 player.pos, forward, enemy.pos,
-                CombatConfig.LungeMaxRange, CombatConfig.LungeHalfAngle))
+                CombatConfig.LungeMaxRange + enemy.radius, CombatConfig.LungeHalfAngle))
                 return false;
 
             Vector3 eye = player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
-            Vector3 target = enemy.pos + Vector3.up * (SimConfig.EnemyHeight * 0.6f);
+            Vector3 target = enemy.pos + Vector3.up * (enemy.height * 0.6f);
             if (!services.Collision.HasLineOfSight(eye, target)) return false;
 
             Vector3 direction = CombatMath.FlatDirection(player.pos, enemy.pos);
-            destination = enemy.pos - direction * CombatConfig.LungeStopDistance;
+            destination = enemy.pos - direction * (CombatConfig.LungeStopDistance + enemy.radius);
             if (!services.Collision.SampleGround(destination, 2f, out float groundY)) return false;
             destination.y = groundY;
             return services.Collision.CanOccupyCapsule(

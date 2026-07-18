@@ -63,7 +63,9 @@ namespace Game.Prediction
             in Projectile projectile,
             ref FutureThreatObservation result)
         {
-            Vector3 relative = world.player.pos - projectile.pos;
+            // ProjectileSystem.Step의 실제 판정점(플레이어 몸통 구, 발밑이 아님)과 맞춘다.
+            Vector3 torso = world.player.pos + Vector3.up * AIConfig.PlayerTorso;
+            Vector3 relative = torso - projectile.pos;
             float speedSq = projectile.vel.sqrMagnitude;
             if (speedSq <= 1e-6f) return;
             float seconds = Mathf.Clamp(
@@ -71,7 +73,7 @@ namespace Game.Prediction
                 0f,
                 projectile.ttl * SimConfig.TickDelta);
             Vector3 closest = projectile.pos + projectile.vel * seconds;
-            float missDistance = Vector3.Distance(closest, world.player.pos);
+            float missDistance = Vector3.Distance(closest, torso);
             int ticks = Mathf.CeilToInt(seconds * SimConfig.TickRate);
             if (missDistance < result.nearestProjectileMissDistance)
                 result.nearestProjectileMissDistance = missDistance;
