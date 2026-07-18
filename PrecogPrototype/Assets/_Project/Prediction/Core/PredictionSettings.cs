@@ -67,5 +67,37 @@ namespace Game.Prediction
                 maxActionsPerNode = 12,
             };
         }
+
+        /// <summary>
+        /// docs/shared/OPTIMIZATION.md 12장 "시간 예산과 동적 축소"를 구현하되, 실제 걸린
+        /// 시간(스톱워치)이 아니라 <paramref name="enemyCount"/>로만 판단한다 — 벽시계 시간을
+        /// 기준으로 삼으면 같은 스냅샷이라도 컴퓨터 성능·부하에 따라 다른 설정(=다른 결과)이
+        /// 나와서 이 프로젝트 전체가 지켜온 결정론이 깨진다. `docs/shared/ENEMY_SIMULATION_TIER_PROPOSAL.md`가
+        /// 실측한 대로 적 수가 비용을 사실상 그대로 예측하므로, 대신 적 수 구간별로 문서의
+        /// 축소 순서(Beam 12→8→6, 예측 길이 축소, 런지 후보 2→1)를 결정론적으로 적용한다.
+        /// EnemySimulationTier가 없는 지금은 임시 완화책이며, 32마리 이상에서는 하드리밋(300ms)을
+        /// 완전히 보장하지 못한다(ENEMY_SIMULATION_TIER_PROPOSAL.md 참고) — 그래도 아무것도
+        /// 안 하는 것보다는 낫다.
+        /// </summary>
+        public static PredictionSettings Degrade(PredictionSettings baseline, int enemyCount)
+        {
+            PredictionSettings s = baseline;
+
+            if (enemyCount > 16)
+                s.beamWidth = Mathf.Min(s.beamWidth, 8);
+            if (enemyCount > 32)
+            {
+                s.beamWidth = Mathf.Min(s.beamWidth, 6);
+                s.macroDepth = Mathf.Max(1, Mathf.RoundToInt(s.macroDepth * (2f / 3f)));
+                // ActionGenerator.Priority 순서상 이동·대시가 먼저 캡을 채우므로, 이 값을 낮추면
+                // 상황에 따라 Lunge/Wait가 먼저 잘린다 — "런지 후보 2명→1명"을 정확히 겨냥하진
+                // 않지만(그러려면 ActionGenerator에 별도 파라미터가 필요) 같은 방향의 축소다.
+                s.maxActionsPerNode = Mathf.Min(s.maxActionsPerNode, 8);
+            }
+            if (enemyCount > 50)
+                s.macroDepth = Mathf.Max(1, Mathf.RoundToInt(baseline.macroDepth * 0.5f));
+
+            return s;
+        }
     }
 }
