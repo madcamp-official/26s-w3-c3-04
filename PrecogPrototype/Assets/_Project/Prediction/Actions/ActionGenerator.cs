@@ -20,6 +20,7 @@ namespace Game.Prediction
             MacroActionType.MoveLeft,
             MacroActionType.MoveRight,
             MacroActionType.Retreat,
+            MacroActionType.Jump,
             MacroActionType.DashForward,
             MacroActionType.DashBackward,
             MacroActionType.DashLeft,
@@ -44,6 +45,16 @@ namespace Game.Prediction
             {
                 switch (Priority[p])
                 {
+                    case MacroActionType.Jump:
+                        // 동일 jump 입력을 실제 Sim이 grounded/jumpCount로 1단·2단 점프로 구분한다.
+                        // 대시 중 입력 버퍼로 뒤늦게 발동하는 후보는 행동 의미가 불명확하므로 제외한다.
+                        if (player.dashTicks == 0
+                            && player.combat.hitStunTicks == 0
+                            && player.combat.lungePhase != CombatConfig.LgTravel
+                            && player.jumpCount < 2)
+                            buffer[count++] = MacroAction.Simple(MacroActionType.Jump);
+                        break;
+
                     case MacroActionType.Attack:
                         if (canStartAction && HasAttackTarget(in world))
                             buffer[count++] = MacroAction.Simple(MacroActionType.Attack);
@@ -162,9 +173,12 @@ namespace Game.Prediction
             if (distance < CombatConfig.LungeMinRange || distance > CombatConfig.LungeMaxRange + enemy.radius) return false;
 
             Vector3 forward = CombatMath.Forward(player.yaw);
-            if (!CombatMath.InCone(
-                player.pos, forward, enemy.pos,
-                CombatConfig.LungeMaxRange + enemy.radius, CombatConfig.LungeHalfAngle))
+            Vector3 delta = enemy.pos - player.pos; delta.y = 0f;
+            float along = Vector3.Dot(delta, forward);
+            Vector3 lateral = delta - forward * along;
+            if (along < CombatConfig.LungeMinRange || along > CombatConfig.LungeMaxRange + enemy.radius)
+                return false;
+            if (lateral.magnitude > CombatConfig.LungeAimRadius + enemy.radius)
                 return false;
 
             Vector3 eye = player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);

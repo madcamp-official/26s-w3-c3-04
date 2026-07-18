@@ -157,16 +157,16 @@ Drop 링크와 완전히 대칭. 경로표가 자동으로 태운다.
 ## 4. 마이그레이션 체크리스트
 
 ### 버린다
-- [ ] `EnemyMovement` 하강 자체 판단 블록 (PathLength 3회 비교)
+- [x] `EnemyMovement` 하강 자체 판단 블록 (PathLength 3회 비교)
 - [ ] `NearestDropEdge` / `PathLength` (인터페이스·구현 모두)
 - [ ] `DescentThreshold` / `DescentMinHeight` / `DescentEdgeReach` / `DescentLandingSpread`
-- [ ] 순간이동 실행 (`e.pos = descentLanding`)
+- [x] 순간이동 실행 (`e.pos = descentLanding`)
 - [ ] `DescentPhase.ApproachEdge` 상태와 `EntityViews`의 해당 색
 
 ### 유지한다 (개념)
-- [ ] 예고(멈칫) → 이동 → 회복의 3박자 텔레그래프 구조
+- [x] 예고(멈칫) → 이동 → 회복의 3박자 텔레그래프 구조
 - [ ] EdgePause/Recovery 틱 상수 (이름 유지 또는 Traversal로 개명)
-- [ ] "드롭·부스터는 점 → 점의 authoring된 쌍" 원칙
+- [x] "드롭·부스터는 점 → 점의 authoring된 쌍" 원칙
 
 ### 옮긴다
 - [ ] `MapBuilder`의 drops 12쌍 → 그래프의 DropStart/DropLanding 노드 + Drop 링크로 이전
@@ -174,8 +174,8 @@ Drop 링크와 완전히 대칭. 경로표가 자동으로 태운다.
 - [ ] 부스터 위치 authoring → Booster 노드 + 링크 (ENEMY_SYSTEM TBD)
 
 ### 새로 등록한다 (계약 6조)
-- [ ] `WorldHash`: `jumpStart`/`jumpEnd`/`jumpDuration`, navNode id 4종, `aiState`
-- [ ] `Snapshot.CopyTo`: EnemySim은 배열 통복사라 필드 추가만으로 충분 — 확인만
+- [x] `WorldHash`: `jumpStart`/`jumpEnd`/`jumpDuration`, navNode id 4종, `aiState`
+- [x] `Snapshot.CopyTo`: EnemySim은 배열 통복사라 필드 추가만으로 충분 — 확인만
 - [ ] `DeterminismTests` 초록 유지 (180틱 × 100회 해시 일치)
 
 ---

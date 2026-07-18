@@ -64,10 +64,10 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
-            // NavMesh 복귀: 런타임 NavMesh 길찾기(연속 메시·기둥 우회). 얇은 다리 낙하는
-            // 매 틱 navmesh 되당김(ClampToNavMesh)으로 방지. 노드 그래프는 은퇴 예정(Phase 3).
-            IPathfinder pathfinder = new NavMeshPathfinder();
-            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers), pathfinder);
+            // 런타임·예측 모두 같은 불변 유향 그래프를 사용한다. NavMesh는 MapBuilder의
+            // 제작/검증 단계에만 남기고 후보 확장 중 CalculatePath를 호출하지 않는다.
+            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers),
+                                       GraphPathfinder.CreatePrototypeArena());
 
             world = SimWorld.Create();
             world.player = PlayerSim.Spawn(map.playerSpawn);
@@ -151,13 +151,13 @@ namespace Game.View
                 SpawnTick();
             // <<< [예측 세션 변경 끝]
 
-            // 절벽 낙하 시작 감지 (off-mesh link 큰 낙차 → Falling 진입)
+            // 고정 그래프 층이동 시작 감지
             for (int i = 0; i < world.enemyCount; i++)
             {
                 if (prevWorld.enemyCount > i &&
-                    prevWorld.enemies[i].descentPhase == DescentPhase.None &&
-                    world.enemies[i].descentPhase == DescentPhase.Falling)
-                    Debug.Log($"[낙하] 적 {i} 절벽 낙하 시작 (tick {world.tick})");
+                    prevWorld.enemies[i].traversalPhase == TraversalPhase.None &&
+                    world.enemies[i].traversalPhase == TraversalPhase.Pause)
+                    Debug.Log($"[층이동] 적 {i} {world.enemies[i].activeMoveKind} 시작 (tick {world.tick})");
             }
         }
 

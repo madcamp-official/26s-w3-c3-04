@@ -517,7 +517,7 @@ Prediction.FinalResimulation
 
 ## 17. 완료 체크리스트
 
-- [ ] 예측 루프에서 `NavMesh.CalculatePath` 호출 없음
+- [x] 예측 루프에서 `NavMesh.CalculatePath` 호출 없음
 - [ ] 후보 확장 중 GameObject 생성 없음
 - [ ] 후보 확장 중 월드 배열 신규 할당 없음
 - [ ] 런지 후보 최대 수 고정

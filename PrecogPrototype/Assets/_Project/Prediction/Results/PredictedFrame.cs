@@ -13,6 +13,7 @@ namespace Game.Prediction
         public Vector3 playerPosition;
         public float playerYaw;
         public bool playerAlive;
+        public int floorId;
     }
 
     /// <summary>계약 3.1.1절 잔상 액션 아이콘 종류.</summary>

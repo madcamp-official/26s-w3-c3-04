@@ -65,7 +65,8 @@ namespace Game.Sim.Tests
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);
             world.AddEnemy(new Vector3(0f, 0f, 1f));
-            world.enemies[0] = EnemySim.Spawn(0, new Vector3(0f, 0f, 1f), Archetype.LargeMelee);
+            world.enemies[0] = EnemySim.Spawn(0, new Vector3(0f, 0f, 1f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Large);
             world.enemies[0].combat.health = 1;
             SimServices services = StubServices.Create();
 

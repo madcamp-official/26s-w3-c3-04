@@ -18,6 +18,7 @@ namespace Game.Sim.Tests
             MacroActionType.MoveLeft,
             MacroActionType.MoveRight,
             MacroActionType.Retreat,
+            MacroActionType.Jump,
             MacroActionType.DashForward,
             MacroActionType.DashBackward,
             MacroActionType.DashLeft,
@@ -49,6 +50,60 @@ namespace Game.Sim.Tests
             i++;
             Assert.AreEqual(count - 1, i, "Wait는 맨 마지막이어야 함");
             Assert.AreEqual(MacroActionType.Wait, buffer[i].type, "Wait는 맨 마지막이어야 함");
+        }
+
+        [Test]
+        public void Generate_IncludesJump_OnGround_AndDoubleJumpInAir()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int groundedCount = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            Assert.IsTrue(Contains(buffer, groundedCount, MacroActionType.Jump), "지상에서 점프 후보가 있어야 함");
+
+            world.player.grounded = false;
+            world.player.jumpCount = 1;
+            int airborneCount = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            Assert.IsTrue(Contains(buffer, airborneCount, MacroActionType.Jump), "공중 1회 점프 후 더블 점프 후보가 있어야 함");
+
+            world.player.jumpCount = 2;
+            int exhaustedCount = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            Assert.IsFalse(Contains(buffer, exhaustedCount, MacroActionType.Jump), "더블 점프 소진 뒤에는 점프 후보가 없어야 함");
+        }
+
+        [Test]
+        public void JumpMacro_PulsesJumpOnlyOnFirstTick()
+        {
+            MacroAction jump = MacroAction.Simple(MacroActionType.Jump);
+            Assert.IsTrue(jump.ToInputCmd(0f, 0).jump);
+            Assert.IsFalse(jump.ToInputCmd(0f, 1).jump);
+        }
+
+        [Test]
+        public void JumpMacro_UsesRealSimForFirstAndDoubleJump()
+        {
+            SimWorld world = SimWorld.Create();
+            SimServices services = StubServices.Create();
+            MacroAction jump = MacroAction.Simple(MacroActionType.Jump);
+
+            InputCmd first = jump.ToInputCmd(0f, 0);
+            SimStep.Run(ref world, in first, in services);
+            Assert.AreEqual(1, world.player.jumpCount);
+            Assert.IsFalse(world.player.grounded);
+
+            InputCmd second = jump.ToInputCmd(0f, 0);
+            SimStep.Run(ref world, in second, in services);
+            Assert.AreEqual(2, world.player.jumpCount);
+            Assert.Greater(world.player.vel.y, 0f);
+        }
+
+        static bool Contains(MacroAction[] actions, int count, MacroActionType type)
+        {
+            for (int i = 0; i < count; i++) if (actions[i].type == type) return true;
+            return false;
         }
 
         [Test]

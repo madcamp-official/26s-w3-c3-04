@@ -43,7 +43,9 @@ namespace Game.Prediction
                 h = Mix(h, (ulong)enemy.id);
                 h = Mix(h, enemy.alive ? 1UL : 0UL);
                 if (!enemy.alive) continue;
-                h = Mix(h, (ulong)enemy.ai.archetype);
+                h = Mix(h, (ulong)enemy.ai.combat);
+                h = Mix(h, (ulong)enemy.ai.mobility);
+                h = Mix(h, (ulong)enemy.ai.size);
                 h = MixPos(h, enemy.pos);
                 h = Mix(h, (ulong)enemy.combat.health);
                 h = Mix(h, IsThreatening(enemy.ai.state) ? 1UL : 0UL);

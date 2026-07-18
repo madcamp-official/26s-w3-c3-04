@@ -11,28 +11,27 @@ namespace Game.Bridge
     /// </summary>
     public class NavMeshPathfinder : IPathfinder
     {
-        readonly NavMeshPath path = new NavMeshPath();
-        const float SampleRadius = 4f;
-
-        public PathStep NextStep(Vector3 from, Vector3 to)
+        public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
         {
-            var step = new PathStep { kind = MoveKind.None, next = to };
+            var step = new PathStep { kind = MoveKind.None, next = to, currentNodeId = -1,
+                nextNodeId = -1, destinationNodeId = -1, linkId = -1, floorId = -1, destinationFloorId = -1 };
             if (!Calc(from, to)) return step;
             var c = path.corners;
-            Vector3 nc;
-            if (c.Length >= 2) nc = c[1];
-            else if (c.Length == 1) nc = c[0];
-            else return step;
-
+            if (c.Length < 1) return step;
+            Vector3 nc = c.Length >= 2 ? c[1] : c[0];
             step.next = nc;
-            float drop = from.y - nc.y;                       // 아래로 얼마나
+            float drop = from.y - nc.y;
             float dx = nc.x - from.x, dz = nc.z - from.z;
-            float horiz = Mathf.Sqrt(dx * dx + dz * dz);      // 수평 거리
-            step.kind = (drop > SimConfig.DropDetectMinHeight && drop > horiz * SimConfig.DropDetectRatio)
-                ? MoveKind.Jump    // 가파른 낙차 = 절벽(off-mesh link)
-                : MoveKind.Walk;   // 완만 = 경사로/평지
+            float horiz = Mathf.Sqrt(dx * dx + dz * dz);
+            step.kind = drop > SimConfig.DropDetectMinHeight && drop > horiz * SimConfig.DropDetectRatio
+                ? MoveKind.Drop : MoveKind.Walk;
+            step.traversalStart = from;
             return step;
         }
+
+        public int FloorIdAt(Vector3 position) => -1;
+        readonly NavMeshPath path = new NavMeshPath();
+        const float SampleRadius = 4f;
 
         bool Calc(Vector3 from, Vector3 to)
         {

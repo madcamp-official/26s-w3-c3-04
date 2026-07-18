@@ -126,7 +126,7 @@ namespace Game.Prediction
                             bool isDefeated = !finalWorld.enemies[i].alive || finalWorld.enemies[i].combat.gloryStage > 0;
                             if (!wasDefeated && isDefeated)
                             {
-                                if (finalWorld.enemies[i].ai.archetype == Archetype.LargeMelee) killedMidThisStep++;
+                                if (finalWorld.enemies[i].ai.size == SizeClass.Large) killedMidThisStep++;
                                 else killedNormalThisStep++;
                             }
                         }

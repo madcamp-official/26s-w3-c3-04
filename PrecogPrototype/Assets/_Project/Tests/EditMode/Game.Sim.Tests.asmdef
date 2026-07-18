@@ -4,6 +4,7 @@
     "references": [
         "Game.Sim",
         "Game.Prediction",
+        "Game.Bridge",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

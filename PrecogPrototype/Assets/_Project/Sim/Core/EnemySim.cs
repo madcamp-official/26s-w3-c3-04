@@ -9,6 +9,8 @@ namespace Game.Sim
         Falling = 1,   // 착지점 XZ로 이동 + 중력 낙하 중 (착지하면 종료)
     }
 
+    public enum TraversalPhase : byte { None, Pause, Airborne, Recovery }
+
     /// <summary>
     /// 적 논리 상태. 뼈대 단계에선 "플레이어를 길찾기로 쫓아옴 + 테두리 점프 하강"만 한다.
     /// 전투(HP·스턴·공격)는 다음 단계라 여기 없다.
@@ -38,6 +40,19 @@ namespace Game.Sim
         public DescentPhase descentPhase;
         public int          descentTicks;    // 낙하 안전장치(무한 방지)
         public Vector3      descentLanding;   // off-mesh link 착지점(향해 걸어 나가며 떨어짐)
+
+        // 고정 유향 그래프 및 Drop/Boost 공용 실행 상태.
+        public int currentNavNodeId;
+        public int destinationNavNodeId;
+        public int nextNavNodeId;
+        public int activeTraversalLinkId;
+        public int currentFloorId;
+        public TraversalPhase traversalPhase;
+        public MoveKind activeMoveKind;
+        public int traversalTicks;
+        public int jumpDuration;
+        public Vector3 jumpStart;
+        public Vector3 jumpEnd;
 
         public static EnemySim Spawn(int id, Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
         {

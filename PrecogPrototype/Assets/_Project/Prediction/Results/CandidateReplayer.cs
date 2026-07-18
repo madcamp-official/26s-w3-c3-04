@@ -34,7 +34,7 @@ namespace Game.Prediction
             var frames = new List<PredictedFrame>(candidate.actions.Length * macroTicks + 1);
             var controls = new List<InputCmd>(candidate.actions.Length * macroTicks);
             var events = new List<PredictedActionEvent>();
-            frames.Add(MakeFrame(0, in world));
+            frames.Add(MakeFrame(0, in world, in services));
 
             bool ok = true;
             int tick = 0;
@@ -53,7 +53,7 @@ namespace Game.Prediction
                     tick++;
 
                     DetectEvents(tick - 1, in before, in world, in cmd, events);
-                    frames.Add(MakeFrame(tick, in world));
+                    frames.Add(MakeFrame(tick, in world, in services));
 
                     if (!IsPhysicallyValid(in world))
                     {
@@ -84,6 +84,9 @@ namespace Game.Prediction
             int tick, in SimWorld before, in SimWorld after, in InputCmd cmd,
             List<PredictedActionEvent> events)
         {
+            if (after.player.jumpCount > before.player.jumpCount)
+                events.Add(new PredictedActionEvent { tick = tick, type = PredictedActionType.Jump, targetId = -1 });
+
             if (before.player.combat.attackPhase == CombatConfig.PhNone
                 && after.player.combat.attackPhase == CombatConfig.PhWindup)
                 events.Add(new PredictedActionEvent { tick = tick, type = PredictedActionType.Attack, targetId = -1 });
@@ -111,12 +114,13 @@ namespace Game.Prediction
             }
         }
 
-        static PredictedFrame MakeFrame(int tick, in SimWorld world) => new PredictedFrame
+        static PredictedFrame MakeFrame(int tick, in SimWorld world, in SimServices services) => new PredictedFrame
         {
             tick = tick,
             playerPosition = world.player.pos,
             playerYaw = world.player.yaw,
             playerAlive = world.player.combat.hp > 0,
+            floorId = services.Pathfinder.FloorIdAt(world.player.pos),
         };
     }
 }

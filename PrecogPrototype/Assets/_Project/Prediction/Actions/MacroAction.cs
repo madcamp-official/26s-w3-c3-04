@@ -10,6 +10,7 @@ namespace Game.Prediction
         MoveLeft,
         MoveRight,
         Retreat,
+        Jump,
         DashForward,
         DashBackward,
         DashLeft,
@@ -54,6 +55,9 @@ namespace Game.Prediction
                     break;
                 case MacroActionType.Retreat:
                     cmd.move = new Vector2(0f, -1f);
+                    break;
+                case MacroActionType.Jump:
+                    if (first) cmd.jump = true;
                     break;
                 case MacroActionType.DashForward:
                     if (first) { cmd.dash = true; cmd.dashDirection = DashDirection.Forward; }

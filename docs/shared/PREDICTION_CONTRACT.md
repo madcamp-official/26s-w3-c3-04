@@ -1,6 +1,6 @@
 # 게임 런타임 ↔ 예측 엔진 통합 계약
 
-- 버전: 1.2
+- 버전: 1.3
 - 확정일: 2026-07-18
 - 적용 대상: `PrecogPrototype`
 - 상태: **MVP 구현 기준 확정**
@@ -600,6 +600,7 @@ ForwardMove
 LeftMove
 RightMove
 Retreat
+Jump
 ForwardDash
 BackwardDash
 LeftDash
@@ -802,7 +803,7 @@ simulationVersion
 - [ ] 최종 후보 60Hz 정밀 재실행
 - [ ] `RhythmExecution`, `TrajectoryPlayback`, `RhythmJudge` 분리
 - [ ] 30틱 잔상과 ActionEvent 잔상 생성기 분리
-- [ ] floorId·유향 링크를 후보 탐색에 반영
+- [x] floorId·유향 링크를 후보 탐색에 반영
 - [ ] Miss 원자적 전환
 
 ### 공동

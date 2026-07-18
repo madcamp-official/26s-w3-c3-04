@@ -58,6 +58,10 @@ namespace Game.Sim
         public const float DropDetectRatio     = 1.5f;  // 낙차 > 수평거리 * 이 값 이면 절벽(경사로와 구분)
         public const float DescentLandEpsilon  = 0.3f;  // 착지점 높이 이 오차 안이고 지면이면 착지 완료
         public const int   DescentMaxTicks     = 120;   // 낙하 안전장치(2초). 어디도 못 닿으면 강제 종료
+        public const int TraversalPauseTicks = 12;
+        public const int TraversalRecoveryTicks = 15;
+        public const int TraversalDefaultAirTicks = 30;
+        public const float TraversalArcHeight = 1.25f;
 
         // 소환 (지정 지점 + 일정 간격)
         public const int SpawnIntervalTicks = 45;   // 0.75초마다 한 마리

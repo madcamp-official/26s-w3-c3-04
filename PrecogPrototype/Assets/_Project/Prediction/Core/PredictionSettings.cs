@@ -42,7 +42,7 @@ namespace Game.Prediction
             macroTicks = 15,
             macroDepth = 12,
             beamWidth = 12,
-            maxActionsPerNode = 12, // ActionGenerator.Priority 전체(런지 최대 2명 포함, 계약 10장)
+            maxActionsPerNode = 13, // Jump + 런지 최대 2명 + Wait까지 포함(계약 10장)
         };
 
         /// <summary>
@@ -64,7 +64,7 @@ namespace Game.Prediction
                 macroTicks = macroTicksPerStep,
                 macroDepth = depth,
                 beamWidth = 12,
-                maxActionsPerNode = 12,
+                maxActionsPerNode = 13,
             };
         }
 
@@ -90,10 +90,9 @@ namespace Game.Prediction
                 s.beamWidth = Mathf.Min(s.beamWidth, 6);
                 s.macroDepth = Mathf.Max(1, Mathf.RoundToInt(s.macroDepth * (2f / 3f)));
                 // maxActionsPerNode는 일부러 안 건드린다: ActionGenerator.Priority 순서상
-                // 이동4개+대시4개가 항상 먼저 캡을 채우므로, 대시 충전이 남아있는 한(거의 항상)
-                // 8로만 낮춰도 Attack(9번째)·Lunge·Wait가 후보 생성 단계에서 아예 등장을 못 한다
-                // (실측으로 확인된 버그 — 캡이 최소 9는 돼야 Attack이 보장된다, 11은 돼야 Lunge
-                // 둘 다 보장). 성능보다 "공격이 후보에서 사라짐"이 훨씬 심각한 문제라 여기선
+                // 이동4개+Jump+대시4개가 먼저 캡을 채우므로, 대시 충전이 남아있는 한
+                // 낮은 cap에서는 Attack(10번째)·Lunge·Wait가 후보 생성 단계에서 사라진다.
+                // 성능보다 "공격이 후보에서 사라짐"이 훨씬 심각한 문제라 여기선
                 // beamWidth·macroDepth 축소만으로 절감한다.
             }
             if (enemyCount >= 50)

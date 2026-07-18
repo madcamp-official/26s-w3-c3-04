@@ -36,8 +36,8 @@ namespace Game.Prediction
                 if (!enemy.alive) continue;
                 result.aliveEnemyCount++;
 
-                bool isMeleeWindup = enemy.ai.archetype != Archetype.RangedSoldier && enemy.ai.state == EnemyState.Windup;
-                bool isRangedAim = enemy.ai.archetype == Archetype.RangedSoldier && enemy.ai.state == EnemyState.Aim;
+                bool isMeleeWindup = enemy.ai.combat == CombatType.Melee && enemy.ai.state == EnemyState.Windup;
+                bool isRangedAim = enemy.ai.combat == CombatType.Ranged && enemy.ai.state == EnemyState.Aim;
                 if (isMeleeWindup || isRangedAim)
                 {
                     result.attackWindupCount++;

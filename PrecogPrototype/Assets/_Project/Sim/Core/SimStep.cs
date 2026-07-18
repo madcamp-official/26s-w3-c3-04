@@ -76,10 +76,10 @@ namespace Game.Sim
             // 적 ↔ 적 (하강 중인 적 제외) — 개별 반경 합으로 최소거리
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive || w.enemies[i].descentPhase != DescentPhase.None || w.enemies[i].combat.gloryStage > 0) continue;
+                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0) continue;
                 for (int j = i + 1; j < w.enemyCount; j++)
                 {
-                    if (!w.enemies[j].alive || w.enemies[j].descentPhase != DescentPhase.None || w.enemies[j].combat.gloryStage > 0) continue;
+                    if (!w.enemies[j].alive || w.enemies[j].traversalPhase == TraversalPhase.Airborne || w.enemies[j].combat.gloryStage > 0) continue;
                     Vector3 p = Push(w.enemies[i].pos, w.enemies[j].pos,
                                      w.enemies[i].radius + w.enemies[j].radius,
                                      w.enemies[i].id, w.enemies[j].id);
@@ -91,7 +91,7 @@ namespace Game.Sim
             // 적 ↔ 플레이어 (대칭) — 플레이어 반경 + 개별 적 반경
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive || w.enemies[i].descentPhase != DescentPhase.None || w.enemies[i].combat.gloryStage > 0) continue;
+                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0) continue;
                 Vector3 p = Push(w.player.pos, w.enemies[i].pos, pr + w.enemies[i].radius, -1, w.enemies[i].id);
                 playerPush += p;
                 pushScratch[i] -= p;
@@ -101,7 +101,7 @@ namespace Game.Sim
             w.player.pos = CharacterMotor.MoveHorizontal(svc.Collision, w.player.pos, playerPush, pr, SimConfig.PlayerHeight);
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive || w.enemies[i].descentPhase != DescentPhase.None || w.enemies[i].combat.gloryStage > 0) continue;
+                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0) continue;
                 w.enemies[i].pos = CharacterMotor.MoveHorizontal(svc.Collision, w.enemies[i].pos,
                                                                  pushScratch[i], w.enemies[i].radius, w.enemies[i].height);
             }

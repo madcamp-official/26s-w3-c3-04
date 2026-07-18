@@ -29,6 +29,12 @@ namespace Game.Sim.Tests
     /// <summary>from→to 직선만 반환하는 최소 IPathfinder. 정적 그래프 대신 테스트용.</summary>
     public sealed class StubPathfinder : IPathfinder
     {
+        public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
+            => new PathStep { kind = MoveKind.Walk, next = to, currentNodeId = 0, nextNodeId = 0,
+                destinationNodeId = 0, linkId = -1, floorId = 0, destinationFloorId = 0 };
+        public int FloorIdAt(Vector3 position) => 0;
+        public bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh)
+        { onMesh = pos; return false; }
         public bool NextCorner(Vector3 from, Vector3 to, out Vector3 next) { next = to; return true; }
         public float PathLength(Vector3 from, Vector3 to) => Vector3.Distance(from, to);
         public bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing)
