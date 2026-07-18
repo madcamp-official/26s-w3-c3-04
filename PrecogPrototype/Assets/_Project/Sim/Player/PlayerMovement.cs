@@ -23,38 +23,58 @@ namespace Game.Sim
                 }
             }
 
-            // 질풍참 시작
+            // 질풍참 시작 — 겐지 질풍참: 카메라 방향(pitch 포함)으로, "조준한 첫 표면까지"만 돌진.
+            // 눈높이에서 레이를 쏴 벽/바닥/천장까지 거리를 구한다. 위로 보면 공중으로,
+            // 아래로 얕게 보면 멀리, 가파르게 보면 짧게(OW와 동일) 이동 후 그 지점에서 정지.
             if (p.dashTicks == 0 && cmd.dash && p.dashCharges > 0)
             {
+                p.dashDir = Quaternion.Euler(cmd.pitch, cmd.yaw, 0f) * Vector3.forward;  // 3D 시선
+                float maxDist = SimConfig.DashSpeed * SimConfig.DashDurationTicks * dt;
+                Vector3 eye = p.pos + Vector3.up * SimConfig.DashAimHeight;
+                CastHit rh = svc.Collision.Raycast(eye, p.dashDir, maxDist);
+                p.dashDist = rh.hit ? Mathf.Max(0f, rh.distance - SimConfig.PlayerRadius) : maxDist;
+
                 p.dashTicks = SimConfig.DashDurationTicks;
-                Vector3 wish = right * cmd.move.x + fwd * cmd.move.y;
-                p.dashDir = wish.sqrMagnitude > 1e-4f ? wish.normalized : fwd;
                 p.dashCharges--;
                 if (p.dashRecharge == 0) p.dashRecharge = SimConfig.DashRechargeTicks;
             }
 
-            // 수평 이동량 결정
-            Vector3 horiz;
+            // ── 돌진 중: 중력 없이 남은 거리만큼만 이동. 다 가면 즉시 정지(미끄러짐 없음) ──
             if (p.dashTicks > 0)
             {
-                horiz = p.dashDir * SimConfig.DashSpeed * dt;
-                p.dashTicks--;
+                float step = Mathf.Min(SimConfig.DashSpeed * dt, p.dashDist);
+                Vector3 d = p.dashDir * step;
+
+                // 수평은 벽 슬라이드(안전망), 수직은 바닥 아래로만 클램프(머리 위에서 탐지)
+                p.pos = CharacterMotor.MoveHorizontal(svc.Collision, p.pos,
+                                                      new Vector3(d.x, 0f, d.z),
+                                                      SimConfig.PlayerRadius, SimConfig.PlayerHeight);
+                float newY = p.pos.y + d.y;
+                Vector3 probe = new Vector3(p.pos.x, p.pos.y + SimConfig.PlayerHeight, p.pos.z);
+                if (svc.Collision.SampleGround(probe, 500f, out float gy) && newY < gy)
+                    newY = gy;
+                p.pos.y = newY;
+
+                p.dashDist -= step;
+                p.vel.y = 0f;
+                p.grounded = false;
+                if (p.dashDist <= 1e-4f) p.dashTicks = 0;   // 목표 도달 → 정지
+                else p.dashTicks--;
+                return;
             }
-            else
+
+            // ── 일반 이동: WASD → 수평(벽 슬라이드) → 수직(중력·착지) ──
+            Vector3 wish = right * cmd.move.x + fwd * cmd.move.y;
+            if (wish.sqrMagnitude > 1f) wish.Normalize();
+            Vector3 horiz = wish * SimConfig.PlayerMoveSpeed * dt;
+
+            if (cmd.jump && p.jumpCount < 2)
             {
-                Vector3 wish = right * cmd.move.x + fwd * cmd.move.y;
-                if (wish.sqrMagnitude > 1f) wish.Normalize();
-                horiz = wish * SimConfig.PlayerMoveSpeed * dt;
-
-                if (cmd.jump && p.jumpCount < 2)
-                {
-                    p.vel.y = SimConfig.PlayerJumpSpeed;
-                    p.jumpCount++;
-                    p.grounded = false;
-                }
+                p.vel.y = SimConfig.PlayerJumpSpeed;
+                p.jumpCount++;
+                p.grounded = false;
             }
 
-            // 수평(벽 슬라이드) → 수직(중력·착지)
             p.pos = CharacterMotor.MoveHorizontal(svc.Collision, p.pos, horiz,
                                                   SimConfig.PlayerRadius, SimConfig.PlayerHeight);
             CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out bool grounded);

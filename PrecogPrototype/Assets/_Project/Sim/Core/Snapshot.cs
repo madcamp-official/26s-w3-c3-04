@@ -10,6 +10,16 @@ namespace Game.Sim
             SimWorld dst = src;                            // 값 필드 복사
             dst.enemies = new EnemySim[src.enemies.Length];
             Array.Copy(src.enemies, dst.enemies, src.enemies.Length);
+            if (src.pendingHits != null)                   // 히트 큐도 독립 배열로(예지 복제 안전)
+            {
+                dst.pendingHits = new PlayerHit[src.pendingHits.Length];
+                Array.Copy(src.pendingHits, dst.pendingHits, src.pendingHits.Length);
+            }
+            if (src.projectiles != null)                   // 투사체도 독립 배열로
+            {
+                dst.projectiles = new Projectile[src.projectiles.Length];
+                Array.Copy(src.projectiles, dst.projectiles, src.projectiles.Length);
+            }
             return dst;
         }
     }

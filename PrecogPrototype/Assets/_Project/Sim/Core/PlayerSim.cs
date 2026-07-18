@@ -13,7 +13,8 @@ namespace Game.Sim
 
         // 질풍참
         public int     dashTicks;      // >0이면 돌진 중
-        public Vector3 dashDir;
+        public Vector3 dashDir;        // 3D 시선 방향(고정)
+        public float   dashDist;       // 남은 이동 거리(레이로 첫 표면까지만) → 0되면 정지
         public int     dashCharges;
         public int     dashRecharge;   // 다음 충전까지 남은 틱
 

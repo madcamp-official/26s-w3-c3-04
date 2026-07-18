@@ -14,12 +14,20 @@ namespace Game.Sim
         {
             h = Mix(h, c.attackPhase);
             h = Mix(h, (ulong)c.attackPhaseTicks);
-            h = Mix(h, (ulong)c.comboCancelTicks);
+            h = Mix(h, c.attackHitDone ? 1UL : 0UL);
+            h = Mix(h, (ulong)c.hp);
             h = Mix(h, c.blocking ? 1UL : 0UL);
             h = Mix(h, (ulong)c.guardGauge);
+            h = Mix(h, (ulong)c.guardIdleTicks);
             h = Mix(h, c.backstrikePhase);
             h = Mix(h, (ulong)c.backstrikeTicks);
+            h = Mix(h, c.hasBackstrikeTarget ? 1UL : 0UL);
+            h = Mix(h, c.backstrikeHitDone ? 1UL : 0UL);
+            h = Mix(h, c.dashPierceDone ? 1UL : 0UL);
             h = Mix(h, (ulong)c.frontGuardTicks);
+            h = Mix(h, c.gloryPhase);
+            h = Mix(h, (ulong)c.gloryTicks);
+            h = Mix(h, (ulong)c.gloryTargetId);
             return h;
         }
 
@@ -28,6 +36,7 @@ namespace Game.Sim
             h = Mix(h, (ulong)c.health);
             h = Mix(h, (ulong)c.stunTicks);
             h = Mix(h, (ulong)c.deathTick);
+            h = Mix(h, c.gloryStage);
             return h;
         }
     }

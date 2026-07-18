@@ -36,6 +36,7 @@ namespace Game.View
         {
             InputCmd cmd = InputCmd.Empty;
             cmd.yaw = Yaw;
+            cmd.pitch = Pitch;   // 질풍참을 카메라 방향(위·아래 포함)으로
             var kb = Keyboard.current;
             if (kb != null)
             {

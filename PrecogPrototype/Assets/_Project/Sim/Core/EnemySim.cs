@@ -2,13 +2,13 @@ using UnityEngine;
 
 namespace Game.Sim
 {
-    /// <summary>테두리 하강 4단계.</summary>
+    /// <summary>테두리 하강 (순간이동식): 테두리로 이동 → 멈칫 → 순간이동 → 회복.</summary>
     public enum DescentPhase : byte
     {
         None = 0,
-        EdgePause = 1,   // 테두리에서 멈칫 (점프 예고)
-        Airborne = 2,    // 포물선 낙하
-        Recovery = 3,    // 착지 후 자세 추스림
+        ApproachEdge = 1,  // 절벽 테두리로 이동
+        EdgePause = 2,     // 테두리에서 멈칫 (점프 예고)
+        Recovery = 3,      // 착지 후 자세 추스림 (순간이동은 EdgePause→Recovery 전환 때)
     }
 
     /// <summary>
@@ -25,25 +25,39 @@ namespace Game.Sim
         public float   yaw;
         public bool    grounded;
 
+        // 개별 크기(대형몹은 3배). 이동·분리·판정·뷰가 이 값을 쓴다.
+        public float   radius;
+        public float   height;
+
         public Vector3 waypoint;      // 향하는 다음 경로 코너
         public bool    hasWaypoint;
         public int     repathTicks;   // 재계산까지 남은 틱
 
         public EnemyCombatState combat;   // ← combat 세션 소유 (health/stun/처치)
+        public EnemyAI          ai;       // ← AI 세션 소유 (상태머신/아키타입)
 
-        // 테두리 하강
+        // 테두리 하강 (순간이동식)
         public DescentPhase descentPhase;
         public int          descentTicks;
-        public Vector3      jumpStart, jumpEnd;
-        public int          jumpDuration;
+        public Vector3      descentEdge;     // 걸어갈 절벽 테두리
+        public Vector3      descentLanding;  // 순간이동 착지점 (id별 분산 포함)
 
-        public static EnemySim Spawn(int id, Vector3 at) => new EnemySim
+        public static EnemySim Spawn(int id, Vector3 at, Archetype archetype)
         {
-            id = id,
-            alive = true,
-            pos = at,
-            grounded = true,
-            combat = EnemyCombatState.Spawn(SimConfig.EnemyNormalHp),
-        };
+            bool large = archetype == Archetype.LargeMelee;
+            float scale = large ? SimConfig.EnemyLargeScale : 1f;
+            int hp = large ? SimConfig.EnemyLargeHp : SimConfig.EnemyNormalHp;
+            return new EnemySim
+            {
+                id = id,
+                alive = true,
+                pos = at,
+                grounded = true,
+                radius = SimConfig.EnemyRadius * scale,
+                height = SimConfig.EnemyHeight * scale,
+                combat = EnemyCombatState.Spawn(hp),
+                ai = EnemyAI.Spawn(archetype),
+            };
+        }
     }
 }

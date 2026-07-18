@@ -21,6 +21,13 @@ namespace Game.Bridge
             return default;
         }
 
+        public CastHit Raycast(Vector3 origin, Vector3 dir, float maxDist)
+        {
+            if (Physics.Raycast(origin, dir, out var hit, maxDist, mask, QueryTriggerInteraction.Ignore))
+                return new CastHit { hit = true, distance = hit.distance, normal = hit.normal };
+            return default;
+        }
+
         public bool SampleGround(Vector3 feet, float maxDown, out float groundY)
         {
             Vector3 origin = feet + Vector3.up * 0.5f;

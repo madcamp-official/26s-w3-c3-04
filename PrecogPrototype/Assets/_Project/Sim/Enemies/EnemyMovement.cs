@@ -3,8 +3,9 @@ using UnityEngine;
 namespace Game.Sim
 {
     /// <summary>
-    /// 적: NavMesh 길찾기로 플레이어 추격 + 테두리 점프 하강(4단계).
-    /// 길찾기가 "여기선 점프(Jump)"라고 하면 → 멈칫 → 포물선 → 착지 → 회복.
+    /// 적: NavMesh 추격 + 자체 판단 테두리 하강(순간이동식).
+    /// 하강 판단은 우리가 한다 — "걷는 길 길이 vs 점프 길 길이"를 비교해, 점프가 명확히
+    /// 짧을 때만 내려간다(NavMeshLink 라우팅에 안 맡김). 하강은 궤적 없이 순간이동 + 화면 보간.
     /// </summary>
     public static class EnemyMovement
     {
@@ -16,32 +17,40 @@ namespace Game.Sim
             if (e.combat.stunTicks > 0) { e.vel.x = 0f; e.vel.z = 0f; Move(ref e, Vector3.zero, svc, dt); return; }
 
             // 하강 진행 중이면 상태머신만
-            if (e.descentPhase != DescentPhase.None) { StepDescent(ref e, dt); return; }
+            if (e.descentPhase != DescentPhase.None) { StepDescent(ref e, in svc, dt); return; }
 
             float flatSqr = FlatSqrDist(e.pos, player.pos);
             if (flatSqr > SimConfig.EnemyAggroRange * SimConfig.EnemyAggroRange)
+            { Move(ref e, Vector3.zero, svc, dt); return; }
+
+            // ── 하강 판단: 플레이어보다 충분히 높을 때만 ──
+            if (e.pos.y > player.pos.y + SimConfig.DescentMinHeight
+                && svc.Pathfinder.NearestDropEdge(e.pos, out Vector3 edge, out Vector3 landing))
             {
-                Move(ref e, Vector3.zero, svc, dt);   // 감지 밖: 정지(중력만)
-                return;
+                float walk     = svc.Pathfinder.PathLength(e.pos, player.pos);
+                float toEdge   = svc.Pathfinder.PathLength(e.pos, edge);
+                float fromLand = svc.Pathfinder.PathLength(landing, player.pos);
+                if (toEdge >= 0f && fromLand >= 0f)
+                {
+                    float jump = toEdge + FlatDist(edge, landing) + fromLand;
+                    bool walkOk = walk >= 0f;
+                    // 걷는 길이 없거나, 점프가 걷기의 문턱값보다 짧으면 하강
+                    if (!walkOk || jump < walk * SimConfig.DescentThreshold)
+                    { StartDescent(ref e, edge, landing); return; }
+                }
             }
 
-            // 경로 재계산
+            // ── 일반 걷기 ──
             if (e.repathTicks > 0) e.repathTicks--;
             if (e.repathTicks == 0 || !e.hasWaypoint)
             {
-                MoveKind kind = svc.Pathfinder.NextCorner(e.pos, player.pos, out Vector3 wp);
-                e.waypoint = wp;
-                e.hasWaypoint = kind != MoveKind.None;
+                e.hasWaypoint = svc.Pathfinder.NextCorner(e.pos, player.pos, out e.waypoint);
                 e.repathTicks = SimConfig.EnemyRepathTicks;
-
-                if (kind == MoveKind.Jump) { StartDescent(ref e, wp); return; }
             }
-
-            // 걷기
             Vector3 target = e.hasWaypoint ? e.waypoint : player.pos;
             Vector3 to = target - e.pos; to.y = 0f;
             float d = to.magnitude;
-            if (d < SimConfig.EnemyArriveDist) e.repathTicks = 0;   // 코너 도달 → 다음 틱 재계산
+            if (d < SimConfig.EnemyArriveDist) e.repathTicks = 0;
 
             Vector3 horiz = Vector3.zero;
             if (d > 1e-4f)
@@ -53,50 +62,48 @@ namespace Game.Sim
             Move(ref e, horiz, svc, dt);
         }
 
-        static void StartDescent(ref EnemySim e, Vector3 landing)
+        static void StartDescent(ref EnemySim e, Vector3 edge, Vector3 landing)
         {
-            e.descentPhase = DescentPhase.EdgePause;
+            e.descentPhase = DescentPhase.ApproachEdge;
             e.descentTicks = 0;
-            e.jumpStart = e.pos;
-            e.jumpEnd = landing;
-            e.vel = Vector3.zero;
-            Vector3 d = landing - e.pos; d.y = 0f;
-            if (d.sqrMagnitude > 1e-4f) e.yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
+            e.descentEdge = edge;
+            // 착지 분산 (id별 결정론) — 여러 몹이 같은 테두리로 와도 안 뭉침
+            float ox = ((e.id % 3) - 1) * SimConfig.DescentLandingSpread;
+            float oz = (((e.id / 3) % 3) - 1) * SimConfig.DescentLandingSpread;
+            e.descentLanding = landing + new Vector3(ox, 0f, oz);
         }
 
-        static void StepDescent(ref EnemySim e, float dt)
+        static void StepDescent(ref EnemySim e, in SimServices svc, float dt)
         {
             switch (e.descentPhase)
             {
+                case DescentPhase.ApproachEdge:
+                {
+                    Vector3 to = e.descentEdge - e.pos; to.y = 0f;
+                    float d = to.magnitude;
+                    if (d < SimConfig.DescentEdgeReach)
+                    { e.descentPhase = DescentPhase.EdgePause; e.descentTicks = 0; e.vel.x = 0f; e.vel.z = 0f; }
+                    else
+                    {
+                        Vector3 dir = to / d;
+                        e.yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+                        Move(ref e, dir * SimConfig.EnemyMoveSpeed * dt, svc, dt);
+                    }
+                    break;
+                }
                 case DescentPhase.EdgePause:
+                    e.vel.x = 0f; e.vel.z = 0f;
                     e.descentTicks++;
                     if (e.descentTicks >= SimConfig.DescentEdgePauseTicks)
                     {
-                        e.descentPhase = DescentPhase.Airborne;
-                        e.descentTicks = 0;
-                        float horiz = FlatDist(e.jumpStart, e.jumpEnd);
-                        e.jumpDuration = Mathf.Max(SimConfig.DescentJumpMinTicks,
-                            Mathf.CeilToInt(horiz / (SimConfig.DescentJumpSpeed * dt)));
-                    }
-                    break;
-
-                case DescentPhase.Airborne:
-                {
-                    e.descentTicks++;
-                    float t = Mathf.Clamp01((float)e.descentTicks / e.jumpDuration);
-                    Vector3 flat = Vector3.Lerp(e.jumpStart, e.jumpEnd, t);
-                    float arc = SimConfig.DescentJumpArcHeight * Mathf.Sin(Mathf.PI * t);
-                    e.pos = flat + Vector3.up * arc;
-                    if (e.descentTicks >= e.jumpDuration)
-                    {
-                        e.pos = e.jumpEnd;
+                        e.pos = e.descentLanding;   // 순간이동 (화면은 EntityViews 보간이 슥 미끄러지게)
                         e.descentPhase = DescentPhase.Recovery;
                         e.descentTicks = 0;
                     }
                     break;
-                }
-
                 case DescentPhase.Recovery:
+                    e.vel.x = 0f; e.vel.z = 0f;
+                    Move(ref e, Vector3.zero, svc, dt);   // 착지 지면 안착
                     e.descentTicks++;
                     if (e.descentTicks >= SimConfig.DescentRecoveryTicks)
                     {
@@ -111,8 +118,7 @@ namespace Game.Sim
 
         static void Move(ref EnemySim e, Vector3 horiz, in SimServices svc, float dt)
         {
-            e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, horiz,
-                                                  SimConfig.EnemyRadius, SimConfig.EnemyHeight);
+            e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, horiz, e.radius, e.height);
             CharacterMotor.ResolveVertical(svc.Collision, ref e.pos, ref e.vel, dt, out bool grounded);
             e.grounded = grounded;
         }
