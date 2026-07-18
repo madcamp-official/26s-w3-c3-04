@@ -18,6 +18,13 @@ namespace Game.View
         public static Main Instance { get; private set; }
         public ref readonly SimWorld World => ref world;
         public Camera Cam => cam;
+        public SimServices Services => services;
+
+        /// <summary>디버그용: 지정 위치 근처에 적 1마리 소환(예측 미리보기 시나리오 설정용).</summary>
+        public void SpawnEnemyNear(Vector3 pos) => world.AddEnemy(pos);
+
+        /// <summary>디버그용: 살아있는 적 전부 제거(예측 미리보기 시나리오 리셋용).</summary>
+        public void ClearAllEnemies() => world.enemyCount = 0;
 
         // 화면연출(칼등치기 카메라 고정)이 끝날 때 최종 시선을 되돌려 써서 원복 방지.
         // yaw는 sim 입력(cmd.yaw)에도 쓰이므로 여기 하나로 시점·조준이 동기화된다.
