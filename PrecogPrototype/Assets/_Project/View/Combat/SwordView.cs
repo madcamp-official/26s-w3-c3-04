@@ -143,7 +143,7 @@ namespace Game.View
                 }
                 case CombatConfig.LgTravel:
                 {
-                    float t = Frac(c.lungeTicks, CombatConfig.LungeTravelTicks);
+                    float t = Frac(c.lungeTicks, c.lungeTravelTicks);   // 거리 비례 틱(상태에 고정)
                     pos = Vector3.Lerp(ready, thrust, t);
                     break;
                 }

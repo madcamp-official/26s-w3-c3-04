@@ -23,7 +23,7 @@ namespace Game.Sim
             // ── 런지 진행 중이면 그것만 (Travel 이동 포함) ──
             if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref p, in svc, dt); return; }
 
-            // ── 런지 시작: 우클릭 + 쿨 0 + 유효 대상. 평타 중이어도 캔슬 발동(진입기) ──
+            // ── 런지 시작: 우클릭 + (쿨 0) + 유효 대상. 평타 중이어도 캔슬 발동(제2의 평타) ──
             if (cmd.lunge && c.lungeCooldown == 0 && c.hitStunTicks == 0)
             {
                 int targetId = cmd.lungeTargetId >= 0
@@ -31,13 +31,26 @@ namespace Game.Sim
                     : FindLungeTarget(in w, in p, in svc);
                 if (targetId >= 0 && TryLockDestination(in w, in p, in svc, targetId, out Vector3 dest))
                 {
+                    // 거리 비례 Travel 틱 (멀수록 길게, 하한 있음 — 순간이동 방지)
+                    Vector3 run = dest - p.pos; run.y = 0f;
+                    int travel = Mathf.Max(CombatConfig.LungeTravelMinTicks,
+                        Mathf.CeilToInt(run.magnitude / (CombatConfig.LungeTravelSpeed * SimConfig.TickDelta)));
+
                     c.lungePhase = CombatConfig.LgWindup;
                     c.lungeTicks = 0;
                     c.lungeTargetId = targetId;
                     c.lungeStart = p.pos;
                     c.lungeDest = dest;
+                    c.lungeTravelTicks = travel;
                     c.lungeHitDone = false;
                     c.lungeCooldown = CombatConfig.LungeCooldownTicks;
+
+                    // 표적 이동봉쇄(bind): 위치·중력 동결(공중이면 공중에). 공격은 계속한다.
+                    int ti = FindEnemyIndex(in w, targetId);
+                    if (ti >= 0)
+                        w.enemies[ti].combat.bindTicks =
+                            CombatConfig.LungeWindupTicks + travel + CombatConfig.LungeBindExtraTicks;
+
                     // 평타 중이었으면 캔슬
                     c.attackPhase = CombatConfig.PhNone;
                     c.attackPhaseTicks = 0;
@@ -46,7 +59,7 @@ namespace Game.Sim
                     if (face.sqrMagnitude > 1e-4f) p.yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
                     return;
                 }
-                // 대상 없으면 발동 안 함(쿨 보존)
+                // 대상 없으면 발동 안 함
             }
 
             // ── 평타 진행/시작 ──
@@ -107,16 +120,16 @@ namespace Game.Sim
                 case CombatConfig.LgTravel:
                 {
                     // 남은 거리를 남은 틱으로 분배 → Travel 끝엔 반드시 도착점(벽이면 슬라이드로 최대한)
+                    int total = Mathf.Max(1, c.lungeTravelTicks);
                     Vector3 to = c.lungeDest - p.pos; to.y = 0f;
-                    int remain = Mathf.Max(1, CombatConfig.LungeTravelTicks - c.lungeTicks + 1);
+                    int remain = Mathf.Max(1, total - c.lungeTicks + 1);
                     Vector3 step = to / remain;
                     p.pos = CharacterMotor.MoveHorizontal(svc.Collision, p.pos, step,
                                                           SimConfig.PlayerRadius, SimConfig.PlayerHeight);
                     // 수직은 도착점 높이로 보간(같은 층 제약이라 미세 차이만)
-                    p.pos.y = Mathf.Lerp(c.lungeStart.y, c.lungeDest.y,
-                                         (float)c.lungeTicks / CombatConfig.LungeTravelTicks);
+                    p.pos.y = Mathf.Lerp(c.lungeStart.y, c.lungeDest.y, (float)c.lungeTicks / total);
                     p.vel = Vector3.zero;
-                    if (c.lungeTicks >= CombatConfig.LungeTravelTicks)
+                    if (c.lungeTicks >= total)
                     {
                         if (svc.Collision.SampleGround(p.pos, 2f, out float gy)) p.pos.y = gy;
                         c.lungePhase = CombatConfig.LgRecovery;

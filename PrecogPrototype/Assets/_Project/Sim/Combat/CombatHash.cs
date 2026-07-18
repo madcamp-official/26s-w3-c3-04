@@ -31,6 +31,7 @@ namespace Game.Sim
             h = Mix(h, (ulong)(c.lungeTargetId + 1));   // -1 포함
             h = MixV(h, c.lungeStart);
             h = MixV(h, c.lungeDest);
+            h = Mix(h, (ulong)c.lungeTravelTicks);
             h = Mix(h, c.lungeHitDone ? 1UL : 0UL);
             h = Mix(h, (ulong)c.lungeCooldown);
             h = Mix(h, c.gloryPhase);
@@ -44,6 +45,7 @@ namespace Game.Sim
         {
             h = Mix(h, (ulong)c.health);
             h = Mix(h, (ulong)c.stunTicks);
+            h = Mix(h, (ulong)c.bindTicks);
             h = Mix(h, (ulong)c.deathTick);
             h = Mix(h, c.gloryStage);
             return h;

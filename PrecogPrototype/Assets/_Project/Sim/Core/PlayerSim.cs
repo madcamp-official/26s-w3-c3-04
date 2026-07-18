@@ -10,6 +10,9 @@ namespace Game.Sim
         public float   yaw;
         public bool    grounded;
         public int     jumpCount;
+        public int     jumpBufferTicks;   // 착지 직전 점프 선입력 버퍼
+        public int     jumpBoostTicks;    // 2단 점프 수평 임펄스 남은 틱
+        public Vector3 jumpBoostDir;      // 임펄스 방향(발동 순간 고정)
 
         // 4방향 대시 (수평, 시작 순간 방향 고정)
         public int     dashTicks;      // >0이면 대시 중

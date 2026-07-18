@@ -54,6 +54,8 @@ namespace Game.View
 
         void DrawLunge(float x, float y, in PlayerCombatState c)
         {
+            if (CombatConfig.LungeCooldownTicks <= 0) return;   // 쿨 없음(기본) — 표시 불필요
+
             var bg = new Color(0.08f, 0.08f, 0.10f, 0.85f);
             Fill(x - 2, y - 2, BarW + 4, BarH + 4, bg);
 

@@ -5,16 +5,18 @@ namespace Game.Sim
     /// <summary>
     /// 대미지·스턴·HP·처치 정리. ★ combat 소유. SimStep이 적 이동 다음에 호출.
     /// 평타(부채꼴) · 런지 임팩트(단일 대상) · 적→플레이어 히트 큐 적용.
-    /// 모든 공격 = 대미지 1 + 스턴 0.5초 통일. 대형몹 막타는 글로리킬 컷신 진입.
+    /// 공격 = 피해만(스턴 부여 폐기). 대형몹 막타는 글로리킬 컷신 진입.
     /// </summary>
     public static class CombatResolve
     {
         public static void Run(ref SimWorld w, in SimServices svc, float dt)
         {
-            // 스턴 타이머 감소
+            // 타이머 감소 (스턴은 잔존 필드 — 부여처 없음. 바인드 = 런지 표적 이동봉쇄)
             for (int i = 0; i < w.enemyCount; i++)
-                if (w.enemies[i].combat.stunTicks > 0)
-                    w.enemies[i].combat.stunTicks--;
+            {
+                if (w.enemies[i].combat.stunTicks > 0) w.enemies[i].combat.stunTicks--;
+                if (w.enemies[i].combat.bindTicks > 0) w.enemies[i].combat.bindTicks--;
+            }
 
             ref PlayerCombatState pc = ref w.player.combat;
 
@@ -76,8 +78,7 @@ namespace Game.Sim
                 return;
             }
 
-            e.combat.health -= CombatConfig.Damage;
-            e.combat.stunTicks = CombatConfig.StunTicks;   // 대미지 = 스턴 0.5초 동반
+            e.combat.health -= CombatConfig.Damage;   // 스턴 부여 폐기 — 피해만
             if (e.combat.health <= 0)
             {
                 e.alive = false;

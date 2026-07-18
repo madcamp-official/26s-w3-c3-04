@@ -45,6 +45,20 @@ namespace Game.Sim
             if (!e.alive) return;
             if (e.combat.gloryStage > 0) return;   // 글로리킬 처형 중 — AI·이동 정지(얼림)
 
+            // 런지 표적 이동봉쇄(bind): 위치·중력 동결(공중이면 공중에 얼음).
+            // 공격 시퀀스는 계속 진행한다(붙잡혀도 반격 가능) — Plant/RangedMove가 내부에서 위치만 스킵.
+            if (e.combat.bindTicks > 0)
+            {
+                if (e.ai.archetype == Archetype.RangedSoldier)
+                {
+                    if (e.ai.state == EnemyState.Aim || e.ai.state == EnemyState.Fire)
+                        AdvanceRanged(ref w, i, in svc, dt);
+                }
+                else if (e.ai.state != EnemyState.Chase)
+                    AdvanceMelee(ref w, i, in svc, dt);
+                return;
+            }
+
             if (e.ai.archetype == Archetype.RangedSoldier) StepRanged(ref w, i, in svc, dt);
             else                                           StepMelee(ref w, i, in svc, dt);
         }
@@ -213,9 +227,10 @@ namespace Game.Sim
             return aim.sqrMagnitude > 1e-6f ? aim.normalized : Forward(e.yaw);
         }
 
-        /// <summary>원거리 재배치 이동(수평). 응시(yaw)는 호출부가 정한다.</summary>
+        /// <summary>원거리 재배치 이동(수평). 응시(yaw)는 호출부가 정한다. 바인드 중 위치 동결.</summary>
         static void RangedMove(ref EnemySim e, Vector3 dir, in SimServices svc, float dt)
         {
+            if (e.combat.bindTicks > 0) return;
             dir.y = 0f;
             Vector3 horiz = dir.sqrMagnitude > 1e-6f ? dir.normalized * AIConfig.RangedMoveSpeed * dt : Vector3.zero;
             e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, horiz, e.radius, e.height);
@@ -223,9 +238,10 @@ namespace Game.Sim
             e.grounded = g;
         }
 
-        /// <summary>제자리 정지(수평 0) + 중력·지면. 공격 중 committed 유지용.</summary>
+        /// <summary>제자리 정지(수평 0) + 중력·지면. 공격 중 committed 유지용. 바인드 중 위치 동결(공중 얼음).</summary>
         static void Plant(ref EnemySim e, in SimServices svc, float dt)
         {
+            if (e.combat.bindTicks > 0) return;
             e.vel.x = 0f; e.vel.z = 0f;
             e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, Vector3.zero, e.radius, e.height);
             CharacterMotor.ResolveVertical(svc.Collision, ref e.pos, ref e.vel, dt, out bool g);

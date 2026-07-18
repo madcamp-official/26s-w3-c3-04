@@ -17,14 +17,15 @@ namespace Game.Sim
         public int  hp;
         public int  hitStunTicks;       // >0이면 피격 경직(수평 조작 제한)
 
-        // 타깃 런지 (우클릭) — 시작 순간 targetId·도착점 고정, Travel 중 재추적 없음
+        // 타깃 런지 (우클릭) — 시작 순간 targetId·도착점·Travel 틱 고정, 재추적 없음
         public byte    lungePhase;      // LgNone/Windup/Travel/Recovery
         public int     lungeTicks;
         public int     lungeTargetId;   // 대상 적 id (-1=없음)
         public Vector3 lungeStart;
-        public Vector3 lungeDest;       // 적 앞 0.9m 지점(고정)
+        public Vector3 lungeDest;       // 적 앞 지점(고정)
+        public int     lungeTravelTicks; // 거리 비례 Travel 틱(시작 시 계산·고정)
         public bool    lungeHitDone;    // 임팩트 1회 처리 플래그
-        public int     lungeCooldown;   // 남은 쿨타임 틱
+        public int     lungeCooldown;   // 남은 쿨타임 틱(기본 0 = 쿨 없음)
 
         // 대형몹 글로리킬 처형 (컷신). 진행 중 무적·조작잠금.
         public byte    gloryPhase;      // GlNone/GlSlash1/GlSlash2/GlDash

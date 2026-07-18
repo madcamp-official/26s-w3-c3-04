@@ -13,17 +13,23 @@ namespace Game.Sim
 
         public const float Gravity = -25f;
 
-        // 플레이어 (캡슐: 발밑 pos 기준, 위로 Height). 크기 축소(부피 ~1/4), 튜닝 대상
-        public const float PlayerMoveSpeed = 7f;
-        public const float PlayerJumpSpeed = 9f;
+        // 플레이어 (캡슐: 발밑 pos 기준, 위로 Height). 크기는 구조 상수(런타임 변경 금지).
         public const float PlayerRadius    = 0.28f;
         public const float PlayerHeight    = 1.15f;
 
-        // 4방향 대시 (카메라 기준 전후좌우, 이동 전용 — 피해·무적 없음)
-        public const float DashSpeed         = 26f;   // 평균 속도 → 총 거리 26×9/60 ≈ 3.9m
-        public const int   DashDurationTicks = 9;     // 0.15초
-        public const int   DashMaxCharges    = 1;
-        public const int   DashRechargeTicks = 60;    // 1초
+        // ── 이동·점프 (static = F1 튜닝 패널에서 실시간 조정. 예측 중 변경 금지) ──
+        public static float PlayerMoveSpeed = 7f;
+        public static float PlayerJumpSpeed = 9f;
+        public static int   JumpBufferTicks = 4;     // 착지 직전 점프 선입력 허용
+        public static float AirJumpBoost    = 5f;    // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
+        public static int   AirJumpBoostTicks = 12;  // 임펄스 지속(감쇠)
+
+        // ── 4방향 대시 (둠 이터널식 임펄스: 첫 틱 최대 → 지수 감쇠. 이동 전용) ──
+        public static float DashDistance      = 4.2f;   // 총 이동 거리(m)
+        public static int   DashDurationTicks = 10;     // ~0.17초
+        public static float DashDecay         = 0.65f;  // 틱별 감쇠(작을수록 앞에 몰림 = 더 스냅)
+        public static int   DashMaxCharges    = 2;      // 둠식 2스택
+        public static int   DashRechargeTicks = 60;     // 스택당 1초
 
         // 적. 크기 축소(부피 ~1/4), 튜닝 대상
         public const float EnemyMoveSpeed  = 6f;    // 근접 그런트 = 플레이어 7의 ~0.85× (원거리는 자체 4)
