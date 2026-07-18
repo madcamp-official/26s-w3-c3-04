@@ -31,7 +31,7 @@ namespace Game.View
 
             var main = Main.Instance;
             if (main == null) return;
-            int hp = main.World.player.combat.hp;
+            int hp = main.World.player.health;
 
             if (prevHp != int.MinValue && hp < prevHp)   // 피격(막혔으면 hp 안 줆)
             {

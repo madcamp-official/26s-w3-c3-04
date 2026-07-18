@@ -33,5 +33,19 @@ namespace Game.Bridge
             groundY = 0f;
             return false;
         }
+
+        public bool HasLineOfSight(Vector3 from, Vector3 to)
+        {
+            Vector3 delta = to - from;
+            float distance = delta.magnitude;
+            if (distance <= 1e-5f) return true;
+            return !Physics.Raycast(from, delta / distance, distance, mask, QueryTriggerInteraction.Ignore);
+        }
+
+        public bool CanOccupyCapsule(Vector3 feet, float radius, float height)
+        {
+            CharacterMotor.Capsule(feet, radius, height, out Vector3 bottom, out Vector3 top);
+            return !Physics.CheckCapsule(bottom, top, radius, mask, QueryTriggerInteraction.Ignore);
+        }
     }
 }

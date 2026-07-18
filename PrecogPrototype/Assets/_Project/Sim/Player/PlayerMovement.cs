@@ -2,16 +2,17 @@ using UnityEngine;
 
 namespace Game.Sim
 {
-    /// <summary>플레이어 이동: WASD·시점·더블점프·질풍참(이동만). 벽은 CharacterMotor가 처리.</summary>
+    /// <summary>플레이어 이동: WASD·시점·더블점프·4방향 대시·런지 이동. 벽은 ICollision이 처리.</summary>
     public static class PlayerMovement
     {
         public static void Step(ref PlayerSim p, in InputCmd cmd, in SimServices svc, float dt)
         {
+            if (!p.alive) return;
             p.yaw = cmd.yaw;
             Vector3 fwd = Forward(p.yaw);
             Vector3 right = new Vector3(fwd.z, 0f, -fwd.x);
 
-            // 질풍참 충전 회복
+            // 대시 충전 회복
             if (p.dashRecharge > 0)
             {
                 p.dashRecharge--;
@@ -23,12 +24,20 @@ namespace Game.Sim
                 }
             }
 
-            // 질풍참 시작
+            if (p.hitStunTicks > 0)
+            {
+                CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out p.grounded);
+                return;
+            }
+
+            if (p.combat.phase == PlayerActionPhase.LungeTravel)
+                return;
+
+            // 4방향 대시 시작
             if (p.dashTicks == 0 && cmd.dash && p.dashCharges > 0)
             {
                 p.dashTicks = SimConfig.DashDurationTicks;
-                Vector3 wish = right * cmd.move.x + fwd * cmd.move.y;
-                p.dashDir = wish.sqrMagnitude > 1e-4f ? wish.normalized : fwd;
+                p.dashDir = DashVector(cmd.dashDirection, fwd, right);
                 p.dashCharges--;
                 if (p.dashRecharge == 0) p.dashRecharge = SimConfig.DashRechargeTicks;
             }
@@ -37,7 +46,12 @@ namespace Game.Sim
             Vector3 horiz;
             if (p.dashTicks > 0)
             {
-                horiz = p.dashDir * SimConfig.DashSpeed * dt;
+                int elapsedTicks = SimConfig.DashDurationTicks - p.dashTicks;
+                float t0 = (float)elapsedTicks / SimConfig.DashDurationTicks;
+                float t1 = (float)(elapsedTicks + 1) / SimConfig.DashDurationTicks;
+                float totalDistance = SimConfig.DashSpeed * SimConfig.DashDurationTicks * dt;
+                float tickDistance = totalDistance * (SmoothStep01(t1) - SmoothStep01(t0));
+                horiz = p.dashDir * tickDistance;
                 p.dashTicks--;
             }
             else
@@ -64,5 +78,22 @@ namespace Game.Sim
 
         static Vector3 Forward(float yaw)
             => new Vector3(Mathf.Sin(yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(yaw * Mathf.Deg2Rad));
+
+        static float SmoothStep01(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return t * t * (3f - 2f * t);
+        }
+
+        static Vector3 DashVector(DashDirection direction, Vector3 forward, Vector3 right)
+        {
+            switch (direction)
+            {
+                case DashDirection.Backward: return -forward;
+                case DashDirection.Left: return -right;
+                case DashDirection.Right: return right;
+                default: return forward;
+            }
+        }
     }
 }

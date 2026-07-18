@@ -7,10 +7,23 @@ namespace Game.Sim
     {
         public static SimWorld Clone(in SimWorld src)
         {
-            SimWorld dst = src;                            // 값 필드 복사
-            dst.enemies = new EnemySim[src.enemies.Length];
-            Array.Copy(src.enemies, dst.enemies, src.enemies.Length);
+            SimWorld dst = SimWorld.Create();
+            CopyTo(in src, ref dst);
             return dst;
+        }
+
+        public static void CopyTo(in SimWorld src, ref SimWorld dst)
+        {
+            if (dst.enemies == null || dst.enemies.Length < src.enemies.Length)
+                dst.enemies = new EnemySim[src.enemies.Length];
+
+            dst.tick = src.tick;
+            dst.player = src.player;
+            dst.enemyCount = src.enemyCount;
+            dst.spawnLocked = src.spawnLocked;
+            dst.waveId = src.waveId;
+            dst.mapVersion = src.mapVersion;
+            Array.Copy(src.enemies, dst.enemies, src.enemyCount);
         }
     }
 }

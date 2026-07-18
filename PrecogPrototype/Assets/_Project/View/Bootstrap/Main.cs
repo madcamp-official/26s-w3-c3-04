@@ -11,6 +11,10 @@ namespace Game.View
     /// </summary>
     public class Main : MonoBehaviour
     {
+        public static Main Instance { get; private set; }
+        public ref readonly SimWorld World => ref world;
+        public Camera Cam => cam;
+
         [SerializeField] float eyeHeight = 1.0f;   // 줄인 키(1.15)에 맞춤
         public bool useSceneGeometry;   // true=씬 지형(Synty) 사용, false=코드 큐브맵
 
@@ -19,7 +23,8 @@ namespace Game.View
         readonly EntityViews views = new EntityViews();
         SimServices services;
         Camera cam;
-        float fixedAccum;
+
+        void Awake() => Instance = this;
 
         void Start()
         {
@@ -29,8 +34,12 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             var links = useSceneGeometry ? MapBuilder.BuildFromScene() : MapBuilder.BuildCubes();
-            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers),
-                                       new NavMeshPathfinder(links));
+            IPathfinder pathfinder = useSceneGeometry
+                ? new NavMeshPathfinder(links)
+                : GraphPathfinder.CreatePrototypeArena();
+            services = new SimServices(
+                new PhysicsCollision(Physics.DefaultRaycastLayers),
+                pathfinder);
 
             world = SimWorld.Create();
 
@@ -58,7 +67,8 @@ namespace Game.View
                 DiagnoseLink(new Vector3(0f, 4f, 14f), world.player.pos,
                              new Vector3(-6.5f, 4f, 14f), new Vector3(-12f, 0f, 14f));
             }
-            prevWorld = Snapshot.Clone(in world);
+            prevWorld = SimWorld.Create();
+            Snapshot.CopyTo(in world, ref prevWorld);
 
             views.Init();
             SetupCamera();
@@ -67,15 +77,14 @@ namespace Game.View
             Cursor.visible = false;
 
             Debug.Log($"[Main] 뼈대 시작. 적 {world.enemyCount}. " +
-                      "WASD 이동 · 마우스 시점 · Space 더블점프 · Shift 질풍참 · Esc 커서해제");
+                      "WASD 이동 · 마우스 시점 · Space 더블점프 · Shift 4방향 대시 · 우클릭 타깃 런지 · Esc 커서해제");
         }
 
         void Update()
         {
             input.PollFrame();
 
-            fixedAccum += Time.deltaTime;
-            float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
+            float alpha = Mathf.Clamp01((Time.time - Time.fixedTime) / Time.fixedDeltaTime);
             views.Sync(in world, in prevWorld, alpha);
 
             if (cam != null && views.PlayerAnchor != null)
@@ -89,11 +98,9 @@ namespace Game.View
 
         void FixedUpdate()
         {
-            prevWorld = Snapshot.Clone(in world);
+            Snapshot.CopyTo(in world, ref prevWorld);
             InputCmd cmd = input.Consume();
             SimStep.Run(ref world, in cmd, in services);
-            fixedAccum = 0f;
-
             // 하강 시작 감지 (링크 라우팅 확인용)
             for (int i = 0; i < world.enemyCount; i++)
             {
@@ -101,6 +108,11 @@ namespace Game.View
                     world.enemies[i].descentPhase == DescentPhase.EdgePause)
                     Debug.Log($"[하강] 적 {i} 테두리 점프 시작 (tick {world.tick})");
             }
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
         }
 
         /// <summary>발판→플레이어 경로가 하강 링크를 실제로 지나는지 시작 시 확인.</summary>
@@ -164,11 +176,18 @@ namespace Game.View
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
         {
+            string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            if (scene == "SampleScene")
+            {
+                UnityEngine.SceneManagement.SceneManager.LoadScene("Demo");
+                return;
+            }
+
             if (Object.FindFirstObjectByType<Main>() != null) return;
             var main = new GameObject("[Main]").AddComponent<Main>();
-            // SampleScene = 코드 큐브맵, 그 외(Demo 등) = 씬 지형 사용
-            string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
-            main.useSceneGeometry = scene != "SampleScene";
+            // 빈 Untitled 씬과 SampleScene은 항상 자체 큐브맵을 만든다.
+            // Synty 씬처럼 실제 지형이 있는 것으로 명시한 씬만 씬 지형 모드를 쓴다.
+            main.useSceneGeometry = scene == "Demo" || scene == "Overview";
         }
     }
 }

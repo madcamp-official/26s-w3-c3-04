@@ -2,6 +2,19 @@ using UnityEngine;
 
 namespace Game.Sim
 {
+    public enum EnemyAIState : byte
+    {
+        Idle,
+        Approach,
+        AttackWindup,
+        AttackActive,
+        AttackRecovery,
+        Stunned,
+        Traversal,
+        LandingRecovery,
+        Dead
+    }
+
     /// <summary>테두리 하강 4단계.</summary>
     public enum DescentPhase : byte
     {
@@ -24,6 +37,15 @@ namespace Game.Sim
         public Vector3 vel;
         public float   yaw;
         public bool    grounded;
+        public int     enemyTypeId;
+        public EnemyAIState aiState;
+        public int     stateTicks;
+        public int     attackCooldownTicks;
+        public Vector3 committedAttackDirection;
+        public int     currentNavNodeId;
+        public int     destinationNavNodeId;
+        public int     nextNavNodeId;
+        public int     activeTraversalLinkId;
 
         public Vector3 waypoint;      // 향하는 다음 경로 코너
         public bool    hasWaypoint;
@@ -43,6 +65,11 @@ namespace Game.Sim
             alive = true,
             pos = at,
             grounded = true,
+            aiState = EnemyAIState.Approach,
+            currentNavNodeId = -1,
+            destinationNavNodeId = -1,
+            nextNavNodeId = -1,
+            activeTraversalLinkId = -1,
             combat = EnemyCombatState.Spawn(SimConfig.EnemyNormalHp),
         };
     }

@@ -16,14 +16,20 @@ namespace Game.Sim
         {
             ulong h = Offset;
             h = Mix(h, (ulong)w.tick);
-            h = Mix(h, w.rngState);
+            h = Mix(h, w.spawnLocked ? 1UL : 0UL);
+            h = Mix(h, (ulong)w.waveId);
+            h = Mix(h, (ulong)w.mapVersion);
 
             h = MixV(h, w.player.pos);
             h = MixV(h, w.player.vel);
             h = MixF(h, w.player.yaw);
             h = Mix(h, w.player.grounded ? 1UL : 0UL);
             h = Mix(h, (ulong)w.player.jumpCount);
+            h = Mix(h, (ulong)w.player.health);
+            h = Mix(h, w.player.alive ? 1UL : 0UL);
+            h = Mix(h, (ulong)w.player.hitStunTicks);
             h = Mix(h, (ulong)w.player.dashTicks);
+            h = MixV(h, w.player.dashDir);
             h = Mix(h, (ulong)w.player.dashCharges);
             h = Mix(h, (ulong)w.player.dashRecharge);
             h = CombatHash.MixPlayer(h, in w.player.combat);   // combat 소유 해시
@@ -37,6 +43,16 @@ namespace Game.Sim
                 h = MixV(h, e.pos);
                 h = MixV(h, e.vel);
                 h = MixF(h, e.yaw);
+                h = Mix(h, e.grounded ? 1UL : 0UL);
+                h = Mix(h, (ulong)e.enemyTypeId);
+                h = Mix(h, (ulong)e.aiState);
+                h = Mix(h, (ulong)e.stateTicks);
+                h = Mix(h, (ulong)e.attackCooldownTicks);
+                h = MixV(h, e.committedAttackDirection);
+                h = Mix(h, unchecked((ulong)e.currentNavNodeId));
+                h = Mix(h, unchecked((ulong)e.destinationNavNodeId));
+                h = Mix(h, unchecked((ulong)e.nextNavNodeId));
+                h = Mix(h, unchecked((ulong)e.activeTraversalLinkId));
                 h = MixV(h, e.waypoint);
                 h = Mix(h, e.hasWaypoint ? 1UL : 0UL);
                 h = Mix(h, (ulong)e.repathTicks);

@@ -19,11 +19,11 @@ namespace Game.Sim
         public const float PlayerRadius    = 0.28f;
         public const float PlayerHeight    = 1.15f;
 
-        // 질풍참 (이동만 — 스턴/대미지는 전투 단계)
+        // 4방향 대시
         public const float DashSpeed         = 26f;   // 순간 속도
         public const int   DashDurationTicks = 9;     // 0.15초
-        public const int   DashMaxCharges    = 2;
-        public const int   DashRechargeTicks = 90;    // 충전당 1.5초
+        public const int   DashMaxCharges    = 1;
+        public const int   DashRechargeTicks = 60;
 
         // 적. 크기 축소(부피 ~1/4), 튜닝 대상
         public const float EnemyMoveSpeed  = 4f;
@@ -39,7 +39,6 @@ namespace Game.Sim
         // ── 전투 (combat 세션이 튜닝. rebuild는 스폰·해시에만 씀) ──
         public const int EnemyNormalHp = 2;   // 일반몹 HP
         public const int EnemyMidHp    = 3;   // 중형몹 HP
-        public const int GuardMax      = 240; // 가드 게이지 최대(4등분 → 칼등치기 4회)
         //  스킬 세부 틱(윈드업/액티브/스턴 등)은 combat 소유 파일에 둔다.
 
         // 테두리 하강 (NavMesh Link 점프). 전부 잠정.

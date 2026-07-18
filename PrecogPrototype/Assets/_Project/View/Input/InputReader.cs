@@ -15,7 +15,7 @@ namespace Game.View
         public float Pitch { get; private set; }
 
         const float Sens = 0.08f;
-        bool jumpBuf, dashBuf, attackBuf;
+        bool jumpBuf, dashBuf, attackBuf, lungeBuf;
 
         public void PollFrame()
         {
@@ -27,6 +27,7 @@ namespace Game.View
                 Yaw += d.x * Sens;
                 Pitch = Mathf.Clamp(Pitch - d.y * Sens, -85f, 85f);
                 if (mouse.leftButton.wasPressedThisFrame) attackBuf = true;   // 평타/칼등치기
+                if (mouse.rightButton.wasPressedThisFrame) lungeBuf = true;
             }
             if (kb.spaceKey.wasPressedThisFrame)     jumpBuf = true;
             if (kb.leftShiftKey.wasPressedThisFrame) dashBuf = true;
@@ -47,12 +48,21 @@ namespace Game.View
                 cmd.move = m;
             }
             var mouse = Mouse.current;
-            cmd.block = mouse != null && mouse.rightButton.isPressed;   // 우클릭 홀드=막기
             cmd.jump = jumpBuf;
             cmd.dash = dashBuf;
             cmd.attack = attackBuf;
-            jumpBuf = dashBuf = attackBuf = false;
+            cmd.lunge = lungeBuf;
+            cmd.lungeTargetId = -1;
+            cmd.dashDirection = ResolveDashDirection(cmd.move);
+            jumpBuf = dashBuf = attackBuf = lungeBuf = false;
             return cmd;
+        }
+
+        static DashDirection ResolveDashDirection(Vector2 move)
+        {
+            if (Mathf.Abs(move.x) > Mathf.Abs(move.y))
+                return move.x < 0f ? DashDirection.Left : DashDirection.Right;
+            return move.y < 0f ? DashDirection.Backward : DashDirection.Forward;
         }
 
         public bool EscapePressed()

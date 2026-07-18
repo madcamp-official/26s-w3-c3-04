@@ -409,19 +409,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 575175726}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 294e131dac4f7b442a5bff6cad16e517, type: 3}
+  m_Script: {fileID: 11500000, guid: 97f13a6030f7b6f4b939fb6782ec8b2b, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Game.Runtime::Game.Runtime.Main
-  enemyCount: 8
-  runProofsOnStart: 1
-  drawGizmos: 1
-  eyeHeight: 1.6
-  cam: {fileID: 0}
-  fixedAccumTime: 0
-  prevAliveEnemies: 0
-  prevHp: 0
-  previewOn: 0
-  cursor: 0
+  m_EditorClassIdentifier: Game.View::Game.View.Main
+  eyeHeight: 1
+  useSceneGeometry: 0
 --- !u!4 &575175728
 Transform:
   m_ObjectHideFlags: 0

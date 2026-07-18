@@ -12,14 +12,14 @@ namespace Game.Sim
 
         public static ulong MixPlayer(ulong h, in PlayerCombatState c)
         {
-            h = Mix(h, c.attackPhase);
-            h = Mix(h, (ulong)c.attackPhaseTicks);
-            h = Mix(h, (ulong)c.comboCancelTicks);
-            h = Mix(h, c.blocking ? 1UL : 0UL);
-            h = Mix(h, (ulong)c.guardGauge);
-            h = Mix(h, c.backstrikePhase);
-            h = Mix(h, (ulong)c.backstrikeTicks);
-            h = Mix(h, (ulong)c.frontGuardTicks);
+            h = Mix(h, (ulong)c.phase);
+            h = Mix(h, (ulong)c.phaseTicks);
+            h = Mix(h, (ulong)c.attackSequence);
+            h = Mix(h, (ulong)c.lungeCooldownTicks);
+            h = Mix(h, unchecked((ulong)c.lungeTargetId));
+            h = MixVector(h, c.lungeStart);
+            h = MixVector(h, c.lungeDestination);
+            h = Mix(h, (ulong)c.lungeElapsedTicks);
             return h;
         }
 
@@ -30,5 +30,16 @@ namespace Game.Sim
             h = Mix(h, (ulong)c.deathTick);
             return h;
         }
+
+        static ulong MixVector(ulong h, UnityEngine.Vector3 value)
+        {
+            h = Mix(h, FloatBits(value.x));
+            h = Mix(h, FloatBits(value.y));
+            h = Mix(h, FloatBits(value.z));
+            return h;
+        }
+
+        static ulong FloatBits(float value)
+            => unchecked((uint)System.BitConverter.SingleToInt32Bits(value));
     }
 }

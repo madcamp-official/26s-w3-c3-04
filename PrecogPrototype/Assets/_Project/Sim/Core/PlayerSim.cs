@@ -10,8 +10,11 @@ namespace Game.Sim
         public float   yaw;
         public bool    grounded;
         public int     jumpCount;
+        public int     health;
+        public bool    alive;
+        public int     hitStunTicks;
 
-        // 질풍참
+        // 4방향 대시
         public int     dashTicks;      // >0이면 돌진 중
         public Vector3 dashDir;
         public int     dashCharges;
@@ -23,6 +26,8 @@ namespace Game.Sim
         {
             pos = at,
             grounded = true,
+            health = CombatConfig.PlayerMaxHp,
+            alive = true,
             dashCharges = SimConfig.DashMaxCharges,
             combat = PlayerCombatState.Initial,
         };

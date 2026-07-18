@@ -1,22 +1,78 @@
+using UnityEngine;
+
 namespace Game.Sim
 {
-    /// <summary>
-    /// 대미지·스턴·HP·처치 정리. ★ combat 세션 소유 — 스텁.
-    /// SimStep이 적 이동 다음에 호출한다(자리만 뚫어둠).
-    /// 모든 공격 = 대미지 1 + 스턴 0.5초 통일 적용, HP 감소, 처치 마킹, 넉백 끝점 처리 등.
-    /// 지금은 stunTicks 감소만(적이 영원히 안 굳게).
-    /// </summary>
     public static class CombatResolve
     {
-        public static void Run(ref SimWorld w, in SimServices svc, float dt)
+        public static void Run(ref SimWorld world, in SimServices services, float dt)
         {
-            // 최소 동작: 스턴 타이머 감소 (combat 로직 붙기 전까지 적이 안 굳게)
-            for (int i = 0; i < w.enemyCount; i++)
+            if (world.player.hitStunTicks > 0) world.player.hitStunTicks--;
+
+            for (int i = 0; i < world.enemyCount; i++)
             {
-                if (w.enemies[i].combat.stunTicks > 0)
-                    w.enemies[i].combat.stunTicks--;
+                ref EnemySim enemy = ref world.enemies[i];
+                if (!enemy.alive) continue;
+                if (enemy.combat.stunTicks > 0)
+                {
+                    enemy.combat.stunTicks--;
+                    continue;
+                }
+                if (enemy.attackCooldownTicks > 0) enemy.attackCooldownTicks--;
+                AdvanceEnemyAttack(ref enemy, ref world.player);
             }
-            // TODO(combat 세션): 평타/질풍참/칼등치기 판정, 대미지·스턴 부여, HP·처치, 넉백
+        }
+
+        static void AdvanceEnemyAttack(ref EnemySim enemy, ref PlayerSim player)
+        {
+            switch (enemy.aiState)
+            {
+                case EnemyAIState.AttackWindup:
+                    if (++enemy.stateTicks >= CombatConfig.EnemyAttackWindupTicks)
+                    {
+                        enemy.aiState = EnemyAIState.AttackActive;
+                        enemy.stateTicks = 0;
+                        ApplyEnemyHit(in enemy, ref player);
+                    }
+                    break;
+
+                case EnemyAIState.AttackActive:
+                    if (++enemy.stateTicks >= CombatConfig.EnemyAttackActiveTicks)
+                    {
+                        enemy.aiState = EnemyAIState.AttackRecovery;
+                        enemy.stateTicks = 0;
+                    }
+                    break;
+
+                case EnemyAIState.AttackRecovery:
+                    if (++enemy.stateTicks >= CombatConfig.EnemyAttackRecoveryTicks)
+                    {
+                        enemy.aiState = EnemyAIState.Approach;
+                        enemy.stateTicks = 0;
+                        enemy.attackCooldownTicks = CombatConfig.EnemyAttackCooldownTicks;
+                    }
+                    break;
+            }
+        }
+
+        static void ApplyEnemyHit(in EnemySim enemy, ref PlayerSim player)
+        {
+            if (!player.alive) return;
+            if (Mathf.Abs(player.pos.y - enemy.pos.y) > CombatConfig.EnemyAttackHeightTolerance)
+                return;
+            if (!CombatMath.InCone(
+                enemy.pos,
+                enemy.committedAttackDirection,
+                player.pos,
+                CombatConfig.EnemyAttackRange,
+                CombatConfig.EnemyAttackHalfAngleDeg))
+                return;
+
+            player.health -= CombatConfig.DamagePerHit;
+            player.hitStunTicks = CombatConfig.StunTicks;
+            if (player.health > 0) return;
+            player.health = 0;
+            player.alive = false;
+            player.vel = Vector3.zero;
         }
     }
 }
