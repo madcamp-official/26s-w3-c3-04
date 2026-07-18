@@ -53,6 +53,26 @@ namespace Game.Sim
             return true;
         }
 
+        /// <summary>지정 조합으로 스폰(개발 콘솔용). 죽은 슬롯 재사용, 없으면 append.</summary>
+        public bool AddEnemy(Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
+        {
+            for (int i = 0; i < enemyCount; i++)
+                if (!enemies[i].alive) { enemies[i] = EnemySim.Spawn(i, at, combat, mobility, size); return true; }
+
+            if (enemyCount >= SimConfig.MaxEnemies) return false;
+            enemies[enemyCount] = EnemySim.Spawn(enemyCount, at, combat, mobility, size);
+            enemyCount++;
+            return true;
+        }
+
+        /// <summary>모든 적·투사체 제거(개발 콘솔용). 슬롯은 재사용되므로 alive만 내림.</summary>
+        public void DevClearEnemies()
+        {
+            for (int i = 0; i < enemyCount; i++) enemies[i].alive = false;
+            if (projectiles != null)
+                for (int i = 0; i < projectileCount; i++) projectiles[i].alive = false;
+        }
+
         /// <summary>스폰 슬롯 → (전투, 기동, 크기). 결정론 배분. (층이동·비행은 이후 추가.)</summary>
         static (CombatType, MobilityType, SizeClass) PickSpawn(int slot)
         {

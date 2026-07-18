@@ -32,6 +32,7 @@ namespace Game.Sim
             h = MixF(h, w.player.dashSpeed);
             h = Mix(h, (ulong)w.player.dashCharges);
             h = Mix(h, (ulong)w.player.dashRecharge);
+            h = Mix(h, (ulong)w.player.dashBufferTicks);
             h = CombatHash.MixPlayer(h, in w.player.combat);   // combat 소유 해시
 
             h = Mix(h, (ulong)w.enemyCount);
@@ -48,7 +49,6 @@ namespace Game.Sim
                 h = Mix(h, (ulong)e.repathTicks);
                 h = Mix(h, (ulong)e.descentPhase);
                 h = Mix(h, (ulong)e.descentTicks);
-                h = MixV(h, e.descentEdge);
                 h = MixV(h, e.descentLanding);
                 h = CombatHash.MixEnemy(h, in e.combat);   // combat 소유 해시
                 h = AIHash.MixAI(h, in e.ai);              // AI 소유 해시

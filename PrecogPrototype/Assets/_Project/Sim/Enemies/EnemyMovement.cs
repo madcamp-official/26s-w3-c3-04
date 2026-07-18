@@ -3,9 +3,9 @@ using UnityEngine;
 namespace Game.Sim
 {
     /// <summary>
-    /// 적 이동: 그래프 경로 추격(NextStep) + 하강(Jump 링크). 부스터(Boost)는 이후 단계.
-    /// 하강 판단을 자체로 안 한다 — 최단경로표가 Jump 링크를 태우면 그때 하강을 실행할 뿐.
-    /// 추격 방향엔 분리 스티어링(sep)을 가중해 뭉침을 막는다.
+    /// 적 이동: NavMesh 경로 추격(NextStep 다음 코너) + 절벽 낙하(Jump). 이동은 분리 스티어링(sep)을
+    /// 섞어 뭉침을 막고, 시선(yaw)은 이동과 분리해 항상 플레이어를 응시한다(밀림 방향 회전 버그 방지).
+    /// 얇은 다리 낙하 방지는 SimStep 틱 끝의 ClampToNavMesh(navmesh 되당김)가 담당한다.
     /// </summary>
     public static class EnemyMovement
     {
@@ -22,7 +22,7 @@ namespace Game.Sim
             if (FlatSqrDist(e.pos, player.pos) > SimConfig.EnemyAggroRange * SimConfig.EnemyAggroRange)
             { Move(ref e, Vector3.zero, svc, dt); return; }
 
-            // 경로 재계산(주기적) — 그래프 표 조회(가벼움, 예측 친화)
+            // 경로 재계산(주기적) — NavMesh 다음 코너 조회
             if (e.repathTicks > 0) e.repathTicks--;
             if (e.repathTicks == 0 || !e.hasWaypoint)
             {
@@ -30,9 +30,12 @@ namespace Game.Sim
                 e.waypoint = step.next;
                 e.hasWaypoint = step.kind != MoveKind.None;
                 e.repathTicks = SimConfig.EnemyRepathTicks;
-                if (step.kind == MoveKind.Jump) { StartDescent(ref e, step.next); return; }
-                // MoveKind.Boost: 이후 부스터 상행
+                if (step.kind == MoveKind.Jump) { StartDescent(ref e, step.next); return; }  // 절벽 낙하(off-mesh link)
             }
+
+            // 시선: 이동과 분리 — 항상 플레이어를 응시(밀림 방향으로 도는 회전 방지)
+            Vector3 face = player.pos - e.pos; face.y = 0f;
+            if (face.sqrMagnitude > 1e-6f) e.yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
 
             Vector3 target = e.hasWaypoint ? e.waypoint : player.pos;
             Vector3 to = target - e.pos; to.y = 0f;
@@ -46,52 +49,40 @@ namespace Game.Sim
                 Vector3 steer = dir + sep * AIConfig.SeparationWeight;   // 분리 스티어링(뭉침 방지)
                 if (steer.sqrMagnitude > 1e-6f) dir = steer.normalized;
                 horiz = dir * SimConfig.EnemyMoveSpeed * dt;
-                e.yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
             }
             Move(ref e, horiz, svc, dt);
+            // 다리 낙하 방지는 SimStep 틱 끝의 ClampToNavMesh가 담당(navmesh 되당김).
         }
 
-        /// <summary>하강 시작: 이미 테두리 노드 근처라 걸어가는 단계 없이 멈칫→순간이동→회복.</summary>
+        /// <summary>절벽 낙하 시작: 착지점을 향해 걸어 나가며 중력으로 떨어진다(순간이동 아님).
+        /// ClampToNavMesh는 descentPhase != None을 제외하므로, 낙하 중엔 navmesh 밖으로 나가도 안 당겨진다.</summary>
         static void StartDescent(ref EnemySim e, Vector3 landing)
         {
-            e.descentPhase = DescentPhase.EdgePause;
+            e.descentPhase = DescentPhase.Falling;
             e.descentTicks = 0;
-            e.vel = Vector3.zero;
-            // 착지 분산(id별 결정론) — 여러 몹이 같은 링크로 와도 안 뭉침
-            float ox = ((e.id % 3) - 1) * SimConfig.DescentLandingSpread;
-            float oz = (((e.id / 3) % 3) - 1) * SimConfig.DescentLandingSpread;
-            e.descentLanding = landing + new Vector3(ox, 0f, oz);
+            e.descentLanding = landing;
             Vector3 face = landing - e.pos; face.y = 0f;
             if (face.sqrMagnitude > 1e-4f) e.yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
         }
 
+        /// <summary>낙하 중: 착지점 XZ로 이동 + 중력. 착지점 높이에 닿아 지면에 서면 종료.</summary>
         static void StepDescent(ref EnemySim e, in SimServices svc, float dt)
         {
-            switch (e.descentPhase)
+            e.descentTicks++;
+
+            Vector3 to = e.descentLanding - e.pos; to.y = 0f;
+            float d = to.magnitude;
+            Vector3 horiz = d > 1e-4f ? (to / d) * SimConfig.EnemyMoveSpeed * dt : Vector3.zero;
+            Move(ref e, horiz, svc, dt);   // 수평 이동 + 중력(테두리 벗어나면 자연 낙하)
+
+            // 착지 판정: 지면에 서 있고 착지점 높이 근처 → 종료. 안전장치로 최대 틱도 둠.
+            bool landed = e.grounded && e.pos.y <= e.descentLanding.y + SimConfig.DescentLandEpsilon;
+            if (landed || e.descentTicks >= SimConfig.DescentMaxTicks)
             {
-                case DescentPhase.EdgePause:   // 멈칫(점프 예고)
-                    e.descentTicks++;
-                    if (e.descentTicks >= SimConfig.DescentEdgePauseTicks)
-                    {
-                        e.pos = e.descentLanding;   // 순간이동 (화면은 EntityViews 보간이 슥 미끄러지게)
-                        e.descentPhase = DescentPhase.Recovery;
-                        e.descentTicks = 0;
-                    }
-                    break;
-                case DescentPhase.Recovery:    // 착지 회복
-                    Move(ref e, Vector3.zero, svc, dt);
-                    e.descentTicks++;
-                    if (e.descentTicks >= SimConfig.DescentRecoveryTicks)
-                    {
-                        e.descentPhase = DescentPhase.None;
-                        e.descentTicks = 0;
-                        e.repathTicks = 0;
-                        e.hasWaypoint = false;
-                    }
-                    break;
-                default:   // ApproachEdge(그래프 전환으로 미사용) 등 → 종료
-                    e.descentPhase = DescentPhase.None;
-                    break;
+                e.descentPhase = DescentPhase.None;
+                e.descentTicks = 0;
+                e.repathTicks = 0;
+                e.hasWaypoint = false;
             }
         }
 

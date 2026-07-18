@@ -17,7 +17,7 @@ namespace Game.View
     /// </summary>
     public class CombatCamera : MonoBehaviour
     {
-        const float TurnRate = 18f;    // 클수록 빠르게 대상 조준
+        const float TurnRate = 24f;    // 클수록 빠르게 대상 조준(지수 스무딩이라 부드러움 유지)
 
         float curYaw, curPitch;   // 부드럽게 따라가는 현재 시선 (지속 상태 — 매 프레임 절대 세팅)
         bool  locked;
@@ -42,8 +42,13 @@ namespace Game.View
             }
 
             // 대상: 글로리킬 처형 몹 우선, 아니면 런지 표적 몹(몸통 겨냥). 표적은 바인드로 정지.
-            Vector3 targetPos = glory ? w.enemies[c.gloryTargetId].pos : LungeTargetPos(in w, c.lungeTargetId);
-            Vector3 aimAt = targetPos + Vector3.up * (SimConfig.EnemyHeight * 0.6f);
+            // 대상의 '실제' 높이로 중심을 겨냥 — 대형몹(×3)의 발치를 보던 버그 수정.
+            Vector3 targetPos; float targetHeight;
+            if (glory)
+            { targetPos = w.enemies[c.gloryTargetId].pos; targetHeight = w.enemies[c.gloryTargetId].height; }
+            else
+            { targetPos = LungeTargetPos(in w, c.lungeTargetId, out targetHeight); }
+            Vector3 aimAt = targetPos + Vector3.up * (targetHeight * 0.5f);
             Vector3 d = aimAt - cam.transform.position;
 
             float lockYaw, lockPitch;
@@ -62,10 +67,11 @@ namespace Game.View
             cam.transform.rotation = Quaternion.Euler(curPitch, curYaw, 0f);
         }
 
-        static Vector3 LungeTargetPos(in SimWorld w, int targetId)
+        static Vector3 LungeTargetPos(in SimWorld w, int targetId, out float height)
         {
             for (int i = 0; i < w.enemyCount; i++)
-                if (w.enemies[i].id == targetId) return w.enemies[i].pos;
+                if (w.enemies[i].id == targetId) { height = w.enemies[i].height; return w.enemies[i].pos; }
+            height = SimConfig.EnemyHeight;
             return w.player.combat.lungeDest;   // 표적 소실 시 도착점
         }
     }

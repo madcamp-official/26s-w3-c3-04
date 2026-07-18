@@ -32,6 +32,7 @@ namespace Game.Sim
         public static int   DashDurationTicks = 24;     // 최대 지속(속도가 죽어도 이 틱에 종료)
         public static int   DashMaxCharges    = 2;      // 둠식 2스택
         public static int   DashRechargeTicks = 60;     // 스택당 1초
+        public static int   DashReserveWindow = 9;      // 대시 막판 이 틱 이내 입력 → 예약(끝나면 즉시 다음 대시)
 
         // 적. 크기 축소(부피 ~1/4), 튜닝 대상
         public const float EnemyMoveSpeed  = 6f;    // 근접 그런트 = 플레이어 7의 ~0.85× (원거리는 자체 4)
@@ -40,6 +41,7 @@ namespace Game.Sim
         public const float EnemyAggroRange = 40f;
         public const int   EnemyRepathTicks = 15;     // 경로 재계산 주기
         public const float EnemyArriveDist  = 0.6f;   // 코너 도달 판정
+        public const float EnemyNavClampDist = 2f;    // 틱 끝에 지상몹을 navmesh로 되당기는 최대 거리(다리 낙하 방지)
 
         // 캐릭터끼리 겹침 분리 (대칭)
         public const float SeparationPush = 0.5f;     // 겹친 만큼 * 이 비율씩 양쪽으로
@@ -51,13 +53,11 @@ namespace Game.Sim
         public const float EnemyLargeScale = 3f;   // 대형몹 크기 배율
         //  스킬 세부 틱(윈드업/액티브/스턴 등)은 combat 소유 파일에 둔다.
 
-        // 테두리 하강 (순간이동식 + 자체 판단). 전부 잠정.
-        public const int   DescentEdgePauseTicks = 12;   // 멈칫 (0.2초)
-        public const int   DescentRecoveryTicks  = 15;   // 착지 후 회복 (0.25초)
-        public const float DescentThreshold      = 0.8f; // 점프길 < 걷는길 * 이 값 이면 하강
-        public const float DescentEdgeReach      = 0.8f; // 테두리 도달 판정
-        public const float DescentLandingSpread  = 1.2f; // 착지 분산(여러 몹 안 뭉치게)
-        public const float DescentMinHeight      = 2f;   // 이만큼 위에 있을 때만 하강 검토
+        // 절벽 낙하 (자연 낙하). off-mesh link를 큰 낙차로 감지 → 착지점으로 걸어 나가 떨어짐.
+        public const float DropDetectMinHeight = 2f;    // 다음 코너가 이만큼 아래면 낙하 후보
+        public const float DropDetectRatio     = 1.5f;  // 낙차 > 수평거리 * 이 값 이면 절벽(경사로와 구분)
+        public const float DescentLandEpsilon  = 0.3f;  // 착지점 높이 이 오차 안이고 지면이면 착지 완료
+        public const int   DescentMaxTicks     = 120;   // 낙하 안전장치(2초). 어디도 못 닿으면 강제 종료
 
         // 소환 (지정 지점 + 일정 간격)
         public const int SpawnIntervalTicks = 45;   // 0.75초마다 한 마리

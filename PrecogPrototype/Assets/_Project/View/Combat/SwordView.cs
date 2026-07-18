@@ -152,39 +152,43 @@ namespace Game.View
         /// </summary>
         static void Glory(in PlayerCombatState c, out Vector3 pos, out Quaternion rot)
         {
-            // 슬래시는 화면 중앙 앞, 대각선 크게 교차. 피니시는 아래→위 큰 궤적.
-            Vector3 sPosA = new Vector3(0.22f, 0.22f, 0.55f), sPosB = new Vector3(-0.22f, 0.20f, 0.55f);
-            Vector3 sPosEnd = new Vector3(0f, -0.18f, 0.60f);
-            Vector3 raiseA = new Vector3(-70f, 45f, 55f), slashA = new Vector3(60f, -55f, -55f);   // ↘ 베기
-            Vector3 raiseB = new Vector3(-70f, -45f, -55f), slashB = new Vector3(60f, 55f, 55f);   // ↙ 베기
-            Vector3 lowPos  = new Vector3(0f, -0.48f, 0.55f), lowEul  = new Vector3(80f, 0f, 0f);
-            Vector3 highPos = new Vector3(0f, 0.40f, 0.62f),  highEul = new Vector3(-80f, 0f, 0f);
+            // 평타 스윙(치켜듦→베어내림)을 화면 중앙 앞에서 크게 2번(좌우 대칭), 피니시는 런지 어퍼컷.
+            // 카메라가 적을 중앙 고정하므로 칼도 중앙 앞에서 크게 휘둘러야 보인다.
+            Vector3 atkPos = new Vector3(0.04f, 0.02f, 0.55f);                                   // 평타는 중앙 앞 고정
+            Vector3 raise1 = new Vector3(-68f, 42f, 38f), slash1 = new Vector3(60f, -54f, -40f); // ↘ 평타
+            Vector3 raise2 = new Vector3(-68f, -42f, -38f), slash2 = new Vector3(60f, 54f, 40f); // ↙ 평타(반대손)
+            // 런지 어퍼컷(아래→위) — 돌진과 한 비트(우클 모션 재사용)
+            Vector3 lungeLow  = new Vector3(0.08f, -0.44f, 0.55f), lungeLowEul  = new Vector3(75f, -18f, 18f);
+            Vector3 lungeHigh = new Vector3(-0.08f, 0.34f, 0.62f), lungeHighEul = new Vector3(-75f, 22f, -32f);
 
             switch (c.gloryPhase)
             {
-                case CombatConfig.GlSlash1:
+                case CombatConfig.GlSlash1:   // 평타 1
                 {
-                    float t = Frac(c.gloryTicks, CombatConfig.GlorySlashTicks);
-                    pos = Vector3.Lerp(sPosA, sPosEnd, t);
-                    rot = Quaternion.Euler(Vector3.Lerp(raiseA, slashA, t));
+                    float t = Ease(Frac(c.gloryTicks, CombatConfig.GlorySlashTicks));
+                    pos = atkPos;
+                    rot = Quaternion.Euler(Vector3.Lerp(raise1, slash1, t));
                     break;
                 }
-                case CombatConfig.GlSlash2:
+                case CombatConfig.GlSlash2:   // 평타 2 (반대 방향)
                 {
-                    float t = Frac(c.gloryTicks, CombatConfig.GlorySlashTicks);
-                    pos = Vector3.Lerp(sPosB, sPosEnd, t);
-                    rot = Quaternion.Euler(Vector3.Lerp(raiseB, slashB, t));
+                    float t = Ease(Frac(c.gloryTicks, CombatConfig.GlorySlashTicks));
+                    pos = atkPos;
+                    rot = Quaternion.Euler(Vector3.Lerp(raise2, slash2, t));
                     break;
                 }
-                default: // GlDash — 올려베기 피니시
+                default: // GlDash — 런지 어퍼컷 + 돌진(한 비트)
                 {
-                    float t = Frac(c.gloryTicks, CombatConfig.GloryDashTicks);
-                    pos = Vector3.Lerp(lowPos, highPos, t);
-                    rot = Quaternion.Euler(Vector3.Lerp(lowEul, highEul, t));
+                    float t = Ease(Frac(c.gloryTicks, CombatConfig.GloryDashTicks));
+                    pos = Vector3.Lerp(lungeLow, lungeHigh, t);
+                    rot = Quaternion.Euler(Vector3.Lerp(lungeLowEul, lungeHighEul, t));
                     break;
                 }
             }
         }
+
+        /// <summary>스무드스텝(양끝 부드럽고 중간 빠름) — 짧은 처형 컷을 "부드럽지만 빠르게".</summary>
+        static float Ease(float t) => t * t * (3f - 2f * t);
 
         static float Frac(int ticks, int total) => total <= 0 ? 1f : Mathf.Clamp01((float)ticks / total);
 

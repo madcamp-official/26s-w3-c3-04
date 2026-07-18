@@ -2,13 +2,11 @@ using UnityEngine;
 
 namespace Game.Sim
 {
-    /// <summary>테두리 하강 (순간이동식): 테두리로 이동 → 멈칫 → 순간이동 → 회복.</summary>
+    /// <summary>절벽 낙하: off-mesh link를 태우면 착지점을 향해 걸어 나가 중력으로 떨어진다(순간이동 아님).</summary>
     public enum DescentPhase : byte
     {
         None = 0,
-        ApproachEdge = 1,  // 절벽 테두리로 이동
-        EdgePause = 2,     // 테두리에서 멈칫 (점프 예고)
-        Recovery = 3,      // 착지 후 자세 추스림 (순간이동은 EdgePause→Recovery 전환 때)
+        Falling = 1,   // 착지점 XZ로 이동 + 중력 낙하 중 (착지하면 종료)
     }
 
     /// <summary>
@@ -29,18 +27,17 @@ namespace Game.Sim
         public float   radius;
         public float   height;
 
-        public Vector3 waypoint;      // 향하는 다음 경로 코너
+        public Vector3 waypoint;      // 향하는 다음 경로 코너(NavMesh)
         public bool    hasWaypoint;
         public int     repathTicks;   // 재계산까지 남은 틱
 
         public EnemyCombatState combat;   // ← combat 세션 소유 (health/stun/처치)
         public EnemyAI          ai;       // ← AI 세션 소유 (상태머신/아키타입)
 
-        // 테두리 하강 (순간이동식)
+        // 절벽 낙하 (자연 낙하)
         public DescentPhase descentPhase;
-        public int          descentTicks;
-        public Vector3      descentEdge;     // 걸어갈 절벽 테두리
-        public Vector3      descentLanding;  // 순간이동 착지점 (id별 분산 포함)
+        public int          descentTicks;    // 낙하 안전장치(무한 방지)
+        public Vector3      descentLanding;   // off-mesh link 착지점(향해 걸어 나가며 떨어짐)
 
         public static EnemySim Spawn(int id, Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
         {

@@ -6,19 +6,17 @@ using Game.Sim;
 
 namespace Game.View
 {
-    /// <summary>맵 생성 결과: 하강 테두리 + 스폰 지점 + 플레이어 시작점 + 나브 그래프.</summary>
+    /// <summary>맵 생성 결과: 스폰 지점 + 플레이어 시작점. 길찾기는 NavMesh 베이크(런타임).</summary>
     public class MapResult
     {
-        public List<(Vector3 edge, Vector3 landing)> drops = new();
         public List<Vector3> spawns = new();
         public Vector3 playerSpawn;
-        public NavGraph navGraph;   // null이면 NavMeshPathfinder 폴백(씬 모드 등)
     }
 
     /// <summary>
     /// 코드 아레나(축정렬 박스 + 쐐기 경사로)와 NavMesh 베이크.
     /// 여러 높이의 발판 + 부드러운 경사로 + 벽으로 길찾기 복잡도를 준다.
-    /// 하강 테두리 몇 곳 지정(우리가 판단해 순간이동).
+    /// 길찾기는 런타임 NavMesh. 절벽 낙하는 Phase 2에서 off-mesh link로 추가 예정.
     /// </summary>
     public static class MapBuilder
     {
@@ -87,19 +85,11 @@ namespace Game.View
                 : "[Map] NavMesh 베이크 실패");
             DrawNavMeshOverlay(tri);
 
-            // ── 하강 테두리 (우리가 판단해 순간이동) ──
-            AddDrop(r, new Vector3(18f, 9f, 22f),  new Vector3(15f, 4.5f, 22f));   // 3F→2F NE 서
-            AddDrop(r, new Vector3(22f, 9f, 18f),  new Vector3(22f, 4.5f, 15f));   // 3F→2F NE 남
-            AddDrop(r, new Vector3(-18f, 9f, -22f), new Vector3(-15f, 4.5f, -22f)); // 3F→2F SW
-            AddDrop(r, new Vector3(-22f, 9f, -18f), new Vector3(-22f, 4.5f, -15f)); // 3F→2F SW
-            AddDrop(r, new Vector3(0f, 9f, 22f),   new Vector3(0f, 0f, 22f));      // 3F 다리→1F 북
-            AddDrop(r, new Vector3(-22f, 9f, 0f),  new Vector3(-26f, 0f, 0f));     // 3F 다리→1F 서
-            AddDrop(r, new Vector3(6f, 4.5f, 10f), new Vector3(0f, 0f, 10f));      // 2F→1F NE 서
-            AddDrop(r, new Vector3(10f, 4.5f, 6f), new Vector3(10f, 0f, 0f));      // 2F→1F NE 남
-            AddDrop(r, new Vector3(-6f, 4.5f, -10f), new Vector3(0f, 0f, -10f));   // 2F→1F SW
-            AddDrop(r, new Vector3(-10f, 4.5f, -6f), new Vector3(-10f, 0f, 0f));   // 2F→1F SW
-            AddDrop(r, new Vector3(-10f, 3f, 17f), new Vector3(-6f, 0f, 17f));     // 반층→1F NW
-            AddDrop(r, new Vector3(10f, 3f, -17f), new Vector3(6f, 0f, -17f));     // 반층→1F SE
+            // ── 절벽 낙하 링크(off-mesh link): 경사로 없는 진짜 절벽만. 다리(3F 남쪽 테두리) → 1F 개활.
+            //    일방(위→아래). NavMesh가 이 링크로 경로를 태우면 몹이 걸어 나가 자연 낙하. 좌표는 1차 추정 — 테스트로 조정. ──
+            DropLink(new Vector3(-8f, 9f, 20f), new Vector3(-8f, 0f, 17f));
+            DropLink(new Vector3( 0f, 9f, 20f), new Vector3( 0f, 0f, 17f));
+            DropLink(new Vector3( 8f, 9f, 20f), new Vector3( 8f, 0f, 17f));
 
             // ── 스폰 지점 (1F·반층·2F·3F 다양한 위치·고저차) ──
             r.spawns.Add(new Vector3(0f, 0f, -22f));    // 1F S
@@ -114,62 +104,9 @@ namespace Game.View
             r.spawns.Add(new Vector3(-23f, 9f, -23f));  // 3F SW 타워
             r.playerSpawn = new Vector3(0f, 0f, 10f);   // 1F 중앙 개활지
 
-            r.navGraph = BuildNavGraph();   // ← 예측 친화 노드 그래프(NavMesh 대체)
-
             Light();
             return r;
         }
-
-        /// <summary>
-        /// 이 아레나의 나브 노드 그래프. 층별 주요 지점 + 경사로(walk) + 하강(Jump, 일방 high→low).
-        /// 최단경로가 Jump를 태우면 몹이 하강 실행 — 자체판단 없음. Boost(부스터 상행)는 이후.
-        /// 노드-투-노드라 다소 거칠다(로컬 스티어링/노드 촘촘화는 이후 단계).
-        /// </summary>
-        static NavGraph BuildNavGraph()
-        {
-            var nodes = new NavNode[]
-            {
-                N(0f, 0f, 0f, 0),        // 0  1F 중앙
-                N(14f, 0f, -6f, 0),      // 1  1F SE
-                N(-14f, 0f, 6f, 0),      // 2  1F NW
-                N(10f, 0f, -2f, 0),      // 3  NE 경사로12 하단
-                N(-10f, 0f, 2f, 0),      // 4  SW 경사로12 하단
-                N(-6f, 0f, 17f, 0),      // 5  NW 반층경사로 하단
-                N(6f, 0f, -17f, 0),      // 6  SE 반층경사로 하단
-                N(10f, 4.5f, 6f, 2),     // 7  NE 경사로12 상단(2F)
-                N(10f, 4.5f, 18f, 2),    // 8  NE 경사로23 하단
-                N(-10f, 4.5f, -6f, 2),   // 9  SW 경사로12 상단
-                N(-10f, 4.5f, -18f, 2),  // 10 SW 경사로23 하단
-                N(18f, 9f, 20f, 3),      // 11 NE 타워/경사로23 상단(3F)
-                N(-18f, 9f, -20f, 3),    // 12 SW 타워
-                N(0f, 9f, 22f, 3),       // 13 3F 다리 중앙
-                N(-14f, 3f, 17f, 1),     // 14 반층 NW
-                N(14f, 3f, -17f, 1),     // 15 반층 SE
-                N(0f, 0f, 20f, 0),       // 16 1F 북(3F 다리 하강 착지)
-            };
-
-            var links = new List<NavLink>();
-            void W(int a, int b) { const float w = 4f; links.Add(new NavLink(a, b, MoveKind.Walk, w)); links.Add(new NavLink(b, a, MoveKind.Walk, w)); }
-            void J(int a, int b) { links.Add(new NavLink(a, b, MoveKind.Jump, 4f)); }   // 일방 하강
-            W(0, 1); W(0, 2); W(0, 3); W(0, 4); W(0, 5); W(0, 6); W(1, 3); W(2, 4);  // 1F
-            W(3, 7); W(4, 9);          // 1F→2F 경사로12
-            W(7, 8); W(9, 10);         // 2F 내부
-            W(8, 11); W(10, 12);       // 2F→3F 경사로23
-            W(11, 13); W(12, 13);      // 3F 다리
-            W(5, 14); W(6, 15);        // 1F→반층 경사로
-            W(0, 16); W(5, 16);        // 1F 북 노드
-
-            // 하강(Jump, 일방 high→low). 최단경로가 이걸 태우면 몹이 하강 실행.
-            J(13, 16);                 // 3F 다리 → 1F 북(걸어 돌면 매우 김 → 여기서 하강 이득)
-            J(11, 8); J(12, 10);       // 3F 타워 → 2F
-            J(7, 3); J(9, 4);          // 2F → 1F
-            J(14, 5); J(15, 6);        // 반층 → 1F
-
-            return NavGraph.Create(nodes, links.ToArray());
-        }
-
-        static NavNode N(float x, float y, float z, byte level)
-            => new NavNode { pos = new Vector3(x, y, z), level = level };
 
         public static MapResult BuildFromScene(Vector3 refPoint)
         {
@@ -197,10 +134,29 @@ namespace Game.View
             return r;
         }
 
-        static void AddDrop(MapResult r, Vector3 edge, Vector3 landing)
+        /// <summary>
+        /// 절벽 낙하용 off-mesh link(일방, 위→아래). NavMesh가 이 링크로 경로를 태우면
+        /// NavMeshPathfinder가 큰 낙차로 감지해 kind=Jump → 몹이 걸어 나가 떨어진다(순간이동 아님).
+        /// </summary>
+        static void DropLink(Vector3 from, Vector3 to)
         {
-            r.drops.Add((edge, landing));
-            DrawLink(edge, landing);
+            var link = new GameObject("DropLink").AddComponent<NavMeshLink>();
+            link.startPoint = from;      // 로컬=월드(트랜스폼 원점·단위)
+            link.endPoint = to;
+            link.width = 3f;
+            link.bidirectional = false;  // 위→아래만(절벽은 못 거슬러 오름)
+            link.area = 0;               // Walkable
+            link.UpdateLink();
+
+            // 시각화(순수 표시 — 동작 무해): 노란 선 = 드롭 경로, 주황 구슬 = 착지점
+            var lr = new GameObject("DropLinkViz").AddComponent<LineRenderer>();
+            lr.material = Unlit(new Color(1f, 0.9f, 0.1f));
+            lr.widthMultiplier = 0.2f; lr.positionCount = 2;
+            lr.SetPosition(0, from); lr.SetPosition(1, to);
+            var s = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            s.name = "DropLandingMark"; Object.Destroy(s.GetComponent<Collider>());
+            s.transform.position = to + Vector3.up * 0.3f; s.transform.localScale = Vector3.one * 0.6f;
+            s.GetComponent<Renderer>().material = Unlit(new Color(1f, 0.5f, 0.1f));
         }
 
         // ── 지형 헬퍼 (전부 축정렬) ──
@@ -296,20 +252,6 @@ namespace Game.View
             go.transform.position = Vector3.up * 0.06f;
             go.AddComponent<MeshFilter>().mesh = mesh;
             go.AddComponent<MeshRenderer>().material = Unlit(new Color(0.25f, 0.75f, 1f));
-        }
-
-        static void DrawLink(Vector3 start, Vector3 end)
-        {
-            var lr = new GameObject("DropViz").AddComponent<LineRenderer>();
-            lr.material = Unlit(new Color(1f, 0.9f, 0.1f));
-            lr.widthMultiplier = 0.25f;
-            lr.positionCount = 2;
-            lr.SetPosition(0, start + Vector3.up * 0.2f);
-            lr.SetPosition(1, end + Vector3.up * 0.2f);
-            var s = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            s.name = "LandingMark"; Object.Destroy(s.GetComponent<Collider>());
-            s.transform.position = end + Vector3.up * 0.3f; s.transform.localScale = Vector3.one * 0.6f;
-            s.GetComponent<Renderer>().material = Unlit(new Color(1f, 0.5f, 0.1f));
         }
 
         static GameObject Cube(string name, Vector3 c, Vector3 s, Material m)

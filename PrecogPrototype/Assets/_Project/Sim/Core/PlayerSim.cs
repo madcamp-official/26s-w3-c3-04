@@ -21,6 +21,7 @@ namespace Game.Sim
         public float   dashSpeed;      // 현재 대시 속도(매 틱 드래그로 감쇠)
         public int     dashCharges;
         public int     dashRecharge;   // 다음 충전까지 남은 틱
+        public int     dashBufferTicks; // 대시 막판 예약(>0이면 현재 대시 끝나는 즉시 다음 대시)
 
         public PlayerCombatState combat;   // ← combat 세션 소유 (필드는 그쪽 파일에서 늘림)
 

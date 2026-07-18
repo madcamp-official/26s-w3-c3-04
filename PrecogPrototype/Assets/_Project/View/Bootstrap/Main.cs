@@ -32,10 +32,16 @@ namespace Game.View
         readonly PredictionController prediction = new PredictionController();
         SimServices services;
         Camera cam;
+        DevConsole console;
         float fixedAccum;
 
         System.Collections.Generic.List<Vector3> spawnPoints;
         int spawnTimer, nextSpawn;
+
+        // 개발 콘솔 훅
+        public bool AutoSpawn = true;                 // false면 주기 자동소환 멈춤(패턴 관찰용)
+        const float DevSpawnDistance = 6f;            // 콘솔 소환 위치 = 플레이어 정면 이 거리
+        bool ConsoleOpen => console != null && console.IsOpen;
 
         void Start()
         {
@@ -45,10 +51,9 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
-            // 노드 그래프가 있으면 그걸로(예측 친화·Physics 0), 없으면 런타임 NavMesh 폴백.
-            IPathfinder pathfinder = map.navGraph != null
-                ? new GraphPathfinder(map.navGraph)
-                : (IPathfinder)new NavMeshPathfinder();
+            // NavMesh 복귀: 런타임 NavMesh 길찾기(연속 메시·기둥 우회). 얇은 다리 낙하는
+            // 매 틱 navmesh 되당김(ClampToNavMesh)으로 방지. 노드 그래프는 은퇴 예정(Phase 3).
+            IPathfinder pathfinder = new NavMeshPathfinder();
             services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers), pathfinder);
 
             world = SimWorld.Create();
@@ -61,6 +66,7 @@ namespace Game.View
             views.Init();
             SetupCamera();
             prediction.Init(cam);
+            console = gameObject.AddComponent<DevConsole>();   // ` 개발 콘솔(몹 소환 등)
             input.Yaw = 180f;   // 남쪽(아레나) 바라봄
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
@@ -71,7 +77,8 @@ namespace Game.View
 
         void Update()
         {
-            if (!prediction.Frozen) input.PollFrame();
+            // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능)
+            if (!prediction.Frozen && !ConsoleOpen) input.PollFrame();
 
             prediction.Tick(in world);   // 정지 아닐 때: F 감시 / 정지 중: 루트 표시·탑다운 카메라
 
@@ -79,8 +86,8 @@ namespace Game.View
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
             views.Sync(in world, in prevWorld, alpha);
 
-            // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭.
-            if (!prediction.Frozen)
+            // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔 중엔 시점 고정.
+            if (!prediction.Frozen && !ConsoleOpen)
             {
                 if (cam != null && views.PlayerAnchor != null)
                 {
@@ -96,25 +103,29 @@ namespace Game.View
             if (prediction.Frozen) return;   // 예측 정지 중엔 sim·소환 멈춤
 
             prevWorld = Snapshot.Clone(in world);
-            InputCmd cmd = input.Consume();
+            // 콘솔 열림 중엔 플레이어 입력 무시(시점만 유지) — 몹은 계속 움직임
+            InputCmd cmd;
+            if (ConsoleOpen) { cmd = InputCmd.Empty; cmd.yaw = input.Yaw; cmd.pitch = input.Pitch; }
+            else cmd = input.Consume();
             SimStep.Run(ref world, in cmd, in services);
             fixedAccum = 0f;
 
             SpawnTick();
 
-            // 하강 결정 감지 (그래프 Jump 링크 태움 → EdgePause 진입)
+            // 절벽 낙하 시작 감지 (off-mesh link 큰 낙차 → Falling 진입)
             for (int i = 0; i < world.enemyCount; i++)
             {
                 if (prevWorld.enemyCount > i &&
                     prevWorld.enemies[i].descentPhase == DescentPhase.None &&
-                    world.enemies[i].descentPhase == DescentPhase.EdgePause)
-                    Debug.Log($"[하강] 적 {i} 하강(그래프 Jump 링크) (tick {world.tick})");
+                    world.enemies[i].descentPhase == DescentPhase.Falling)
+                    Debug.Log($"[낙하] 적 {i} 절벽 낙하 시작 (tick {world.tick})");
             }
         }
 
         /// <summary>일정 간격으로 지정 스폰 지점에서 순번대로 한 마리씩 (최대치까지).</summary>
         void SpawnTick()
         {
+            if (!AutoSpawn) return;   // 콘솔에서 autospawn off 하면 멈춤
             if (spawnPoints == null || spawnPoints.Count == 0) return;
             spawnTimer++;
             if (spawnTimer < SimConfig.SpawnIntervalTicks) return;
@@ -123,6 +134,19 @@ namespace Game.View
             world.AddEnemy(spawnPoints[nextSpawn % spawnPoints.Count]);
             nextSpawn++;
         }
+
+        // ── 개발 콘솔 훅 ──
+        /// <summary>플레이어 정면에 지정 조합 몹 한 마리 소환.</summary>
+        public void DevSpawn(CombatType combat, MobilityType mobility, SizeClass size)
+        {
+            float yr = input.Yaw * Mathf.Deg2Rad;
+            Vector3 fwd = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
+            Vector3 at = world.player.pos + fwd * DevSpawnDistance;
+            world.AddEnemy(at, combat, mobility, size);
+        }
+
+        public void DevClear() => world.DevClearEnemies();
+        public int AliveEnemyCount() => world.AliveCount();
 
         void SetupCamera()
         {
