@@ -5,7 +5,7 @@ namespace Game.View
 {
     /// <summary>
     /// 전투 HUD. ★ combat 소유·독립(Main 안 건드림). Main.Instance.World만 읽음.
-    /// 세로 막대: 런지 쿨타임(하양) + 옆에 대시 충전(빨강). 위에 HP 바.
+    /// 세로 막대: 대시 충전(빨강). 위에 HP 바. (런지는 무제한이라 표시 없음)
     /// IMGUI(OnGUI) — 캔버스/프리팹 없이 자기완결. 순수 연출.
     /// </summary>
     public class CombatHud : MonoBehaviour
@@ -38,8 +38,7 @@ namespace Game.View
             float y = Screen.height - Pad - BarH;
 
             DrawHp(x, y - 24f, in c);
-            DrawLunge(x, y, in c);
-            DrawDash(x + BarW + Gap, y, in p);
+            DrawDash(x, y, in p);   // 런지 무제한(스택·쿨 없음) → 막대 제거
         }
 
         void DrawHp(float x, float y, in PlayerCombatState c)
@@ -50,22 +49,6 @@ namespace Game.View
             var col = f > 0.3f ? new Color(0.85f, 0.2f, 0.2f) : new Color(1f, 0.5f, 0.1f);  // 낮으면 주황 경고
             Fill(x, y, w * f, h, col);
             Frame(x, y, w, h, new Color(0f, 0f, 0f, 0.6f));
-        }
-
-        void DrawLunge(float x, float y, in PlayerCombatState c)
-        {
-            if (CombatConfig.LungeCooldownTicks <= 0) return;   // 쿨 없음(기본) — 표시 불필요
-
-            var bg = new Color(0.08f, 0.08f, 0.10f, 0.85f);
-            Fill(x - 2, y - 2, BarW + 4, BarH + 4, bg);
-
-            // 쿨타임 회복 진행(가득 = 사용 가능). 사용 가능하면 밝은 하양, 충전 중엔 어둡게.
-            float f = 1f - Mathf.Clamp01(c.lungeCooldown / (float)CombatConfig.LungeCooldownTicks);
-            float fh = BarH * f;
-            var col = c.lungeCooldown == 0 ? new Color(0.92f, 0.92f, 0.95f) : new Color(0.55f, 0.58f, 0.65f);
-            Fill(x, y + (BarH - fh), BarW, fh, col);   // 아래에서 위로 차오름
-
-            Frame(x, y, BarW, BarH, new Color(0f, 0f, 0f, 0.6f));
         }
 
         void DrawDash(float x, float y, in PlayerSim p)

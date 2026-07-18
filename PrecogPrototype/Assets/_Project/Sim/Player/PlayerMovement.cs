@@ -11,6 +11,7 @@ namespace Game.Sim
         public static void Step(ref PlayerSim p, in InputCmd cmd, in SimServices svc, float dt)
         {
             p.yaw = cmd.yaw;
+            p.aimPitch = cmd.pitch;   // 런지 조준 레이용(이동 상태 무관하게 매 틱 갱신)
             Vector3 fwd = Forward(p.yaw);
             Vector3 right = new Vector3(fwd.z, 0f, -fwd.x);
 
@@ -41,13 +42,20 @@ namespace Game.Sim
             // 런지 Travel 중엔 PlayerCombat이 pos를 구동 — 여기선 손대지 않음
             if (p.combat.lungePhase == CombatConfig.LgTravel) return;
 
-            // 4방향 대시 시작 — 카메라 기준 방향, 시작 순간 고정. 이동 전용(피해·무적 없음).
-            if (p.dashTicks == 0 && cmd.dash && p.dashCharges > 0)
+            // 대시 예약 버퍼 감쇠
+            if (p.dashBufferTicks > 0) p.dashBufferTicks--;
+            // 대시 막판(남은 지속 ≤ 예약구간)에 입력하면 예약 — 현재 대시 끝날 때까지 유지
+            if (p.dashTicks > 0 && cmd.dash && p.dashTicks <= SimConfig.DashReserveWindow)
+                p.dashBufferTicks = SimConfig.DashReserveWindow + 2;
+
+            // 4방향 대시 시작: 새 입력 또는 예약(막판 입력). 방향은 발동 순간 WASD. 스택 없으면 무시.
+            if (p.dashTicks == 0 && (cmd.dash || p.dashBufferTicks > 0) && p.dashCharges > 0)
             {
                 p.dashTicks = SimConfig.DashDurationTicks;
                 p.dashDir = DashVector(cmd.dashDirection, fwd, right);
                 p.dashSpeed = SimConfig.DashInitialSpeed;   // 임펄스: 초기 속도 부여(첫 틱이 가장 강함)
                 p.dashCharges--;
+                p.dashBufferTicks = 0;   // 예약 소비
                 if (p.dashRecharge == 0) p.dashRecharge = SimConfig.DashRechargeTicks;
             }
 

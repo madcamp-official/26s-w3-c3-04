@@ -8,6 +8,7 @@ namespace Game.Sim
         public Vector3 pos;
         public Vector3 vel;
         public float   yaw;
+        public float   aimPitch;   // 조준 상하각(cmd.pitch 반영) — 런지 타깃 레이용
         public bool    grounded;
         public int     jumpCount;
         public int     jumpBufferTicks;   // 착지 직전 점프 선입력 버퍼
@@ -20,6 +21,7 @@ namespace Game.Sim
         public float   dashSpeed;      // 현재 대시 속도(매 틱 드래그로 감쇠)
         public int     dashCharges;
         public int     dashRecharge;   // 다음 충전까지 남은 틱
+        public int     dashBufferTicks; // 대시 막판 예약(>0이면 현재 대시 끝나는 즉시 다음 대시)
 
         public PlayerCombatState combat;   // ← combat 세션 소유 (필드는 그쪽 파일에서 늘림)
 

@@ -29,6 +29,7 @@ namespace Game.Sim
             PlayerMovement.Step(ref w.player, in pcmd, in svc, dt);
             PlayerCombat.Step(ref w, in pcmd, in svc, dt);   // ← combat (평타/런지/글로리킬)
 
+            EnemyBrain.ComputeSeparation(in w);          // ← 이웃 회피 벡터 O(N²) 1회 산출(뭉침 방지)
             for (int i = 0; i < w.enemyCount; i++)
                 EnemyBrain.Step(ref w, i, in svc, dt);   // ← AI 세션 (상태머신; 내부에서 이동은 EnemyMovement)
 
@@ -36,8 +37,29 @@ namespace Game.Sim
             CombatResolve.Run(ref w, in svc, dt);           // ← combat 세션 (대미지/스턴/처치 + 히트 큐 적용)
 
             Separate(ref w, in svc);
+            ClampToNavMesh(ref w, in svc);   // 틱 끝: 밀려난 지상몹을 걷기 가능 표면으로 되당김(다리 낙하 방지)
 
             w.tick++;
+        }
+
+        /// <summary>
+        /// 이동·겹침밀침으로 걷기 가능 표면(navmesh) 밖으로 밀려난 지상몹을 되당긴다 — 얇은 다리 낙하 방지.
+        /// 무엇이 밀었든(추격·분리 스티어링·겹침 밀침) 틱 끝에 한 번 잡으므로 낙하가 원천 차단된다.
+        /// 제외: 하강 중(일부러 낙하) · 공중몹(떠 있음) · 돌진 중(오버커밋해 다리 밖으로 날아가게).
+        /// XZ만 당기고 y는 지면 스냅에 맡긴다(수직 팝 방지). navmesh 없으면(그래프 모드) 무동작.
+        /// </summary>
+        static void ClampToNavMesh(ref SimWorld w, in SimServices svc)
+        {
+            for (int i = 0; i < w.enemyCount; i++)
+            {
+                ref EnemySim e = ref w.enemies[i];
+                if (!e.alive) continue;
+                if (e.descentPhase != DescentPhase.None) continue;   // 하강 중
+                if (e.ai.mobility == MobilityType.Flying) continue;  // 공중몹
+                if (e.ai.state == EnemyState.ChargeRun) continue;    // 돌진 중(오버커밋 허용)
+                if (svc.Pathfinder.ClampToWalkable(e.pos, SimConfig.EnemyNavClampDist, out Vector3 onMesh))
+                { e.pos.x = onMesh.x; e.pos.z = onMesh.z; }
+            }
         }
 
         /// <summary>

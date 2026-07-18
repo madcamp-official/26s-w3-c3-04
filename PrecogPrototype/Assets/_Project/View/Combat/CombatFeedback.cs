@@ -71,8 +71,13 @@ namespace Game.View
                 fovKick = Mathf.MoveTowards(fovKick, 0f, FovKickDecay * Time.unscaledDeltaTime);
 
             byte lg = w.player.combat.lungePhase;
-            if (lg != prevLunge && lg == CombatConfig.LgTravel) AddShake(0.14f);
-            prevLunge = lg;
+            if (lg != prevLunge)
+            {
+                if (lg == CombatConfig.LgTravel) AddShake(0.10f);                      // 발동
+                if (prevLunge == CombatConfig.LgTravel && lg == CombatConfig.LgRecovery)
+                { AddShake(0.22f); fovKick = CombatConfig.LungeFovKick / FovKickAmount; }  // 임팩트: 강한 셰이크 + FOV 킥(0~1 모델)
+                prevLunge = lg;
+            }
         }
 
         void LateUpdate()

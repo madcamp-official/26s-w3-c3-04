@@ -38,20 +38,30 @@ namespace Game.Sim
         // <<< [예측 세션 추가 끝]
     }
 
+    /// <summary>다음 스텝의 이동 종류. Walk=지상 걷기, Jump=절벽 낙하(off-mesh link), None=경로 없음.</summary>
+    public enum MoveKind : byte { None = 0, Walk = 1, Jump = 2 }
+
+    /// <summary>from→to 경로의 다음 스텝(다음 코너 + 이동 종류).</summary>
+    public struct PathStep
+    {
+        public MoveKind kind;
+        public Vector3  next;   // 향할 다음 코너(경로 없으면 from/to 그대로)
+    }
+
     /// <summary>
-    /// 경로 질의. 실제 계산은 Bridge(NavMesh.CalculatePath)가 한다.
-    /// 하강 판단은 우리(Sim)가 한다 — 걷는 길 길이 vs 점프 길 길이 비교.
+    /// 경로 질의. NavMesh 런타임 길찾기(연속 메시). 절벽 낙하는 off-mesh link를 큰 낙차로 감지해
+    /// kind=Jump로 알린다(경사로는 Walk). 정적 지형이라 같은 입력→같은 경로(예측·현실 일치).
     /// </summary>
     public interface IPathfinder
     {
-        /// <summary>from→to 경로의 다음 코너. 경로 없으면 false.</summary>
-        bool NextCorner(Vector3 from, Vector3 to, out Vector3 next);
+        /// <summary>from→to 경로의 다음 스텝(다음 코너 + 이동 종류). 경로 없으면 kind=None.</summary>
+        PathStep NextStep(Vector3 from, Vector3 to);
 
-        /// <summary>from→to 경로 전체 길이(코너 합산). 도달 불가면 -1.</summary>
-        float PathLength(Vector3 from, Vector3 to);
-
-        /// <summary>from에서 가장 가까운 하강 테두리와 그 착지점. 없으면 false.</summary>
-        bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing);
+        /// <summary>
+        /// pos를 걷기 가능 표면으로 당긴 위치(navmesh)를 준다 — 얇은 다리 낙하 방지용.
+        /// maxDist 안에 걷기 가능 표면이 없으면 false(그대로 둠). 그래프 모드는 미지원(false).
+        /// </summary>
+        bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh);
     }
 
     /// <summary>Sim이 한 틱 도는 데 필요한 바깥 서비스 묶음.</summary>

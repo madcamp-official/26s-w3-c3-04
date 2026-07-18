@@ -17,22 +17,24 @@ namespace Game.View
 
         // 기본값 캡처(코드 초기값 = 리셋 목표)
         float dMove, dJump, dAirBoost, dDashInit, dDashDecay, dAtkRange, dAtkAngle, dAtkHeight;
-        float dLgSpeed, dLgMin, dLgMax, dLgAngle, dLgStop, dLgHeight;
-        int dJumpBuf, dAirBoostT, dDashTicks, dDashCharges, dDashRecharge;
-        int dAtkW, dAtkA, dAtkR, dLgW, dLgMinT, dLgR, dLgCool, dLgBind, dHp, dHitStun;
+        float dLgMin, dLgMax, dLgAim, dLgStop, dLgHeight, dLgFov, dLgUp;
+        int dJumpBuf, dAirBoostT, dDashTicks, dDashCharges, dDashRecharge, dDashReserve;
+        int dAtkW, dAtkA, dAtkR, dLgW, dLgTravel, dLgR, dLgCool, dLgBind, dLgHitStop, dHp, dHitStun;
 
         void Capture()
         {
             dMove = SimConfig.PlayerMoveSpeed; dJump = SimConfig.PlayerJumpSpeed;
             dJumpBuf = SimConfig.JumpBufferTicks; dAirBoost = SimConfig.AirJumpBoost; dAirBoostT = SimConfig.AirJumpBoostTicks;
             dDashInit = SimConfig.DashInitialSpeed; dDashTicks = SimConfig.DashDurationTicks; dDashDecay = SimConfig.DashDecay;
-            dDashCharges = SimConfig.DashMaxCharges; dDashRecharge = SimConfig.DashRechargeTicks;
+            dDashCharges = SimConfig.DashMaxCharges; dDashRecharge = SimConfig.DashRechargeTicks; dDashReserve = SimConfig.DashReserveWindow;
             dAtkW = CombatConfig.AttackWindupTicks; dAtkA = CombatConfig.AttackActiveTicks; dAtkR = CombatConfig.AttackRecoveryTicks;
             dAtkRange = CombatConfig.AttackConeRange; dAtkAngle = CombatConfig.AttackConeHalfAngle; dAtkHeight = CombatConfig.AttackHeightTolerance;
-            dLgW = CombatConfig.LungeWindupTicks; dLgSpeed = CombatConfig.LungeTravelSpeed; dLgMinT = CombatConfig.LungeTravelMinTicks;
+            dLgW = CombatConfig.LungeWindupTicks; dLgTravel = CombatConfig.LungeTravelTicks;
             dLgR = CombatConfig.LungeRecoveryTicks; dLgCool = CombatConfig.LungeCooldownTicks;
-            dLgMin = CombatConfig.LungeMinRange; dLgMax = CombatConfig.LungeMaxRange; dLgAngle = CombatConfig.LungeHalfAngle;
+            dLgMin = CombatConfig.LungeMinRange; dLgMax = CombatConfig.LungeMaxRange; dLgAim = CombatConfig.LungeAimRadius;
             dLgStop = CombatConfig.LungeStopDistance; dLgHeight = CombatConfig.LungeHeightTolerance; dLgBind = CombatConfig.LungeBindExtraTicks;
+            dLgHitStop = CombatConfig.LungeHitStopTicks; dLgFov = CombatConfig.LungeFovKick;
+            dLgUp = CombatConfig.LungeAimUp;
             dHp = CombatConfig.PlayerMaxHp; dHitStun = CombatConfig.PlayerHitStunTicks;
             captured = true;
         }
@@ -42,13 +44,15 @@ namespace Game.View
             SimConfig.PlayerMoveSpeed = dMove; SimConfig.PlayerJumpSpeed = dJump;
             SimConfig.JumpBufferTicks = dJumpBuf; SimConfig.AirJumpBoost = dAirBoost; SimConfig.AirJumpBoostTicks = dAirBoostT;
             SimConfig.DashInitialSpeed = dDashInit; SimConfig.DashDurationTicks = dDashTicks; SimConfig.DashDecay = dDashDecay;
-            SimConfig.DashMaxCharges = dDashCharges; SimConfig.DashRechargeTicks = dDashRecharge;
+            SimConfig.DashMaxCharges = dDashCharges; SimConfig.DashRechargeTicks = dDashRecharge; SimConfig.DashReserveWindow = dDashReserve;
             CombatConfig.AttackWindupTicks = dAtkW; CombatConfig.AttackActiveTicks = dAtkA; CombatConfig.AttackRecoveryTicks = dAtkR;
             CombatConfig.AttackConeRange = dAtkRange; CombatConfig.AttackConeHalfAngle = dAtkAngle; CombatConfig.AttackHeightTolerance = dAtkHeight;
-            CombatConfig.LungeWindupTicks = dLgW; CombatConfig.LungeTravelSpeed = dLgSpeed; CombatConfig.LungeTravelMinTicks = dLgMinT;
+            CombatConfig.LungeWindupTicks = dLgW; CombatConfig.LungeTravelTicks = dLgTravel;
             CombatConfig.LungeRecoveryTicks = dLgR; CombatConfig.LungeCooldownTicks = dLgCool;
-            CombatConfig.LungeMinRange = dLgMin; CombatConfig.LungeMaxRange = dLgMax; CombatConfig.LungeHalfAngle = dLgAngle;
+            CombatConfig.LungeMinRange = dLgMin; CombatConfig.LungeMaxRange = dLgMax; CombatConfig.LungeAimRadius = dLgAim;
             CombatConfig.LungeStopDistance = dLgStop; CombatConfig.LungeHeightTolerance = dLgHeight; CombatConfig.LungeBindExtraTicks = dLgBind;
+            CombatConfig.LungeHitStopTicks = dLgHitStop; CombatConfig.LungeFovKick = dLgFov;
+            CombatConfig.LungeAimUp = dLgUp;
             CombatConfig.PlayerMaxHp = dHp; CombatConfig.PlayerHitStunTicks = dHitStun;
         }
 
@@ -87,6 +91,7 @@ namespace Game.View
             GUILayout.Label($"→ 총 거리 ≈ {DashDistance():0.00} m", Rich());
             SimConfig.DashMaxCharges = ISlider("스택", SimConfig.DashMaxCharges, 1, 3);
             SimConfig.DashRechargeTicks = ISlider("재충전(틱)", SimConfig.DashRechargeTicks, 20, 180);
+            SimConfig.DashReserveWindow = ISlider("예약 구간(막판 틱)", SimConfig.DashReserveWindow, 0, 20);
 
             GUILayout.Label("<b>평타</b>", Rich());
             CombatConfig.AttackWindupTicks = ISlider("선딜(틱)", CombatConfig.AttackWindupTicks, 1, 20);
@@ -99,15 +104,17 @@ namespace Game.View
             GUILayout.Label("<b>타깃 런지</b>", Rich());
             CombatConfig.LungeMaxRange = FSlider("최대 사거리(m)", CombatConfig.LungeMaxRange, 4f, 20f);
             CombatConfig.LungeMinRange = FSlider("최소 사거리(m)", CombatConfig.LungeMinRange, 0f, 3f);
-            CombatConfig.LungeHalfAngle = FSlider("조준 반각(도)", CombatConfig.LungeHalfAngle, 10f, 60f);
-            CombatConfig.LungeTravelSpeed = FSlider("돌진 속도(m/s)", CombatConfig.LungeTravelSpeed, 15f, 60f);
-            CombatConfig.LungeTravelMinTicks = ISlider("돌진 최소(틱)", CombatConfig.LungeTravelMinTicks, 1, 12);
+            CombatConfig.LungeAimRadius = FSlider("조준 보정 반경(m)", CombatConfig.LungeAimRadius, 0.5f, 4f);
+            CombatConfig.LungeTravelTicks = ISlider("블링크 틱(순간이동급)", CombatConfig.LungeTravelTicks, 1, 6);
             CombatConfig.LungeWindupTicks = ISlider("선딜(틱)", CombatConfig.LungeWindupTicks, 0, 12);
             CombatConfig.LungeRecoveryTicks = ISlider("후딜(틱)", CombatConfig.LungeRecoveryTicks, 2, 40);
             CombatConfig.LungeCooldownTicks = ISlider("쿨타임(틱, 0=없음)", CombatConfig.LungeCooldownTicks, 0, 180);
             CombatConfig.LungeStopDistance = FSlider("정지 간격(m)", CombatConfig.LungeStopDistance, 0.4f, 2f);
-            CombatConfig.LungeHeightTolerance = FSlider("높이 허용(m)", CombatConfig.LungeHeightTolerance, 0.3f, 3f);
+            CombatConfig.LungeAimUp = FSlider("살짝 위(m)", CombatConfig.LungeAimUp, 0f, 2f);
+            CombatConfig.LungeHeightTolerance = FSlider("높이 허용(m, 위/아래)", CombatConfig.LungeHeightTolerance, 0.3f, 12f);
             CombatConfig.LungeBindExtraTicks = ISlider("바인드 여유(틱)", CombatConfig.LungeBindExtraTicks, 0, 30);
+            CombatConfig.LungeHitStopTicks = ISlider("임팩트 히트스톱(틱)", CombatConfig.LungeHitStopTicks, 0, 20);
+            CombatConfig.LungeFovKick = FSlider("임팩트 FOV킥(도)", CombatConfig.LungeFovKick, 0f, 25f);
 
             GUILayout.Label("<b>플레이어</b>", Rich());
             CombatConfig.PlayerMaxHp = ISlider("최대 HP(다음 스폰부터)", CombatConfig.PlayerMaxHp, 1, 20);

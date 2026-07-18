@@ -60,12 +60,14 @@ namespace Game.View
             }
         }
 
-        // ── 포즈 결정 (우선순위: 런지 > 대시 > 평타 > idle) ──
+        // ── 포즈 결정 (우선순위: 처형 > 런지 > 대시 > 평타 > idle) ──
         void ApplyPose(in PlayerSim p)
         {
             Vector3 pos; Quaternion rot;
 
-            if (p.combat.lungePhase != CombatConfig.LgNone)
+            if (p.combat.gloryPhase != CombatConfig.GlNone)
+                Glory(in p.combat, out pos, out rot);
+            else if (p.combat.lungePhase != CombatConfig.LgNone)
                 Lunge(in p.combat, out pos, out rot);
             else if (p.dashTicks > 0)
                 Dash(out pos, out rot);
@@ -74,9 +76,10 @@ namespace Game.View
             else
                 Idle(out pos, out rot);
 
-            // 평타/런지는 크리스프하게(직접), 나머지는 부드럽게 보간
+            // 평타/런지/처형은 크리스프하게(직접), 나머지는 부드럽게 보간
             bool crisp = p.combat.attackPhase != CombatConfig.PhNone
-                         || p.combat.lungePhase != CombatConfig.LgNone;
+                         || p.combat.lungePhase != CombatConfig.LgNone
+                         || p.combat.gloryPhase != CombatConfig.GlNone;
             float k = crisp ? 1f : 1f - Mathf.Exp(-25f * Time.unscaledDeltaTime);
             pivot.localPosition = Vector3.Lerp(pivot.localPosition, pos, k);
             pivot.localRotation = Quaternion.Slerp(pivot.localRotation, rot, k);
@@ -126,35 +129,66 @@ namespace Game.View
             rot = Quaternion.Euler(22f, 8f, 0f);
         }
 
-        /// <summary>타깃 런지: 칼을 정면으로 쭉 뻗는 찌르기. Windup 준비 → Travel 최대 → Recovery 복귀.</summary>
+        /// <summary>타깃 런지(글로리킬식): 블링크 도착과 함께 아래에서 위로 올려베기(어퍼컷 슬래시).</summary>
         static void Lunge(in PlayerCombatState c, out Vector3 pos, out Quaternion rot)
         {
-            rot = Quaternion.Euler(-4f, 0f, 0f);   // 날이 +Z 정면
-            Vector3 ready  = new Vector3(0.20f, -0.16f, 0.40f);   // 당겨 잡음
-            Vector3 thrust = new Vector3(0.10f, -0.08f, 0.85f);   // 최대 찌름
+            // 낮게 아래(칼끝 내림) → 위로 크게 올려벰
+            Vector3 lowPos  = new Vector3(0.10f, -0.42f, 0.55f);
+            Vector3 lowEul  = new Vector3(70f, -20f, 20f);    // 칼끝 아래로
+            Vector3 highPos = new Vector3(-0.10f, 0.30f, 0.55f);
+            Vector3 highEul = new Vector3(-70f, 25f, -35f);   // 위로 쳐올림
 
-            switch (c.lungePhase)
+            // Travel(블링크) 동안 low→high로 빠르게 올려베고, Recovery(0틱)/그 외엔 high 유지→idle 복귀
+            float t = c.lungePhase == CombatConfig.LgTravel
+                ? Frac(c.lungeTicks, c.lungeTravelTicks)
+                : 1f;
+            pos = Vector3.Lerp(lowPos, highPos, t);
+            rot = Quaternion.Euler(Vector3.Lerp(lowEul, highEul, t));
+        }
+
+        /// <summary>
+        /// 대형몹 처형 컷신: 화면 중앙에서 크게 X자 2번 베고 → 아래에서 위로 올려베기 피니시.
+        /// 카메라가 적을 중앙 고정하므로 칼도 중앙 앞에서 크게 휘둘러야 보인다(구석 idle 금지).
+        /// </summary>
+        static void Glory(in PlayerCombatState c, out Vector3 pos, out Quaternion rot)
+        {
+            // 평타 스윙(치켜듦→베어내림)을 화면 중앙 앞에서 크게 2번(좌우 대칭), 피니시는 런지 어퍼컷.
+            // 카메라가 적을 중앙 고정하므로 칼도 중앙 앞에서 크게 휘둘러야 보인다.
+            Vector3 atkPos = new Vector3(0.04f, 0.02f, 0.55f);                                   // 평타는 중앙 앞 고정
+            Vector3 raise1 = new Vector3(-68f, 42f, 38f), slash1 = new Vector3(60f, -54f, -40f); // ↘ 평타
+            Vector3 raise2 = new Vector3(-68f, -42f, -38f), slash2 = new Vector3(60f, 54f, 40f); // ↙ 평타(반대손)
+            // 런지 어퍼컷(아래→위) — 돌진과 한 비트(우클 모션 재사용)
+            Vector3 lungeLow  = new Vector3(0.08f, -0.44f, 0.55f), lungeLowEul  = new Vector3(75f, -18f, 18f);
+            Vector3 lungeHigh = new Vector3(-0.08f, 0.34f, 0.62f), lungeHighEul = new Vector3(-75f, 22f, -32f);
+
+            switch (c.gloryPhase)
             {
-                case CombatConfig.LgWindup:
+                case CombatConfig.GlSlash1:   // 평타 1
                 {
-                    float t = Frac(c.lungeTicks, CombatConfig.LungeWindupTicks);
-                    pos = Vector3.Lerp(IdlePos, ready, t);
+                    float t = Ease(Frac(c.gloryTicks, CombatConfig.GlorySlashTicks));
+                    pos = atkPos;
+                    rot = Quaternion.Euler(Vector3.Lerp(raise1, slash1, t));
                     break;
                 }
-                case CombatConfig.LgTravel:
+                case CombatConfig.GlSlash2:   // 평타 2 (반대 방향)
                 {
-                    float t = Frac(c.lungeTicks, c.lungeTravelTicks);   // 거리 비례 틱(상태에 고정)
-                    pos = Vector3.Lerp(ready, thrust, t);
+                    float t = Ease(Frac(c.gloryTicks, CombatConfig.GlorySlashTicks));
+                    pos = atkPos;
+                    rot = Quaternion.Euler(Vector3.Lerp(raise2, slash2, t));
                     break;
                 }
-                default: // Recovery
+                default: // GlDash — 런지 어퍼컷 + 돌진(한 비트)
                 {
-                    float t = Frac(c.lungeTicks, CombatConfig.LungeRecoveryTicks);
-                    pos = Vector3.Lerp(thrust, IdlePos, t);
+                    float t = Ease(Frac(c.gloryTicks, CombatConfig.GloryDashTicks));
+                    pos = Vector3.Lerp(lungeLow, lungeHigh, t);
+                    rot = Quaternion.Euler(Vector3.Lerp(lungeLowEul, lungeHighEul, t));
                     break;
                 }
             }
         }
+
+        /// <summary>스무드스텝(양끝 부드럽고 중간 빠름) — 짧은 처형 컷을 "부드럽지만 빠르게".</summary>
+        static float Ease(float t) => t * t * (3f - 2f * t);
 
         static float Frac(int ticks, int total) => total <= 0 ? 1f : Mathf.Clamp01((float)ticks / total);
 

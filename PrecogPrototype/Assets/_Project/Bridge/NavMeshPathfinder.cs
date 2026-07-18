@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 using Game.Sim;
@@ -6,53 +5,33 @@ using Game.Sim;
 namespace Game.Bridge
 {
     /// <summary>
-    /// IPathfinder 구현 = NavMesh.CalculatePath. 결정론 검증 완료.
-    /// 하강 테두리(edge,landing) 목록을 들고, "가장 가까운 테두리"와 "경로 길이"를 제공.
-    /// 하강할지 말지 판단은 Sim(EnemyMovement)이 이 길이들을 비교해서 한다.
+    /// NavMesh 런타임 길찾기 = NavMesh.CalculatePath → 다음 코너. 연속 메시라 기둥·벽 우회.
+    /// 다음 코너가 큰 낙차(off-mesh link 절벽)면 kind=Jump로 알린다 → 몹이 걸어 나가 낙하.
+    /// 경사로는 낙차/수평비가 작아 Walk로 구분(SimConfig.DropDetect*).
     /// </summary>
     public class NavMeshPathfinder : IPathfinder
     {
         readonly NavMeshPath path = new NavMeshPath();
-        readonly List<(Vector3 edge, Vector3 landing)> drops;
         const float SampleRadius = 4f;
 
-        public NavMeshPathfinder(List<(Vector3, Vector3)> dropEdges)
+        public PathStep NextStep(Vector3 from, Vector3 to)
         {
-            drops = dropEdges ?? new List<(Vector3, Vector3)>();
-        }
-
-        public bool NextCorner(Vector3 from, Vector3 to, out Vector3 next)
-        {
-            next = to;
-            if (!Calc(from, to)) return false;
+            var step = new PathStep { kind = MoveKind.None, next = to };
+            if (!Calc(from, to)) return step;
             var c = path.corners;
-            if (c.Length >= 2) { next = c[1]; return true; }
-            if (c.Length == 1) { next = c[0]; return true; }
-            return false;
-        }
+            Vector3 nc;
+            if (c.Length >= 2) nc = c[1];
+            else if (c.Length == 1) nc = c[0];
+            else return step;
 
-        public float PathLength(Vector3 from, Vector3 to)
-        {
-            if (!Calc(from, to)) return -1f;
-            if (path.status != NavMeshPathStatus.PathComplete) return -1f;
-            var c = path.corners;
-            float len = 0f;
-            for (int i = 0; i < c.Length - 1; i++) len += Vector3.Distance(c[i], c[i + 1]);
-            return len;
-        }
-
-        public bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing)
-        {
-            edge = default; landing = default;
-            if (drops.Count == 0) return false;
-            float best = float.PositiveInfinity;
-            bool found = false;
-            for (int i = 0; i < drops.Count; i++)
-            {
-                float d = (drops[i].edge - from).sqrMagnitude;
-                if (d < best) { best = d; edge = drops[i].edge; landing = drops[i].landing; found = true; }
-            }
-            return found;
+            step.next = nc;
+            float drop = from.y - nc.y;                       // 아래로 얼마나
+            float dx = nc.x - from.x, dz = nc.z - from.z;
+            float horiz = Mathf.Sqrt(dx * dx + dz * dz);      // 수평 거리
+            step.kind = (drop > SimConfig.DropDetectMinHeight && drop > horiz * SimConfig.DropDetectRatio)
+                ? MoveKind.Jump    // 가파른 낙차 = 절벽(off-mesh link)
+                : MoveKind.Walk;   // 완만 = 경사로/평지
+            return step;
         }
 
         bool Calc(Vector3 from, Vector3 to)
@@ -60,6 +39,15 @@ namespace Game.Bridge
             if (!NavMesh.SamplePosition(from, out var f, SampleRadius, NavMesh.AllAreas)) return false;
             if (!NavMesh.SamplePosition(to,   out var t, SampleRadius, NavMesh.AllAreas)) return false;
             return NavMesh.CalculatePath(f.position, t.position, NavMesh.AllAreas, path);
+        }
+
+        /// <summary>가장 가까운 navmesh 점(반경 안). navmesh는 에이전트 반경만큼 가장자리가 깎여 있어
+        /// 이 점으로 당기면 몹이 얇은 다리 밖으로 안 나간다.</summary>
+        public bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh)
+        {
+            if (NavMesh.SamplePosition(pos, out var hit, maxDist, NavMesh.AllAreas))
+            { onMesh = hit.position; return true; }
+            onMesh = pos; return false;
         }
     }
 }

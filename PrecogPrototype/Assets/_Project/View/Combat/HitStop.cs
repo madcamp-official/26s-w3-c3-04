@@ -12,6 +12,7 @@ namespace Game.View
     {
         const float FreezeDur = 0.05f;
         int   prevHealthSum = int.MinValue;
+        byte  prevLunge;
         float freezeLeft;
 
         void Update()
@@ -24,8 +25,14 @@ namespace Game.View
 
             // HP 총합이 줄었으면 타격(스폰으로 늘어난 건 무시). 첫 프레임은 기준만 잡음.
             if (prevHealthSum != int.MinValue && sum < prevHealthSum)
-                freezeLeft = FreezeDur;
+                freezeLeft = Mathf.Max(freezeLeft, FreezeDur);
             prevHealthSum = sum;
+
+            // 런지 임팩트(Travel→Recovery) = 전용 긴 프리즈(글로리킬 쫀득)
+            byte lg = w.player.combat.lungePhase;
+            if (prevLunge == CombatConfig.LgTravel && lg == CombatConfig.LgRecovery)
+                freezeLeft = Mathf.Max(freezeLeft, CombatConfig.LungeHitStopTicks * SimConfig.TickDelta);
+            prevLunge = lg;
 
             if (freezeLeft > 0f)
             {

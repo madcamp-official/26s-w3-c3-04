@@ -9,7 +9,8 @@ namespace Game.Sim
     public struct InputCmd
     {
         public Vector2 move;   // (x=좌우, y=전후), -1..1
-        public float   yaw;    // 바라보는 방향(도, 수평). pitch는 카메라 전용(sim 미사용).
+        public float   yaw;    // 바라보는 방향(도, 수평)
+        public float   pitch;  // 시선 상하(도) — 런지 조준 레이·공중 타깃팅에 사용
         public bool    jump;
         public bool    dash;            // Shift — 4방향 대시(이동 전용)
         public DashDirection dashDirection;
