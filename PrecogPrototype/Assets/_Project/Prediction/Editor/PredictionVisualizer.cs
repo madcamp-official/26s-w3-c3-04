@@ -2,6 +2,7 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 using Game.Sim;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Game.Prediction.Editor
 {
@@ -167,11 +168,13 @@ namespace Game.Prediction.Editor
             sb.AppendLine($"설정: macroTicks={settings.macroTicks} macroDepth={settings.macroDepth} beamWidth={settings.beamWidth} " +
                           $"(총 {settings.macroTicks * settings.macroDepth}틱 = {settings.macroTicks * settings.macroDepth / 60f:F2}초 예측)");
 
+            var stopwatch = Stopwatch.StartNew();
             CandidatePath[] plans = PredictionPlanner.Plan(in world, in services, settings);
+            stopwatch.Stop();
             CandidatePath plan = plans[0];
 
             sb.AppendLine();
-            sb.AppendLine($"--- 예측 결과 ({plans.Length}개 후보 중 최상위 표시) ---");
+            sb.AppendLine($"--- 예측 결과 ({plans.Length}개 후보 중 최상위 표시, 계산 {stopwatch.Elapsed.TotalMilliseconds:F2}ms) ---");
             sb.AppendLine($"score={plan.TotalScore:F1} (안전{plan.safetyScore:F0}/처치{plan.killScore:F0}/난이도{plan.difficultyScore:F0})  " +
                           $"kills={plan.killCount}  damageDealt={plan.damageDealt}  dash={plan.dashCount}  lunge={plan.lungeCount}  " +
                           $"hitsTaken={plan.expectedHits}  durationTicks={plan.durationTicks}  deadFallback={plan.isDeadFallback}");
