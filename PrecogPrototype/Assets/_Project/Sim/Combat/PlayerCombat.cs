@@ -23,8 +23,8 @@ namespace Game.Sim
             // ── 런지 진행 중이면 그것만 (Travel 이동·에임 고정) ──
             if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref w, in svc, dt); return; }
 
-            // ── 런지 시작: 우클릭 + 스택>0 + 쿨0 + 유효 대상. 스택은 처치로만 충전 ──
-            if (cmd.lunge && c.lungeStacks > 0 && c.lungeCooldown == 0 && c.hitStunTicks == 0)
+            // ── 런지 시작: 우클릭 + 쿨0 + 유효 대상 (스택·제한 없음, 무제한) ──
+            if (cmd.lunge && c.lungeCooldown == 0 && c.hitStunTicks == 0)
             {
                 int targetId = cmd.lungeTargetId >= 0
                     ? cmd.lungeTargetId
@@ -41,7 +41,6 @@ namespace Game.Sim
                     c.lungeTravelTicks = travel;
                     c.lungeHitDone = false;
                     c.lungeCooldown = CombatConfig.LungeCooldownTicks;
-                    c.lungeStacks--;            // 스택 1 소모
                     p.jumpCount = 0;            // 우클 직후 더블점프 리필
 
                     // 표적 이동봉쇄(bind): 블링크 동안만 위치·중력 동결(공중이면 공중에). 공격은 계속.
@@ -198,7 +197,6 @@ namespace Game.Sim
                         c.gloryPhase = CombatConfig.GlNone; c.gloryTicks = 0;
                         target.alive = false;             // 실제 사망(뷰 폭발은 gloryStage=3로 이미 처리)
                         target.combat.deathTick = w.tick;
-                        c.lungeStacks = Mathf.Min(CombatConfig.LungeMaxStacks, c.lungeStacks + 1);   // 처형 = 스택 +1
                     }
                     break;
             }

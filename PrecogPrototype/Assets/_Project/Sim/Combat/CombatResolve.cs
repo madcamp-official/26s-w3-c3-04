@@ -83,7 +83,6 @@ namespace Game.Sim
             {
                 e.alive = false;
                 e.combat.deathTick = w.tick;
-                pc.lungeStacks = Mathf.Min(CombatConfig.LungeMaxStacks, pc.lungeStacks + 1);   // 처치 = 스택 +1
             }
         }
     }
