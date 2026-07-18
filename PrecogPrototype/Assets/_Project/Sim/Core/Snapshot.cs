@@ -23,6 +23,10 @@ namespace Game.Sim
             return dst;
         }
 
+        // >>> [예측 세션 추가, 2026-07-18] CopyTo 메서드 전체가 새로 추가된 것 — 원래 core-controls
+        // 버전엔 Clone만 있었다. 예측의 WorldBufferPool이 후보 확장마다 new SimWorld를 만들지
+        // 않고 기존 배열을 재사용하려면 이 "제자리 복사"가 필요해서 되살렸다. 되돌리려면 이
+        // 메서드 전체를 지우면 된다(WorldBufferPool.CopyInto가 이걸 호출하니 그쪽도 같이 손봐야 함).
         /// <summary>dst의 배열을 재사용해 src를 깊은 복사(할당 없음). WorldBufferPool 전용 — 후보마다 new SimWorld를 만들지 않기 위함.</summary>
         public static void CopyTo(in SimWorld src, ref SimWorld dst)
         {
@@ -54,5 +58,6 @@ namespace Game.Sim
             dst.waveId = src.waveId;
             dst.mapVersion = src.mapVersion;
         }
+        // <<< [예측 세션 추가 끝]
     }
 }

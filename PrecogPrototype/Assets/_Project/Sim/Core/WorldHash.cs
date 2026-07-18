@@ -17,9 +17,11 @@ namespace Game.Sim
             ulong h = Offset;
             h = Mix(h, (ulong)w.tick);
             h = Mix(h, w.rngState);
+            // >>> [예측 세션 추가] SimWorld.spawnLocked/waveId/mapVersion 해시 반영 3줄.
             h = Mix(h, w.spawnLocked ? 1UL : 0UL);
             h = Mix(h, (ulong)w.waveId);
             h = Mix(h, (ulong)w.mapVersion);
+            // <<< [예측 세션 추가 끝]
 
             h = MixV(h, w.player.pos);
             h = MixV(h, w.player.vel);

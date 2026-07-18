@@ -16,6 +16,10 @@ namespace Game.View
         public float seconds;                               // 예상 소요 시간(초)
         public Color color = Color.white;
 
+        // >>> [예측 세션 추가, 2026-07-18] 아래 ghostFrames/actionMarkers/controls 3개 필드와
+        // 파일 맨 아래 ActionMarker 구조체는 원래 없었다(위 4개 필드가 KJH 원본). 실제 예측
+        // 연동·자동실행·잔상 표시에 필요해서 추가함 — RoutePreviewStub은 이 3개를 안 채우고
+        // 기본값(빈 리스트/null)으로 두므로 하위 호환된다.
         /// <summary>계약 3.1.1절 "0.5초(30틱) 간격 정지 잔상"용 샘플 프레임(시작·종료 포함).
         /// 순수 가독성용 표식이며, 계약 3.1절 "모든 일반 잔상이 입력 노드는 아니다"대로
         /// 리듬 판정 대상이 아니다 — 판정 대상은 아래 actionMarkers뿐.
@@ -32,6 +36,7 @@ namespace Game.View
         /// 못 채운다 — 그때는 null이고, PredictionController가 자동실행을 건너뛴다.</summary>
         public InputCmd[] controls;
     }
+    // <<< [예측 세션 추가 끝]
 
     /// <summary>계약 3.1.1절 액션 잔상 1개 — 대시 방향·평타·런지 등 실제 행동이 시작된 정확한
     /// 틱의 위치·방향·종류. PredictedActionEvent(Prediction 쪽 계약)에 월드 위치·yaw를 얹은

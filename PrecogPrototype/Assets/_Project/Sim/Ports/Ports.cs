@@ -25,11 +25,17 @@ namespace Game.Sim
         /// <summary>feet 아래 지면 높이. 없으면 false.</summary>
         bool SampleGround(Vector3 feet, float maxDown, out float groundY);
 
+        // >>> [예측 세션 추가, 2026-07-18] 아래 두 메서드는 인터페이스에 원래 없었다.
+        // Bridge/PhysicsCollision.cs와 Prediction 쪽 스텁 구현체엔 이미 같은 이름의 메서드가
+        // 있었어서(양쪽이 각자 만들어놨던 것) 시그니처만 여기 인터페이스에 다시 선언한
+        // 추가다 — 기존 구현을 바꾸지 않는 순수 추가라 위험 낮음. 되돌리려면 이 두 줄과
+        // ActionGenerator.cs의 호출부만 정리하면 된다.
         /// <summary>from에서 to가 지형에 가리지 않고 보이는지(예측 런지 타겟팅용).</summary>
         bool HasLineOfSight(Vector3 from, Vector3 to);
 
         /// <summary>이 위치에 이 캡슐이 지형과 겹치지 않고 들어갈 수 있는지(예측 런지 착지점 검증용).</summary>
         bool CanOccupyCapsule(Vector3 feet, float radius, float height);
+        // <<< [예측 세션 추가 끝]
     }
 
     /// <summary>

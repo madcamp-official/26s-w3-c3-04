@@ -18,6 +18,11 @@ namespace Game.View
         public static Main Instance { get; private set; }
         public ref readonly SimWorld World => ref world;
         public Camera Cam => cam;
+
+        // >>> [예측 세션 추가, 2026-07-18] Services/SpawnEnemyNear/ClearAllEnemies는 원래 없던
+        // 접근자다. 예측 쪽(PredictionPreview.cs, RealRoutePreview.cs)이 실제 SimServices와
+        // 디버그용 적 스폰/제거가 필요해서 추가함 — 전부 읽기 전용이거나 디버그 전용이라
+        // 기존 게임 루프 동작에는 영향 없음.
         public SimServices Services => services;
 
         /// <summary>디버그용: 지정 위치 근처에 적 1마리 소환(예측 미리보기 시나리오 설정용).</summary>
@@ -25,6 +30,7 @@ namespace Game.View
 
         /// <summary>디버그용: 살아있는 적 전부 제거(예측 미리보기 시나리오 리셋용).</summary>
         public void ClearAllEnemies() => world.enemyCount = 0;
+        // <<< [예측 세션 추가 끝]
 
         // 화면연출(칼등치기 카메라 고정)이 끝날 때 최종 시선을 되돌려 써서 원복 방지.
         // yaw는 sim 입력(cmd.yaw)에도 쓰이므로 여기 하나로 시점·조준이 동기화된다.
@@ -96,6 +102,14 @@ namespace Game.View
 
         void FixedUpdate()
         {
+            // >>> [예측 세션 변경, 2026-07-18] 원래 코드는 아래 두 줄이었다:
+            //   if (prediction.Frozen) return;   // 예측 정지 중엔 sim·소환 멈춤
+            //   prevWorld = Snapshot.Clone(in world);
+            //   InputCmd cmd = input.Consume();
+            // 즉 예측 관련 상태(Preview든 Following이든)면 통째로 멈췄었다. 확정한 경로를
+            // 실제 플레이어가 자동으로 수행하게 하려면(Following) 시뮬레이션을 계속 돌리되
+            // 실시간 입력 대신 기록된 입력을 넣어야 해서, Preview/Following을 분리했다.
+            // 되돌리려면: 아래 if/else 블록을 지우고 위 두 줄로 교체 + SpawnTick() 조건도 제거.
             if (prediction.state == PredictionController.State.Preview) return;   // 미리보기 중엔 정지
 
             InputCmd cmd;
@@ -118,6 +132,7 @@ namespace Game.View
             // 아니면 예측이 못 본 적이 재생 중에 끼어들어 결과가 어긋난다.
             if (prediction.state != PredictionController.State.Following)
                 SpawnTick();
+            // <<< [예측 세션 변경 끝]
 
             // 하강 결정 감지
             for (int i = 0; i < world.enemyCount; i++)

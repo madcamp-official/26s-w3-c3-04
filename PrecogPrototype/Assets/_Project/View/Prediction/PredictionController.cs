@@ -6,6 +6,13 @@ using Game.Prediction;
 
 namespace Game.View
 {
+    // >>> [예측 세션 대폭 수정, 2026-07-18] 원래 이 파일은 core-controls(KJH)가 만든 버전으로,
+    // RoutePreviewStub(같은 폴더, 지금도 그대로 남아있음)이 만든 가짜 루트(근접순/원거리순/
+    // 스윕 휴리스틱, 이동만)를 보여주고 확정 시 그냥 로그만 찍고 닫혔다. 이번 세션에 실제
+    // Game.Prediction 결과 연결 + Following(1인칭 실제 자동실행) + 정지/액션 잔상을 새로
+    // 넣으면서 상당 부분을 고쳤다 — "원래 어땠는지"는 git에서 `git show ecb4d5b:PrecogPrototype/Assets/_Project/View/Prediction/PredictionController.cs`
+    // 로 보거나, 같은 폴더의 RoutePreviewStub.cs(안 지움, 지금은 안 씀)를 참고하면 된다.
+    // <<< [예측 세션 대폭 수정 — 아래 전체]
     /// <summary>
     /// 예측(예지) 연출 컨트롤러 — View 전용, 예측 봇과 독립.
     /// F: 정지 진입(시간 멈춤+흑백+3인칭) / 진입 중 F: 루트 순환 / 마우스: 궤도 회전 / 좌클릭: 확정 / Esc: 취소.
