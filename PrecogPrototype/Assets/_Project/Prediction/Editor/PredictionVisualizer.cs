@@ -65,7 +65,7 @@ namespace Game.Prediction.Editor
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(new Vector3(0f, 0f, 5f));
-            world.player.health = 1;
+            world.player.combat.hp = 1;
             world.AddEnemy(new Vector3(0f, 0f, 2f));
             world.AddEnemy(new Vector3(2f, 0f, 3f));
             return world;
@@ -80,9 +80,9 @@ namespace Game.Prediction.Editor
             world.AddEnemy(new Vector3(3f, 0f, 4f));
 
             ref EnemySim urgent = ref world.enemies[0];
-            urgent.aiState = EnemyAIState.AttackWindup;
-            urgent.stateTicks = CombatConfig.EnemyAttackWindupTicks - 8;
-            urgent.committedAttackDirection = new Vector3(0f, 0f, -1f);
+            urgent.ai.state = EnemyState.Windup;
+            urgent.ai.stateTicks = AIConfig.MeleeWindupTicks - 8;
+            urgent.ai.committedDir = new Vector3(0f, 0f, -1f);
             return world;
         }
 
@@ -204,10 +204,10 @@ namespace Game.Prediction.Editor
                     tick++;
 
                     bool lastTickOfMacro = t == settings.macroTicks - 1;
-                    if (tick % 15 == 0 || lastTickOfMacro || !world.player.alive)
+                    if (tick % 15 == 0 || lastTickOfMacro || world.player.combat.hp <= 0)
                         PrintTick(sb, tick, in world);
 
-                    if (!world.player.alive)
+                    if (world.player.combat.hp <= 0)
                     {
                         sb.AppendLine("    ** 플레이어 사망 — 재생 중단 **");
                         return;
@@ -238,11 +238,11 @@ namespace Game.Prediction.Editor
 
         static void PrintWorld(StringBuilder sb, in SimWorld world)
         {
-            sb.AppendLine($"  플레이어 pos=({world.player.pos.x:F1},{world.player.pos.z:F1}) hp={world.player.health} alive={world.player.alive}");
+            sb.AppendLine($"  플레이어 pos=({world.player.pos.x:F1},{world.player.pos.z:F1}) hp={world.player.combat.hp} alive={world.player.combat.hp > 0}");
             for (int i = 0; i < world.enemyCount; i++)
             {
                 ref readonly EnemySim e = ref world.enemies[i];
-                sb.AppendLine($"  적{e.id} pos=({e.pos.x:F1},{e.pos.z:F1}) hp={e.combat.health} alive={e.alive} state={e.aiState}");
+                sb.AppendLine($"  적{e.id} pos=({e.pos.x:F1},{e.pos.z:F1}) hp={e.combat.health} alive={e.alive} state={e.ai.state}");
             }
         }
 
@@ -260,7 +260,8 @@ namespace Game.Prediction.Editor
             }
             string nearestStr = aliveCount > 0 ? nearest.ToString("F1") : "-";
             sb.AppendLine($"    [t={tick,4}] player=({world.player.pos.x,6:F1},{world.player.pos.z,6:F1}) " +
-                          $"hp={world.player.health} phase={world.player.combat.phase,-14} 생존적={aliveCount} 최근접={nearestStr}");
+                          $"hp={world.player.combat.hp} atk={world.player.combat.attackPhase} lg={world.player.combat.lungePhase} " +
+                          $"생존적={aliveCount} 최근접={nearestStr}");
         }
     }
 
@@ -269,21 +270,20 @@ namespace Game.Prediction.Editor
     sealed class FlatGroundCollision : ICollision
     {
         public CastHit CapsuleCast(Vector3 bottom, Vector3 top, float radius, Vector3 dir, float maxDist) => default;
+        public CastHit Raycast(Vector3 origin, Vector3 dir, float maxDist) => default;
         public bool SampleGround(Vector3 feet, float maxDown, out float groundY) { groundY = 0f; return true; }
         public bool HasLineOfSight(Vector3 from, Vector3 to) => true;
         public bool CanOccupyCapsule(Vector3 feet, float radius, float height) => true;
     }
 
+    /// <summary>from→to 직선만 반환하는 최소 IPathfinder. 씬 NavMesh 없이도 예측 시각화 데모가 돌게 한다.</summary>
     sealed class StraightLinePathfinder : IPathfinder
     {
-        public PathStep NextStep(Vector3 from, Vector3 to) => new PathStep
+        public bool NextCorner(Vector3 from, Vector3 to, out Vector3 next) { next = to; return true; }
+        public float PathLength(Vector3 from, Vector3 to) => Vector3.Distance(from, to);
+        public bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing)
         {
-            kind = MoveKind.Walk,
-            next = to,
-            currentNodeId = 0,
-            destinationNodeId = 0,
-            nextNodeId = 0,
-            linkId = -1
-        };
+            edge = from; landing = from; return false;
+        }
     }
 }

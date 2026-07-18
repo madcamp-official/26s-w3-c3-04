@@ -2,223 +2,281 @@ using UnityEngine;
 
 namespace Game.Sim
 {
+    /// <summary>
+    /// 플레이어 전투 상태머신. ★ combat 소유. SimStep이 PlayerMovement 다음에 호출.
+    /// 평타(좌클릭) · 타깃 런지(우클릭) · 대형몹 글로리킬 컷신.
+    /// 판정/대미지는 CombatResolve. 여기선 단계 진행 + 런지 이동(pos 구동) + 타깃 선정.
+    /// </summary>
     public static class PlayerCombat
     {
-        public static void Step(ref SimWorld world, in InputCmd cmd, in SimServices services, float dt)
+        public static void Step(ref SimWorld w, in InputCmd cmd, in SimServices svc, float dt)
         {
-            ref PlayerSim player = ref world.player;
-            ref PlayerCombatState combat = ref player.combat;
-            if (!player.alive) return;
+            ref PlayerSim p = ref w.player;
+            ref PlayerCombatState c = ref p.combat;
 
-            if (combat.lungeCooldownTicks > 0) combat.lungeCooldownTicks--;
+            // 글로리킬 처형 중이면 그것만 (최우선 — 무적·조작잠금은 SimStep/CombatResolve가 처리)
+            if (c.gloryPhase != CombatConfig.GlNone) { StepGlory(ref w, in svc, dt); return; }
 
-            switch (combat.phase)
+            if (c.hitStunTicks > 0) c.hitStunTicks--;
+            if (c.lungeCooldown > 0) c.lungeCooldown--;
+
+            // ── 런지 진행 중이면 그것만 (Travel 이동 포함) ──
+            if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref p, in svc, dt); return; }
+
+            // ── 런지 시작: 우클릭 + (쿨 0) + 유효 대상. 평타 중이어도 캔슬 발동(제2의 평타) ──
+            if (cmd.lunge && c.lungeCooldown == 0 && c.hitStunTicks == 0)
             {
-                case PlayerActionPhase.None:
-                    if (cmd.lunge && combat.lungeCooldownTicks == 0 &&
-                        TryStartLunge(ref world, in cmd, in services))
-                        return;
-                    if (cmd.attack) BeginAttack(ref combat);
-                    return;
+                int targetId = cmd.lungeTargetId >= 0
+                    ? cmd.lungeTargetId
+                    : FindLungeTarget(in w, in p, in svc);
+                if (targetId >= 0 && TryLockDestination(in w, in p, in svc, targetId, out Vector3 dest))
+                {
+                    // 거리 비례 Travel 틱 (멀수록 길게, 하한 있음 — 순간이동 방지)
+                    Vector3 run = dest - p.pos; run.y = 0f;
+                    int travel = Mathf.Max(CombatConfig.LungeTravelMinTicks,
+                        Mathf.CeilToInt(run.magnitude / (CombatConfig.LungeTravelSpeed * SimConfig.TickDelta)));
 
-                case PlayerActionPhase.AttackWindup:
-                    if (++combat.phaseTicks >= CombatConfig.AttackWindupTicks)
-                    {
-                        combat.phase = PlayerActionPhase.AttackActive;
-                        combat.phaseTicks = 0;
-                        ApplyAttack(ref world);
-                    }
-                    return;
+                    c.lungePhase = CombatConfig.LgWindup;
+                    c.lungeTicks = 0;
+                    c.lungeTargetId = targetId;
+                    c.lungeStart = p.pos;
+                    c.lungeDest = dest;
+                    c.lungeTravelTicks = travel;
+                    c.lungeHitDone = false;
+                    c.lungeCooldown = CombatConfig.LungeCooldownTicks;
 
-                case PlayerActionPhase.AttackActive:
-                    if (++combat.phaseTicks >= CombatConfig.AttackActiveTicks)
-                    {
-                        combat.phase = PlayerActionPhase.AttackRecovery;
-                        combat.phaseTicks = 0;
-                    }
-                    return;
+                    // 표적 이동봉쇄(bind): 위치·중력 동결(공중이면 공중에). 공격은 계속한다.
+                    int ti = FindEnemyIndex(in w, targetId);
+                    if (ti >= 0)
+                        w.enemies[ti].combat.bindTicks =
+                            CombatConfig.LungeWindupTicks + travel + CombatConfig.LungeBindExtraTicks;
 
-                case PlayerActionPhase.AttackRecovery:
-                    if (++combat.phaseTicks >= CombatConfig.AttackRecoveryTicks)
-                        ResetAction(ref combat);
+                    // 평타 중이었으면 캔슬
+                    c.attackPhase = CombatConfig.PhNone;
+                    c.attackPhaseTicks = 0;
+                    // 대상 응시
+                    Vector3 face = dest - p.pos; face.y = 0f;
+                    if (face.sqrMagnitude > 1e-4f) p.yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
                     return;
+                }
+                // 대상 없으면 발동 안 함
+            }
 
-                case PlayerActionPhase.LungeWindup:
-                    if (++combat.phaseTicks >= CombatConfig.LungeWindupTicks)
-                    {
-                        combat.phase = PlayerActionPhase.LungeTravel;
-                        combat.phaseTicks = 0;
-                        combat.lungeElapsedTicks = 0;
-                    }
-                    return;
+            // ── 평타 진행/시작 ──
+            if (c.attackPhase == CombatConfig.PhNone)
+            {
+                if (cmd.attack && c.hitStunTicks == 0)
+                {
+                    c.attackPhase = CombatConfig.PhWindup;
+                    c.attackPhaseTicks = 0;
+                    c.attackHitDone = false;
+                }
+                return;
+            }
 
-                case PlayerActionPhase.LungeTravel:
-                    combat.lungeElapsedTicks++;
-                    float t = Mathf.Clamp01((float)combat.lungeElapsedTicks / CombatConfig.LungeTravelTicks);
-                    player.pos = Vector3.Lerp(combat.lungeStart, combat.lungeDestination, t);
-                    player.vel = Vector3.zero;
-                    if (combat.lungeElapsedTicks >= CombatConfig.LungeTravelTicks)
-                    {
-                        ApplyLungeHit(ref world, combat.lungeTargetId);
-                        combat.phase = PlayerActionPhase.LungeRecovery;
-                        combat.phaseTicks = 0;
-                    }
-                    return;
+            // 콤보 캔슬: 후딜 중 대시 시 평타 즉시 종료(대시는 PlayerMovement가 이미 처리)
+            if (c.attackPhase == CombatConfig.PhRecovery && p.dashTicks > 0)
+            {
+                c.attackPhase = CombatConfig.PhNone;
+                c.attackPhaseTicks = 0;
+                return;
+            }
 
-                case PlayerActionPhase.LungeRecovery:
-                    if (++combat.phaseTicks >= CombatConfig.LungeRecoveryTicks)
-                        ResetAction(ref combat);
-                    return;
+            c.attackPhaseTicks++;
+            switch (c.attackPhase)
+            {
+                case CombatConfig.PhWindup:
+                    if (c.attackPhaseTicks >= CombatConfig.AttackWindupTicks)
+                    { c.attackPhase = CombatConfig.PhActive; c.attackPhaseTicks = 0; }
+                    break;
+                case CombatConfig.PhActive:
+                    if (c.attackPhaseTicks >= CombatConfig.AttackActiveTicks)
+                    { c.attackPhase = CombatConfig.PhRecovery; c.attackPhaseTicks = 0; }
+                    break;
+                case CombatConfig.PhRecovery:
+                    if (c.attackPhaseTicks >= CombatConfig.AttackRecoveryTicks)
+                    { c.attackPhase = CombatConfig.PhNone; c.attackPhaseTicks = 0; }
+                    break;
             }
         }
 
-        static void BeginAttack(ref PlayerCombatState combat)
+        /// <summary>
+        /// 런지 진행. Windup(대상 응시) → Travel(고정 도착점으로 보간, 벽 슬라이드) → Recovery.
+        /// Travel 중 대상이 움직여도 재추적하지 않는다(도착점 고정). 임팩트는 CombatResolve가
+        /// Recovery 진입 후 1회 처리(lungeHitDone).
+        /// </summary>
+        static void StepLunge(ref PlayerSim p, in SimServices svc, float dt)
         {
-            combat.phase = PlayerActionPhase.AttackWindup;
-            combat.phaseTicks = 0;
-            combat.attackSequence++;
+            ref PlayerCombatState c = ref p.combat;
+            c.lungeTicks++;
+
+            switch (c.lungePhase)
+            {
+                case CombatConfig.LgWindup:
+                    if (c.lungeTicks >= CombatConfig.LungeWindupTicks)
+                    { c.lungePhase = CombatConfig.LgTravel; c.lungeTicks = 0; }
+                    break;
+
+                case CombatConfig.LgTravel:
+                {
+                    // 남은 거리를 남은 틱으로 분배 → Travel 끝엔 반드시 도착점(벽이면 슬라이드로 최대한)
+                    int total = Mathf.Max(1, c.lungeTravelTicks);
+                    Vector3 to = c.lungeDest - p.pos; to.y = 0f;
+                    int remain = Mathf.Max(1, total - c.lungeTicks + 1);
+                    Vector3 step = to / remain;
+                    p.pos = CharacterMotor.MoveHorizontal(svc.Collision, p.pos, step,
+                                                          SimConfig.PlayerRadius, SimConfig.PlayerHeight);
+                    // 수직은 도착점 높이로 보간(같은 층 제약이라 미세 차이만)
+                    p.pos.y = Mathf.Lerp(c.lungeStart.y, c.lungeDest.y, (float)c.lungeTicks / total);
+                    p.vel = Vector3.zero;
+                    if (c.lungeTicks >= total)
+                    {
+                        if (svc.Collision.SampleGround(p.pos, 2f, out float gy)) p.pos.y = gy;
+                        c.lungePhase = CombatConfig.LgRecovery;
+                        c.lungeTicks = 0;
+                    }
+                    break;
+                }
+
+                case CombatConfig.LgRecovery:
+                    if (c.lungeTicks >= CombatConfig.LungeRecoveryTicks)
+                    {
+                        c.lungePhase = CombatConfig.LgNone;
+                        c.lungeTicks = 0;
+                        c.lungeTargetId = -1;
+                    }
+                    break;
+            }
         }
 
-        static bool TryStartLunge(
-            ref SimWorld world,
-            in InputCmd cmd,
-            in SimServices services)
+        /// <summary>
+        /// 대형몹 글로리킬 처형 컷신. Slash1→Slash2→Dash. 대상은 gloryStage로 얼려둠.
+        /// slash 단계는 제자리 응시, dash 단계는 고정 방향 관통 러쉬. 끝에 실제 사망.
+        /// 절단 3단계 연출은 뷰(Dismemberment)가 gloryStage 읽어 구동.
+        /// </summary>
+        static void StepGlory(ref SimWorld w, in SimServices svc, float dt)
         {
-            ref PlayerSim player = ref world.player;
-            int targetId = cmd.lungeTargetId >= 0
-                ? cmd.lungeTargetId
-                : FindLungeTarget(in world, in player, in services);
-            int index = FindEnemyIndex(in world, targetId);
-            if (index < 0) return false;
+            ref PlayerSim p = ref w.player;
+            ref PlayerCombatState c = ref p.combat;
+            c.gloryTicks++;
 
-            ref readonly EnemySim enemy = ref world.enemies[index];
-            if (!CanTarget(in player, in enemy, in services, out Vector3 destination))
-                return false;
+            ref EnemySim target = ref w.enemies[c.gloryTargetId];
 
-            ref PlayerCombatState combat = ref player.combat;
-            combat.phase = PlayerActionPhase.LungeWindup;
-            combat.phaseTicks = 0;
-            combat.lungeTargetId = enemy.id;
-            combat.lungeStart = player.pos;
-            combat.lungeDestination = destination;
-            combat.lungeElapsedTicks = 0;
-            combat.lungeCooldownTicks = CombatConfig.LungeCooldownTicks;
-            player.yaw = Mathf.Atan2(
-                enemy.pos.x - player.pos.x,
-                enemy.pos.z - player.pos.z) * Mathf.Rad2Deg;
-            return true;
+            switch (c.gloryPhase)
+            {
+                case CombatConfig.GlSlash1:
+                    if (c.gloryTicks >= CombatConfig.GlorySlashTicks)
+                    { c.gloryPhase = CombatConfig.GlSlash2; c.gloryTicks = 0; target.combat.gloryStage = 2; }
+                    break;
+                case CombatConfig.GlSlash2:
+                    if (c.gloryTicks >= CombatConfig.GlorySlashTicks)
+                    {
+                        c.gloryPhase = CombatConfig.GlDash; c.gloryTicks = 0;
+                        target.combat.gloryStage = 3;   // 폭발 단계
+                        Vector3 gd = target.pos - p.pos; gd.y = 0f;
+                        c.gloryDir = gd.sqrMagnitude > 1e-4f
+                            ? gd.normalized
+                            : new Vector3(Mathf.Sin(p.yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(p.yaw * Mathf.Deg2Rad));
+                    }
+                    break;
+                case CombatConfig.GlDash:
+                    p.pos = CharacterMotor.MoveHorizontal(svc.Collision, p.pos,
+                                                          c.gloryDir * CombatConfig.GloryDashSpeed * dt,
+                                                          SimConfig.PlayerRadius, SimConfig.PlayerHeight);
+                    if (c.gloryTicks >= CombatConfig.GloryDashTicks)
+                    {
+                        c.gloryPhase = CombatConfig.GlNone; c.gloryTicks = 0;
+                        target.alive = false;             // 실제 사망(뷰 폭발은 gloryStage=3로 이미 처리)
+                        target.combat.deathTick = w.tick;
+                    }
+                    break;
+            }
+
+            // 슬래시 단계엔 대상 응시(dash는 이동 중이라 스킵)
+            if (c.gloryPhase == CombatConfig.GlSlash1 || c.gloryPhase == CombatConfig.GlSlash2)
+            {
+                Vector3 face = target.pos - p.pos; face.y = 0f;
+                if (face.sqrMagnitude > 1e-4f) p.yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
+            }
         }
 
-        public static int FindLungeTarget(
-            in SimWorld world,
-            in PlayerSim player,
-            in SimServices services)
+        /// <summary>
+        /// 런지 자동 타깃: 정면 반각 30° + 거리 1.2~8 + 높이차 0.8 + LOS.
+        /// 우선순위 = 화면 중앙 각도(dot) → 거리 → id (전부 결정론적 동률 해소).
+        /// 예측(ActionGenerator)도 이 함수를 그대로 재사용한다 — 중복 구현 금지.
+        /// </summary>
+        public static int FindLungeTarget(in SimWorld w, in PlayerSim p, in SimServices svc)
         {
             int bestId = -1;
             float bestDot = -2f;
-            float bestDistance = float.MaxValue;
-            Vector3 forward = CombatMath.Forward(player.yaw);
+            float bestSq = float.MaxValue;
+            Vector3 fwd = new Vector3(Mathf.Sin(p.yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(p.yaw * Mathf.Deg2Rad));
 
-            for (int i = 0; i < world.enemyCount; i++)
+            for (int i = 0; i < w.enemyCount; i++)
             {
-                ref readonly EnemySim enemy = ref world.enemies[i];
-                if (!CanTarget(in player, in enemy, in services, out _)) continue;
+                ref readonly EnemySim e = ref w.enemies[i];
+                if (!IsLungeable(in p, in e, in svc)) continue;
 
-                Vector3 direction = CombatMath.FlatDirection(player.pos, enemy.pos);
-                float dot = Vector3.Dot(forward, direction);
-                float distance = CombatMath.FlatDistance(player.pos, enemy.pos);
+                Vector3 to = e.pos - p.pos; to.y = 0f;
+                float sq = to.sqrMagnitude;
+                float dot = sq > 1e-6f ? Vector3.Dot(fwd, to / Mathf.Sqrt(sq)) : 1f;
 
-                bool better = dot > bestDot + 1e-6f ||
-                    (Mathf.Abs(dot - bestDot) <= 1e-6f &&
-                     (distance < bestDistance - 1e-5f ||
-                      (Mathf.Abs(distance - bestDistance) <= 1e-5f && enemy.id < bestId)));
+                bool better = dot > bestDot + 1e-6f
+                    || (Mathf.Abs(dot - bestDot) <= 1e-6f
+                        && (sq < bestSq - 1e-5f
+                            || (Mathf.Abs(sq - bestSq) <= 1e-5f && e.id < bestId)));
                 if (!better) continue;
-                bestId = enemy.id;
-                bestDot = dot;
-                bestDistance = distance;
+                bestId = e.id; bestDot = dot; bestSq = sq;
             }
             return bestId;
         }
 
-        static bool CanTarget(
-            in PlayerSim player,
-            in EnemySim enemy,
-            in SimServices services,
-            out Vector3 destination)
+        /// <summary>런지 유효 대상인가: 생존 + 처형 중 아님 + 거리·정면각·높이차·시야.</summary>
+        static bool IsLungeable(in PlayerSim p, in EnemySim e, in SimServices svc)
         {
-            destination = player.pos;
-            if (!enemy.alive) return false;
-            if (Mathf.Abs(enemy.pos.y - player.pos.y) > CombatConfig.LungeHeightTolerance)
+            if (!e.alive || e.combat.gloryStage > 0) return false;
+            if (Mathf.Abs(e.pos.y - p.pos.y) > CombatConfig.LungeHeightTolerance) return false;
+
+            Vector3 to = e.pos - p.pos; to.y = 0f;
+            float dist = to.magnitude;
+            if (dist < CombatConfig.LungeMinRange || dist > CombatConfig.LungeMaxRange + e.radius) return false;
+
+            if (!CombatHit.InCone(p.pos, p.yaw, e.pos,
+                                  CombatConfig.LungeMaxRange + e.radius, CombatConfig.LungeHalfAngle))
                 return false;
 
-            float distance = CombatMath.FlatDistance(player.pos, enemy.pos);
-            if (distance < CombatConfig.LungeMinRange || distance > CombatConfig.LungeMaxRange)
-                return false;
-
-            Vector3 forward = CombatMath.Forward(player.yaw);
-            if (!CombatMath.InCone(
-                player.pos, forward, enemy.pos,
-                CombatConfig.LungeMaxRange, CombatConfig.LungeHalfAngleDeg))
-                return false;
-
-            Vector3 eye = player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
-            Vector3 target = enemy.pos + Vector3.up * (SimConfig.EnemyHeight * 0.6f);
-            if (!services.Collision.HasLineOfSight(eye, target)) return false;
-
-            Vector3 direction = CombatMath.FlatDirection(player.pos, enemy.pos);
-            destination = enemy.pos - direction * CombatConfig.LungeStopDistance;
-            if (!services.Collision.SampleGround(destination, 2f, out float groundY)) return false;
-            destination.y = groundY;
-            return services.Collision.CanOccupyCapsule(
-                destination, SimConfig.PlayerRadius, SimConfig.PlayerHeight);
+            // LOS: 플레이어 몸통 → 적 몸통
+            Vector3 eye = p.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
+            Vector3 tgt = e.pos + Vector3.up * (e.height * 0.6f);
+            Vector3 d = tgt - eye; float len = d.magnitude;
+            if (len > 1e-4f && svc.Collision.Raycast(eye, d / len, len).hit) return false;
+            return true;
         }
 
-        static void ApplyAttack(ref SimWorld world)
+        /// <summary>도착점 = 적 앞 LungeStopDistance 지점(지면 스냅). 시작 순간 1회 고정.</summary>
+        static bool TryLockDestination(in SimWorld w, in PlayerSim p, in SimServices svc,
+                                       int targetId, out Vector3 dest)
         {
-            Vector3 forward = CombatMath.Forward(world.player.yaw);
-            for (int i = 0; i < world.enemyCount; i++)
-            {
-                ref EnemySim enemy = ref world.enemies[i];
-                if (!enemy.alive) continue;
-                if (Mathf.Abs(enemy.pos.y - world.player.pos.y) >
-                    CombatConfig.AttackHeightTolerance) continue;
-                if (!CombatMath.InCone(
-                    world.player.pos, forward, enemy.pos,
-                    CombatConfig.AttackRange, CombatConfig.AttackHalfAngleDeg)) continue;
-                ApplyEnemyDamage(ref enemy, world.tick);
-            }
+            dest = p.pos;
+            int idx = FindEnemyIndex(in w, targetId);
+            if (idx < 0) return false;
+            ref readonly EnemySim e = ref w.enemies[idx];
+
+            Vector3 dir = e.pos - p.pos; dir.y = 0f;
+            if (dir.sqrMagnitude < 1e-6f) return false;
+            dir.Normalize();
+            dest = e.pos - dir * (CombatConfig.LungeStopDistance + e.radius);
+            if (svc.Collision.SampleGround(dest + Vector3.up * 0.5f, 2f, out float gy)) dest.y = gy;
+            else dest.y = e.pos.y;
+            return true;
         }
 
-        static void ApplyLungeHit(ref SimWorld world, int targetId)
+        /// <summary>id로 살아있는 적 인덱스. 없으면 -1.</summary>
+        public static int FindEnemyIndex(in SimWorld w, int id)
         {
-            int index = FindEnemyIndex(in world, targetId);
-            if (index >= 0) ApplyEnemyDamage(ref world.enemies[index], world.tick);
-        }
-
-        static void ApplyEnemyDamage(ref EnemySim enemy, int tick)
-        {
-            enemy.combat.health -= CombatConfig.DamagePerHit;
-            enemy.combat.stunTicks = CombatConfig.StunTicks;
-            if (enemy.combat.health > 0) return;
-            enemy.combat.health = 0;
-            enemy.combat.deathTick = tick;
-            enemy.alive = false;
-            enemy.aiState = EnemyAIState.Dead;
-        }
-
-        static int FindEnemyIndex(in SimWorld world, int id)
-        {
-            for (int i = 0; i < world.enemyCount; i++)
-                if (world.enemies[i].id == id && world.enemies[i].alive) return i;
+            for (int i = 0; i < w.enemyCount; i++)
+                if (w.enemies[i].id == id && w.enemies[i].alive) return i;
             return -1;
-        }
-
-        static void ResetAction(ref PlayerCombatState combat)
-        {
-            combat.phase = PlayerActionPhase.None;
-            combat.phaseTicks = 0;
-            combat.lungeTargetId = -1;
-            combat.lungeElapsedTicks = 0;
         }
     }
 }

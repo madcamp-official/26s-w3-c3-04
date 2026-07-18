@@ -3,14 +3,14 @@ using UnityEngine;
 
 namespace Game.View
 {
-    /// <summary>결정론적 EnemyAIState를 읽어 근접 무기 포즈와 공격음을 표현한다.</summary>
+    /// <summary>결정론적 EnemyState(AI 상태)를 읽어 근접/원거리 무기 포즈와 공격음을 표현한다.</summary>
     public sealed class EnemyWeaponView : MonoBehaviour
     {
         sealed class Slot
         {
             public Transform capsule;
             public Transform pivot;
-            public EnemyAIState previous;
+            public EnemyState previous;
             public bool previousSeen;
         }
 
@@ -50,18 +50,18 @@ namespace Game.View
                 }
 
                 slot.pivot.gameObject.SetActive(true);
-                PlayTransition(slot, enemy.aiState, enemy.pos, world.player.pos);
+                PlayTransition(slot, enemy.ai.state, enemy.pos, world.player.pos);
                 Pose(slot, in enemy);
             }
         }
 
-        static void PlayTransition(Slot slot, EnemyAIState state, Vector3 enemyPos, Vector3 playerPos)
+        static void PlayTransition(Slot slot, EnemyState state, Vector3 enemyPos, Vector3 playerPos)
         {
             if (slot.previousSeen && state != slot.previous &&
                 (enemyPos - playerPos).sqrMagnitude < 18f * 18f)
             {
-                if (state == EnemyAIState.AttackWindup) CombatAudio.EnemyWindup();
-                else if (state == EnemyAIState.AttackActive) CombatAudio.EnemyMelee();
+                if (state == EnemyState.Windup || state == EnemyState.Aim) CombatAudio.EnemyWindup();
+                else if (state == EnemyState.Active || state == EnemyState.Fire) CombatAudio.EnemyMelee();
             }
 
             slot.previous = state;
@@ -75,19 +75,26 @@ namespace Game.View
             Vector3 strike = new Vector3(55f, 0f, -5f);
             Vector3 euler;
 
-            switch (enemy.aiState)
+            switch (enemy.ai.state)
             {
-                case EnemyAIState.AttackWindup:
+                case EnemyState.Windup:
                     euler = Vector3.Lerp(rest, raised,
-                        Frac(enemy.stateTicks, CombatConfig.EnemyAttackWindupTicks));
+                        Frac(enemy.ai.stateTicks, AIConfig.MeleeWindupTicks));
                     break;
-                case EnemyAIState.AttackActive:
+                case EnemyState.Active:
                     euler = Vector3.Lerp(raised, strike,
-                        Frac(enemy.stateTicks, CombatConfig.EnemyAttackActiveTicks));
+                        Frac(enemy.ai.stateTicks, AIConfig.MeleeActiveTicks));
                     break;
-                case EnemyAIState.AttackRecovery:
+                case EnemyState.Recovery:
                     euler = Vector3.Lerp(strike, rest,
-                        Frac(enemy.stateTicks, CombatConfig.EnemyAttackRecoveryTicks));
+                        Frac(enemy.ai.stateTicks, AIConfig.MeleeRecoveryTicks));
+                    break;
+                case EnemyState.Aim:
+                    euler = Vector3.Lerp(rest, raised,
+                        Frac(enemy.ai.stateTicks, AIConfig.RangedAimTicks));
+                    break;
+                case EnemyState.Fire:
+                    euler = strike;
                     break;
                 default:
                     euler = rest;

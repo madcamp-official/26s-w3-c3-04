@@ -13,10 +13,13 @@ namespace Game.View
         public Transform PlayerAnchor { get; private set; }
         readonly List<Transform> enemyViews = new List<Transform>();
 
-        static readonly Color ChaseColor    = new Color(1f, 0.4f, 0.3f);   // 추격 (빨강)
-        static readonly Color EdgePauseColor = new Color(1f, 0.9f, 0.2f);  // 멈칫 (노랑)
-        static readonly Color AirborneColor = new Color(0.3f, 1f, 0.4f);   // 점프 (초록)
-        static readonly Color RecoveryColor = new Color(0.4f, 0.6f, 1f);   // 회복 (파랑)
+        static readonly Color ChaseColor     = new Color(1f, 0.4f, 0.3f);   // 추격 (빨강)
+        static readonly Color ApproachColor  = new Color(1f, 0.6f, 0.1f);   // 테두리로 (주황)
+        static readonly Color EdgePauseColor = new Color(1f, 0.9f, 0.2f);   // 멈칫 (노랑)
+        static readonly Color RecoveryColor  = new Color(0.4f, 0.6f, 1f);   // 회복 (파랑)
+        static readonly Color HitColor       = new Color(0.5f, 0.05f, 0.05f); // 피격/스턴 (검붉은)
+        static readonly Color WindupColor    = new Color(1f, 0.95f, 0.4f);    // 공격 선딜 텔레그래프 (밝은 노랑)
+        static readonly Color AttackColor    = new Color(1f, 0.15f, 0.05f);   // 타격 순간 (강렬 빨강)
 
         public void Init()
         {
@@ -38,15 +41,23 @@ namespace Game.View
 
             for (int i = 0; i < enemyViews.Count; i++)
             {
-                bool active = i < w.enemyCount && w.enemies[i].alive;
+                // 처형 중(gloryStage>0)엔 캡슐 숨김 → Dismemberment 조각만 보이게
+                bool active = i < w.enemyCount && w.enemies[i].alive && w.enemies[i].combat.gloryStage == 0;
                 enemyViews[i].gameObject.SetActive(active);
                 if (!active) continue;
                 ref readonly EnemySim e = ref w.enemies[i];
                 Vector3 ep = Vector3.Lerp(prev.enemies[i].pos, e.pos, alpha);
-                // 캡슐 원점은 중심이라 몸 절반 올림 (Sim pos는 발밑)
-                enemyViews[i].position = ep + Vector3.up * (SimConfig.EnemyHeight * 0.5f);
+                // 캡슐 원점은 중심이라 몸 절반 올림 (Sim pos는 발밑). 개별 크기 반영(대형몹 3배).
+                enemyViews[i].position = ep + Vector3.up * (e.height * 0.5f);
+                enemyViews[i].localScale = new Vector3(e.radius * 2f, e.height * 0.5f, e.radius * 2f);
                 enemyViews[i].rotation = Quaternion.Euler(0f, e.yaw, 0f);
-                enemyViews[i].GetComponent<Renderer>().material.color = PhaseColor(e.descentPhase);
+                // 우선순위: 피격/스턴 > 공격 선딜(경고) > 타격 > 하강 단계 색
+                Color col;
+                if (e.combat.stunTicks > 0)                 col = HitColor;
+                else if (e.ai.state == EnemyState.Windup)   col = WindupColor;
+                else if (e.ai.state == EnemyState.Active)   col = AttackColor;
+                else                                        col = PhaseColor(e.descentPhase);
+                enemyViews[i].GetComponent<Renderer>().material.color = col;
             }
         }
 
@@ -54,9 +65,9 @@ namespace Game.View
         {
             switch (p)
             {
-                case DescentPhase.EdgePause: return EdgePauseColor;
-                case DescentPhase.Airborne:  return AirborneColor;
-                case DescentPhase.Recovery:  return RecoveryColor;
+                case DescentPhase.ApproachEdge: return ApproachColor;
+                case DescentPhase.EdgePause:    return EdgePauseColor;
+                case DescentPhase.Recovery:     return RecoveryColor;
                 default:                     return ChaseColor;
             }
         }

@@ -26,13 +26,13 @@ namespace Game.Sim.Tests
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);
-            world.player.health = 1;
+            world.player.combat.hp = 1;
             world.AddEnemy(new Vector3(0f, 0f, 0.3f));
 
             ref EnemySim enemy = ref world.enemies[0];
-            enemy.aiState = EnemyAIState.AttackWindup;
-            enemy.stateTicks = CombatConfig.EnemyAttackWindupTicks - 1;
-            enemy.committedAttackDirection = new Vector3(0f, 0f, -1f);
+            enemy.ai.state = EnemyState.Windup;
+            enemy.ai.stateTicks = AIConfig.MeleeWindupTicks - 1;
+            enemy.ai.committedDir = new Vector3(0f, 0f, -1f);
             return world;
         }
 
@@ -96,6 +96,29 @@ namespace Game.Sim.Tests
             Assert.IsTrue(result.isDeadFallback, "회피 불가능한 즉사 상황이면 사망 폴백이어야 함");
             Assert.Greater(result.actions.Length, 0);
             Assert.Greater(result.durationTicks, 0);
+        }
+
+        [Test]
+        public void FullSearch_DoesNotReturnConsecutiveWait_WhenScoresTie()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            SimServices services = StubServices.Create();
+
+            CandidatePath[] results = PredictionPlanner.Plan(
+                in world, in services, PredictionSettings.Full);
+
+            for (int r = 0; r < results.Length; r++)
+            {
+                bool previousWait = false;
+                for (int i = 0; i < results[r].actions.Length; i++)
+                {
+                    bool currentWait = results[r].actions[i].type == MacroActionType.Wait;
+                    Assert.IsFalse(previousWait && currentWait,
+                        "계약 1.2: 전술적 근거 없는 연속 Wait는 반환하면 안 된다.");
+                    previousWait = currentWait;
+                }
+            }
         }
     }
 }

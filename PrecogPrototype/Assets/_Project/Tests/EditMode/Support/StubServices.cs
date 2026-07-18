@@ -12,6 +12,9 @@ namespace Game.Sim.Tests
         public CastHit CapsuleCast(Vector3 bottom, Vector3 top, float radius, Vector3 dir, float maxDist)
             => default; // 항상 안 막힘
 
+        public CastHit Raycast(Vector3 origin, Vector3 dir, float maxDist)
+            => default; // 항상 안 막힘
+
         public bool SampleGround(Vector3 feet, float maxDown, out float groundY)
         {
             groundY = 0f;
@@ -26,15 +29,12 @@ namespace Game.Sim.Tests
     /// <summary>from→to 직선만 반환하는 최소 IPathfinder. 정적 그래프 대신 테스트용.</summary>
     public sealed class StubPathfinder : IPathfinder
     {
-        public PathStep NextStep(Vector3 from, Vector3 to) => new PathStep
+        public bool NextCorner(Vector3 from, Vector3 to, out Vector3 next) { next = to; return true; }
+        public float PathLength(Vector3 from, Vector3 to) => Vector3.Distance(from, to);
+        public bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing)
         {
-            kind = MoveKind.Walk,
-            next = to,
-            currentNodeId = 0,
-            destinationNodeId = 0,
-            nextNodeId = 0,
-            linkId = -1
-        };
+            edge = from; landing = from; return false;
+        }
     }
 
     public static class StubServices

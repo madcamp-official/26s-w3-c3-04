@@ -45,13 +45,13 @@ namespace Game.Prediction
                 kill = killCount * PredictionScoreConfig.KillWeight + damageDealt * PredictionScoreConfig.DamageWeight,
             };
 
-            if (!world.player.alive)
+            if (world.player.combat.hp <= 0)
             {
                 s.safety = PredictionScoreConfig.PlayerDeath;
                 return s;
             }
 
-            s.safety = world.player.health * PredictionScoreConfig.HpWeight
+            s.safety = world.player.combat.hp * PredictionScoreConfig.HpWeight
                      + SafetyBonus(in world) * PredictionScoreConfig.SafeDistanceWeight
                      - SurroundedExcess(in world) * PredictionScoreConfig.SurroundedWeight;
             // difficulty는 이번 롤백에서 비움(계약의 대시 보존/반복 페널티가 회귀 원인이라 제외).

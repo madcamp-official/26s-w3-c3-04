@@ -2,168 +2,132 @@ using UnityEngine;
 
 namespace Game.Sim
 {
+    /// <summary>
+    /// 적: NavMesh 추격 + 자체 판단 테두리 하강(순간이동식).
+    /// 하강 판단은 우리가 한다 — "걷는 길 길이 vs 점프 길 길이"를 비교해, 점프가 명확히
+    /// 짧을 때만 내려간다(NavMeshLink 라우팅에 안 맡김). 하강은 궤적 없이 순간이동 + 화면 보간.
+    /// </summary>
     public static class EnemyMovement
     {
-        public static void Step(ref EnemySim enemy, in PlayerSim player, in SimServices services, float dt)
+        public static void Step(ref EnemySim e, in PlayerSim player, in SimServices svc, float dt)
         {
-            if (!enemy.alive || !player.alive) return;
+            if (!e.alive) return;
 
-            if (enemy.combat.stunTicks > 0)
+            // 스턴 중이면 AI 정지 (combat이 stunTicks 부여, 감소는 CombatResolve가)
+            if (e.combat.stunTicks > 0) { e.vel.x = 0f; e.vel.z = 0f; Move(ref e, Vector3.zero, svc, dt); return; }
+
+            // 하강 진행 중이면 상태머신만
+            if (e.descentPhase != DescentPhase.None) { StepDescent(ref e, in svc, dt); return; }
+
+            float flatSqr = FlatSqrDist(e.pos, player.pos);
+            if (flatSqr > SimConfig.EnemyAggroRange * SimConfig.EnemyAggroRange)
+            { Move(ref e, Vector3.zero, svc, dt); return; }
+
+            // ── 하강 판단: 플레이어보다 충분히 높을 때만 ──
+            if (e.pos.y > player.pos.y + SimConfig.DescentMinHeight
+                && svc.Pathfinder.NearestDropEdge(e.pos, out Vector3 edge, out Vector3 landing))
             {
-                enemy.aiState = EnemyAIState.Stunned;
-                Move(ref enemy, Vector3.zero, in services, dt);
-                return;
-            }
-
-            if (enemy.aiState == EnemyAIState.Stunned)
-                enemy.aiState = EnemyAIState.Approach;
-
-            if (IsAttackState(enemy.aiState))
-            {
-                Move(ref enemy, Vector3.zero, in services, dt);
-                return;
-            }
-
-            if (enemy.descentPhase != DescentPhase.None)
-            {
-                enemy.aiState = enemy.descentPhase == DescentPhase.Recovery
-                    ? EnemyAIState.LandingRecovery
-                    : EnemyAIState.Traversal;
-                StepDescent(ref enemy, dt);
-                return;
-            }
-
-            float flatDistance = CombatMath.FlatDistance(enemy.pos, player.pos);
-            if (flatDistance > SimConfig.EnemyAggroRange)
-            {
-                enemy.aiState = EnemyAIState.Idle;
-                Move(ref enemy, Vector3.zero, in services, dt);
-                return;
-            }
-
-            if (enemy.attackCooldownTicks == 0 &&
-                flatDistance <= CombatConfig.EnemyAttackRange &&
-                Mathf.Abs(player.pos.y - enemy.pos.y) <= CombatConfig.EnemyAttackHeightTolerance)
-            {
-                BeginAttack(ref enemy, in player);
-                return;
-            }
-
-            enemy.aiState = EnemyAIState.Approach;
-            if (enemy.repathTicks > 0) enemy.repathTicks--;
-            if (enemy.repathTicks == 0 || !enemy.hasWaypoint)
-            {
-                PathStep step = services.Pathfinder.NextStep(enemy.pos, player.pos);
-                enemy.waypoint = step.next;
-                enemy.currentNavNodeId = step.currentNodeId;
-                enemy.destinationNavNodeId = step.destinationNodeId;
-                enemy.nextNavNodeId = step.nextNodeId;
-                enemy.activeTraversalLinkId = step.linkId;
-                enemy.hasWaypoint = step.kind != MoveKind.None;
-                enemy.repathTicks = SimConfig.EnemyRepathTicks;
-                if (step.kind == MoveKind.Jump)
+                float walk     = svc.Pathfinder.PathLength(e.pos, player.pos);
+                float toEdge   = svc.Pathfinder.PathLength(e.pos, edge);
+                float fromLand = svc.Pathfinder.PathLength(landing, player.pos);
+                if (toEdge >= 0f && fromLand >= 0f)
                 {
-                    StartDescent(ref enemy, step.next);
-                    return;
+                    float jump = toEdge + FlatDist(edge, landing) + fromLand;
+                    bool walkOk = walk >= 0f;
+                    // 걷는 길이 없거나, 점프가 걷기의 문턱값보다 짧으면 하강
+                    if (!walkOk || jump < walk * SimConfig.DescentThreshold)
+                    { StartDescent(ref e, edge, landing); return; }
                 }
             }
 
-            Vector3 target = enemy.hasWaypoint ? enemy.waypoint : player.pos;
-            Vector3 to = target - enemy.pos;
-            to.y = 0f;
-            float distance = to.magnitude;
-            if (distance < SimConfig.EnemyArriveDist) enemy.repathTicks = 0;
-
-            Vector3 horizontal = Vector3.zero;
-            if (distance > CombatConfig.EnemyStopDistance)
+            // ── 일반 걷기 ──
+            if (e.repathTicks > 0) e.repathTicks--;
+            if (e.repathTicks == 0 || !e.hasWaypoint)
             {
-                Vector3 direction = to / distance;
-                horizontal = direction * SimConfig.EnemyMoveSpeed * dt;
-                enemy.yaw = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
+                e.hasWaypoint = svc.Pathfinder.NextCorner(e.pos, player.pos, out e.waypoint);
+                e.repathTicks = SimConfig.EnemyRepathTicks;
             }
-            Move(ref enemy, horizontal, in services, dt);
-        }
+            Vector3 target = e.hasWaypoint ? e.waypoint : player.pos;
+            Vector3 to = target - e.pos; to.y = 0f;
+            float d = to.magnitude;
+            if (d < SimConfig.EnemyArriveDist) e.repathTicks = 0;
 
-        static bool IsAttackState(EnemyAIState state)
-            => state == EnemyAIState.AttackWindup ||
-               state == EnemyAIState.AttackActive ||
-               state == EnemyAIState.AttackRecovery;
-
-        static void BeginAttack(ref EnemySim enemy, in PlayerSim player)
-        {
-            enemy.aiState = EnemyAIState.AttackWindup;
-            enemy.stateTicks = 0;
-            enemy.committedAttackDirection = CombatMath.FlatDirection(enemy.pos, player.pos);
-            enemy.yaw = Mathf.Atan2(
-                enemy.committedAttackDirection.x,
-                enemy.committedAttackDirection.z) * Mathf.Rad2Deg;
-        }
-
-        static void StartDescent(ref EnemySim enemy, Vector3 landing)
-        {
-            enemy.descentPhase = DescentPhase.EdgePause;
-            enemy.aiState = EnemyAIState.Traversal;
-            enemy.descentTicks = 0;
-            enemy.jumpStart = enemy.pos;
-            enemy.jumpEnd = landing;
-            enemy.vel = Vector3.zero;
-            Vector3 direction = landing - enemy.pos;
-            direction.y = 0f;
-            if (direction.sqrMagnitude > 1e-4f)
-                enemy.yaw = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
-        }
-
-        static void StepDescent(ref EnemySim enemy, float dt)
-        {
-            switch (enemy.descentPhase)
+            Vector3 horiz = Vector3.zero;
+            if (d > 1e-4f)
             {
+                Vector3 dir = to / d;
+                horiz = dir * SimConfig.EnemyMoveSpeed * dt;
+                e.yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+            }
+            Move(ref e, horiz, svc, dt);
+        }
+
+        static void StartDescent(ref EnemySim e, Vector3 edge, Vector3 landing)
+        {
+            e.descentPhase = DescentPhase.ApproachEdge;
+            e.descentTicks = 0;
+            e.descentEdge = edge;
+            // 착지 분산 (id별 결정론) — 여러 몹이 같은 테두리로 와도 안 뭉침
+            float ox = ((e.id % 3) - 1) * SimConfig.DescentLandingSpread;
+            float oz = (((e.id / 3) % 3) - 1) * SimConfig.DescentLandingSpread;
+            e.descentLanding = landing + new Vector3(ox, 0f, oz);
+        }
+
+        static void StepDescent(ref EnemySim e, in SimServices svc, float dt)
+        {
+            switch (e.descentPhase)
+            {
+                case DescentPhase.ApproachEdge:
+                {
+                    Vector3 to = e.descentEdge - e.pos; to.y = 0f;
+                    float d = to.magnitude;
+                    if (d < SimConfig.DescentEdgeReach)
+                    { e.descentPhase = DescentPhase.EdgePause; e.descentTicks = 0; e.vel.x = 0f; e.vel.z = 0f; }
+                    else
+                    {
+                        Vector3 dir = to / d;
+                        e.yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+                        Move(ref e, dir * SimConfig.EnemyMoveSpeed * dt, svc, dt);
+                    }
+                    break;
+                }
                 case DescentPhase.EdgePause:
-                    if (++enemy.descentTicks >= SimConfig.DescentEdgePauseTicks)
+                    e.vel.x = 0f; e.vel.z = 0f;
+                    e.descentTicks++;
+                    if (e.descentTicks >= SimConfig.DescentEdgePauseTicks)
                     {
-                        enemy.descentPhase = DescentPhase.Airborne;
-                        enemy.descentTicks = 0;
-                        float horizontal = CombatMath.FlatDistance(enemy.jumpStart, enemy.jumpEnd);
-                        enemy.jumpDuration = Mathf.Max(
-                            SimConfig.DescentJumpMinTicks,
-                            Mathf.CeilToInt(horizontal / (SimConfig.DescentJumpSpeed * dt)));
+                        e.pos = e.descentLanding;   // 순간이동 (화면은 EntityViews 보간이 슥 미끄러지게)
+                        e.descentPhase = DescentPhase.Recovery;
+                        e.descentTicks = 0;
                     }
                     break;
-
-                case DescentPhase.Airborne:
-                    enemy.descentTicks++;
-                    float t = Mathf.Clamp01((float)enemy.descentTicks / enemy.jumpDuration);
-                    Vector3 position = Vector3.Lerp(enemy.jumpStart, enemy.jumpEnd, t);
-                    position.y += SimConfig.DescentJumpArcHeight * Mathf.Sin(Mathf.PI * t);
-                    enemy.pos = position;
-                    if (enemy.descentTicks >= enemy.jumpDuration)
-                    {
-                        enemy.pos = enemy.jumpEnd;
-                        enemy.descentPhase = DescentPhase.Recovery;
-                        enemy.aiState = EnemyAIState.LandingRecovery;
-                        enemy.descentTicks = 0;
-                    }
-                    break;
-
                 case DescentPhase.Recovery:
-                    if (++enemy.descentTicks >= SimConfig.DescentRecoveryTicks)
+                    e.vel.x = 0f; e.vel.z = 0f;
+                    Move(ref e, Vector3.zero, svc, dt);   // 착지 지면 안착
+                    e.descentTicks++;
+                    if (e.descentTicks >= SimConfig.DescentRecoveryTicks)
                     {
-                        enemy.descentPhase = DescentPhase.None;
-                        enemy.aiState = EnemyAIState.Approach;
-                        enemy.descentTicks = 0;
-                        enemy.repathTicks = 0;
-                        enemy.hasWaypoint = false;
+                        e.descentPhase = DescentPhase.None;
+                        e.descentTicks = 0;
+                        e.repathTicks = 0;
+                        e.hasWaypoint = false;
                     }
                     break;
             }
         }
 
-        static void Move(ref EnemySim enemy, Vector3 horizontal, in SimServices services, float dt)
+        static void Move(ref EnemySim e, Vector3 horiz, in SimServices svc, float dt)
         {
-            enemy.pos = CharacterMotor.MoveHorizontal(
-                services.Collision, enemy.pos, horizontal,
-                SimConfig.EnemyRadius, SimConfig.EnemyHeight);
-            CharacterMotor.ResolveVertical(
-                services.Collision, ref enemy.pos, ref enemy.vel, dt, out enemy.grounded);
+            e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, horiz, e.radius, e.height);
+            CharacterMotor.ResolveVertical(svc.Collision, ref e.pos, ref e.vel, dt, out bool grounded);
+            e.grounded = grounded;
         }
+
+        static float FlatSqrDist(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return dx * dx + dz * dz;
+        }
+        static float FlatDist(Vector3 a, Vector3 b) => Mathf.Sqrt(FlatSqrDist(a, b));
     }
 }

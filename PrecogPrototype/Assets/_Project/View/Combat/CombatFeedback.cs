@@ -6,7 +6,7 @@ namespace Game.View
     /// <summary>
     /// 전투 손맛(juice). ★ combat 소유·독립. 읽기 전용(SimWorld 안 씀).
     /// 적 피격/처치를 프레임 간 상태 비교로 감지 → 카메라 셰이크 + 스파크 + 타격음.
-    /// 플레이어 대시/타깃 런지 시작에도 셰이크.
+    /// 플레이어 대시/런지 시작에도 셰이크.
     /// ※ 히트스톱은 HitStop.cs 담당(중복 timeScale 조작 방지). 카메라 고정·HUD도 SIM 세션 몫.
     /// </summary>
     public class CombatFeedback : MonoBehaviour
@@ -20,13 +20,18 @@ namespace Game.View
         public static void Shake(float amp) { if (inst != null) inst.AddShake(amp); }
 
         // 적 상태 추적 (인덱스 안정: append-only, 처치해도 배열 유지)
-        readonly int[]  prevStun  = new int[SimConfig.MaxEnemies];
+        readonly int[]  prevHp    = new int[SimConfig.MaxEnemies];
         readonly bool[] prevAlive = new bool[SimConfig.MaxEnemies];
         readonly bool[] seen      = new bool[SimConfig.MaxEnemies];
 
         // 플레이어 상태 추적
         bool prevDash;
-        PlayerActionPhase prevAction;
+        byte prevLunge;
+
+        // 대시 FOV 킥 (둠식 속도감)
+        const float FovKickAmount = 10f;
+        const float FovKickDecay  = 7f;
+        float fovKick, baseFov = -1f;
 
         ParticleSystem sparks;
 
@@ -42,39 +47,45 @@ namespace Game.View
             if (main == null) return;
             ref readonly SimWorld w = ref main.World;
 
-            // ── 적 피격/처치 감지 ──
+            // ── 적 피격/처치 감지 (스턴 폐기 → HP 감소 기반) ──
             for (int i = 0; i < w.enemyCount; i++)
             {
                 ref readonly EnemySim e = ref w.enemies[i];
                 if (seen[i])
                 {
-                    if (e.combat.stunTicks > prevStun[i])            // 스턴 상승 = 새 타격
+                    if (e.alive && e.combat.health < prevHp[i])      // HP 감소 = 새 타격
                         OnHit(e.pos);
                     if (prevAlive[i] && !e.alive)                    // 처치
                         OnDeath(e.pos);
                 }
                 seen[i]      = true;
-                prevStun[i]  = e.combat.stunTicks;
+                prevHp[i]    = e.combat.health;
                 prevAlive[i] = e.alive;
             }
 
-            // ── 플레이어 액션 셰이크 ──
+            // ── 플레이어 액션 셰이크 + 대시 FOV 킥 ──
             bool dash = w.player.dashTicks > 0;
-            if (dash && !prevDash) AddShake(0.10f);
+            if (dash && !prevDash) { AddShake(0.10f); fovKick = 1f; }
             prevDash = dash;
+            if (fovKick > 0f)
+                fovKick = Mathf.MoveTowards(fovKick, 0f, FovKickDecay * Time.unscaledDeltaTime);
 
-            PlayerActionPhase action = w.player.combat.phase;
-            if (action != prevAction && action == PlayerActionPhase.LungeTravel) AddShake(0.14f);
-            prevAction = action;
+            byte lg = w.player.combat.lungePhase;
+            if (lg != prevLunge && lg == CombatConfig.LgTravel) AddShake(0.14f);
+            prevLunge = lg;
         }
 
         void LateUpdate()
         {
-            // Main.Update가 카메라 위치·회전을 세팅한 "뒤"에 셰이크를 덧씌운다(안 싸움).
-            if (shakeAmp <= 0f) return;
+            // Main.Update가 카메라 위치·회전을 세팅한 "뒤"에 셰이크·FOV킥을 덧씌운다(안 싸움).
             var cam = Main.Instance != null ? Main.Instance.Cam : null;
             if (cam == null) return;
 
+            // 대시 FOV 킥: 순간 확대 후 빠르게 복귀 (둠식 속도감)
+            if (baseFov < 0f) baseFov = cam.fieldOfView;
+            cam.fieldOfView = baseFov + FovKickAmount * fovKick;
+
+            if (shakeAmp <= 0f) return;
             Vector3 off = Random.insideUnitSphere * shakeAmp;
             off.z *= 0.3f;
             cam.transform.position += off;

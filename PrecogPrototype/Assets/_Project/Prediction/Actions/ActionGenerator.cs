@@ -35,7 +35,10 @@ namespace Game.Prediction
             int count = 0;
             int cap = Mathf.Min(settings.maxActionsPerNode, buffer.Length);
             ref readonly PlayerSim player = ref world.player;
-            bool canStartAction = player.alive && player.combat.phase == PlayerActionPhase.None;
+            bool canStartAction = player.combat.hp > 0
+                && player.combat.attackPhase == CombatConfig.PhNone
+                && player.combat.lungePhase == CombatConfig.LgNone
+                && player.combat.gloryPhase == CombatConfig.GlNone;
 
             for (int p = 0; p < Priority.Length && count < cap; p++)
             {
@@ -55,7 +58,7 @@ namespace Game.Prediction
                         break;
 
                     case MacroActionType.Lunge:
-                        if (canStartAction && player.combat.lungeCooldownTicks == 0)
+                        if (canStartAction && player.combat.lungeCooldown == 0)
                             count = AddLungeCandidates(in world, in player, in services, buffer, count, cap);
                         break;
 
@@ -76,7 +79,7 @@ namespace Game.Prediction
                 if (!enemy.alive) continue;
                 if (Mathf.Abs(enemy.pos.y - world.player.pos.y) > CombatConfig.AttackHeightTolerance) continue;
                 if (CombatMath.InCone(world.player.pos, forward, enemy.pos,
-                        CombatConfig.AttackRange, CombatConfig.AttackHalfAngleDeg))
+                        CombatConfig.AttackConeRange + enemy.radius, CombatConfig.AttackConeHalfAngle))
                     return true;
             }
             return false;
@@ -161,7 +164,7 @@ namespace Game.Prediction
             Vector3 forward = CombatMath.Forward(player.yaw);
             if (!CombatMath.InCone(
                 player.pos, forward, enemy.pos,
-                CombatConfig.LungeMaxRange, CombatConfig.LungeHalfAngleDeg))
+                CombatConfig.LungeMaxRange, CombatConfig.LungeHalfAngle))
                 return false;
 
             Vector3 eye = player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);

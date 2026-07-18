@@ -25,14 +25,15 @@ namespace Game.Prediction
             h = Mix(h, (ulong)killCount);
 
             ref readonly PlayerSim player = ref world.player;
-            h = Mix(h, player.alive ? 1UL : 0UL);
-            h = Mix(h, (ulong)player.health);
+            h = Mix(h, player.combat.hp > 0 ? 1UL : 0UL);
+            h = Mix(h, (ulong)player.combat.hp);
             h = MixPos(h, player.pos);
             h = Mix(h, QuantizeYaw(player.yaw));
             bool dashReady = player.dashTicks == 0 && player.dashCharges > 0;
             h = Mix(h, dashReady ? 1UL : 0UL);
-            h = Mix(h, (ulong)(player.combat.lungeCooldownTicks / CooldownBucketTicks));
-            h = Mix(h, (ulong)player.combat.phase);
+            h = Mix(h, (ulong)(player.combat.lungeCooldown / CooldownBucketTicks));
+            h = Mix(h, (ulong)player.combat.attackPhase);
+            h = Mix(h, (ulong)player.combat.lungePhase);
 
             for (int i = 0; i < world.enemyCount; i++)
             {
@@ -40,15 +41,31 @@ namespace Game.Prediction
                 h = Mix(h, (ulong)enemy.id);
                 h = Mix(h, enemy.alive ? 1UL : 0UL);
                 if (!enemy.alive) continue;
+                h = Mix(h, (ulong)enemy.ai.archetype);
                 h = MixPos(h, enemy.pos);
                 h = Mix(h, (ulong)enemy.combat.health);
-                h = Mix(h, IsThreatening(enemy.aiState) ? 1UL : 0UL);
+                h = Mix(h, IsThreatening(enemy.ai.state) ? 1UL : 0UL);
+                h = Mix(h, (ulong)(enemy.ai.attackCooldown / CooldownBucketTicks));
+            }
+
+            // 활성 투사체가 다른 후보를 같은 상태로 합치면 미래 피격 결과가 달라질 수 있다.
+            h = Mix(h, (ulong)world.projectileCount);
+            for (int i = 0; i < world.projectileCount; i++)
+            {
+                ref readonly Projectile projectile = ref world.projectiles[i];
+                h = Mix(h, projectile.alive ? 1UL : 0UL);
+                if (!projectile.alive) continue;
+                h = MixPos(h, projectile.pos);
+                h = Mix(h, QuantizeYaw(Mathf.Atan2(
+                    projectile.vel.x, projectile.vel.z) * Mathf.Rad2Deg));
+                h = Mix(h, (ulong)(projectile.ttl / CooldownBucketTicks));
             }
             return h;
         }
 
-        static bool IsThreatening(EnemyAIState state)
-            => state == EnemyAIState.AttackWindup || state == EnemyAIState.AttackActive;
+        static bool IsThreatening(EnemyState state)
+            => state == EnemyState.Windup || state == EnemyState.Active
+            || state == EnemyState.Aim || state == EnemyState.Fire;
 
         static ulong MixPos(ulong h, Vector3 p)
         {

@@ -2,17 +2,19 @@ using UnityEngine;
 
 namespace Game.Sim
 {
-    /// <summary>플레이어 이동: WASD·시점·더블점프·4방향 대시·런지 이동. 벽은 ICollision이 처리.</summary>
+    /// <summary>
+    /// 플레이어 이동: WASD·더블점프(버퍼+공중 임펄스)·4방향 대시(둠식 임펄스).
+    /// 벽은 CharacterMotor가 처리.
+    /// </summary>
     public static class PlayerMovement
     {
         public static void Step(ref PlayerSim p, in InputCmd cmd, in SimServices svc, float dt)
         {
-            if (!p.alive) return;
             p.yaw = cmd.yaw;
             Vector3 fwd = Forward(p.yaw);
             Vector3 right = new Vector3(fwd.z, 0f, -fwd.x);
 
-            // 대시 충전 회복
+            // 대시 충전 회복 (스택별 순차)
             if (p.dashRecharge > 0)
             {
                 p.dashRecharge--;
@@ -24,34 +26,37 @@ namespace Game.Sim
                 }
             }
 
-            if (p.hitStunTicks > 0)
+            // 점프 버퍼: 누른 순간 기록 → 착지/가능 시점에 소비 (선입력 손맛)
+            if (p.jumpBufferTicks > 0) p.jumpBufferTicks--;
+            if (cmd.jump) p.jumpBufferTicks = SimConfig.JumpBufferTicks;
+
+            // 피격 경직: 수평 조작 제한(중력·착지만)
+            if (p.combat.hitStunTicks > 0)
             {
                 CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out p.grounded);
+                if (p.grounded) p.jumpCount = 0;
                 return;
             }
 
-            if (p.combat.phase == PlayerActionPhase.LungeTravel)
-                return;
+            // 런지 Travel 중엔 PlayerCombat이 pos를 구동 — 여기선 손대지 않음
+            if (p.combat.lungePhase == CombatConfig.LgTravel) return;
 
-            // 4방향 대시 시작
+            // 4방향 대시 시작 — 카메라 기준 방향, 시작 순간 고정. 이동 전용(피해·무적 없음).
             if (p.dashTicks == 0 && cmd.dash && p.dashCharges > 0)
             {
                 p.dashTicks = SimConfig.DashDurationTicks;
                 p.dashDir = DashVector(cmd.dashDirection, fwd, right);
+                p.dashSpeed = SimConfig.DashInitialSpeed;   // 임펄스: 초기 속도 부여(첫 틱이 가장 강함)
                 p.dashCharges--;
                 if (p.dashRecharge == 0) p.dashRecharge = SimConfig.DashRechargeTicks;
             }
 
-            // 수평 이동량 결정
             Vector3 horiz;
             if (p.dashTicks > 0)
             {
-                int elapsedTicks = SimConfig.DashDurationTicks - p.dashTicks;
-                float t0 = (float)elapsedTicks / SimConfig.DashDurationTicks;
-                float t1 = (float)(elapsedTicks + 1) / SimConfig.DashDurationTicks;
-                float totalDistance = SimConfig.DashSpeed * SimConfig.DashDurationTicks * dt;
-                float tickDistance = totalDistance * (SmoothStep01(t1) - SmoothStep01(t0));
-                horiz = p.dashDir * tickDistance;
+                // 진짜 임펄스: 현재 속도로 이동 → 드래그로 감쇠. 총 거리는 힘·드래그에서 자동.
+                horiz = p.dashDir * (p.dashSpeed * dt);
+                p.dashSpeed *= SimConfig.DashDecay;
                 p.dashTicks--;
             }
             else
@@ -60,12 +65,28 @@ namespace Game.Sim
                 if (wish.sqrMagnitude > 1f) wish.Normalize();
                 horiz = wish * SimConfig.PlayerMoveSpeed * dt;
 
-                if (cmd.jump && p.jumpCount < 2)
+                // 점프 (버퍼 소비). 2단 점프는 입력 방향 수평 임펄스 동반(둠식 공중 방향전환)
+                if (p.jumpBufferTicks > 0 && p.jumpCount < 2)
                 {
+                    bool airJump = !p.grounded && p.jumpCount >= 1;
                     p.vel.y = SimConfig.PlayerJumpSpeed;
                     p.jumpCount++;
                     p.grounded = false;
+                    p.jumpBufferTicks = 0;
+                    if (airJump && wish.sqrMagnitude > 1e-4f)
+                    {
+                        p.jumpBoostTicks = SimConfig.AirJumpBoostTicks;
+                        p.jumpBoostDir = wish.normalized;
+                    }
                 }
+            }
+
+            // 2단 점프 수평 임펄스(선형 감쇠) — 일반 이동에 덧셈
+            if (p.jumpBoostTicks > 0)
+            {
+                float k = (float)p.jumpBoostTicks / SimConfig.AirJumpBoostTicks;
+                horiz += p.jumpBoostDir * (SimConfig.AirJumpBoost * k * dt);
+                p.jumpBoostTicks--;
             }
 
             // 수평(벽 슬라이드) → 수직(중력·착지)
@@ -76,24 +97,18 @@ namespace Game.Sim
             if (grounded) p.jumpCount = 0;
         }
 
-        static Vector3 Forward(float yaw)
-            => new Vector3(Mathf.Sin(yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(yaw * Mathf.Deg2Rad));
-
-        static float SmoothStep01(float t)
+        static Vector3 DashVector(DashDirection d, Vector3 fwd, Vector3 right)
         {
-            t = Mathf.Clamp01(t);
-            return t * t * (3f - 2f * t);
-        }
-
-        static Vector3 DashVector(DashDirection direction, Vector3 forward, Vector3 right)
-        {
-            switch (direction)
+            switch (d)
             {
-                case DashDirection.Backward: return -forward;
-                case DashDirection.Left: return -right;
-                case DashDirection.Right: return right;
-                default: return forward;
+                case DashDirection.Backward: return -fwd;
+                case DashDirection.Left:     return -right;
+                case DashDirection.Right:    return right;
+                default:                     return fwd;
             }
         }
+
+        static Vector3 Forward(float yaw)
+            => new Vector3(Mathf.Sin(yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(yaw * Mathf.Deg2Rad));
     }
 }

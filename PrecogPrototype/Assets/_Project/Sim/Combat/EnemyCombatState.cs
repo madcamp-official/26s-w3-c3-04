@@ -7,9 +7,13 @@ namespace Game.Sim
     /// </summary>
     public struct EnemyCombatState
     {
-        public int health;      // 스폰 시 설정 (일반 2 / 중형 3)
-        public int stunTicks;   // >0이면 스턴 (AI 정지)
+        public int health;      // 스폰 시 설정 (일반 2 / 중형 3 / 대형 4)
+        public int stunTicks;   // 잔존 필드(스턴 부여는 폐기 — 항상 0. 추후 특수기용으로 보존)
+        public int bindTicks;   // >0이면 런지 표적 이동봉쇄(위치·중력 동결, 공격은 지속)
         public int deathTick;   // 처치된 틱 (사지절단 연출 타이밍용, 0=생존)
+
+        // 대형몹 글로리킬 단계: 0 정상 / 1 slash1 / 2 slash2 / 3 폭발(dash). >0이면 처형 중(AI·판정·분리 제외).
+        public byte gloryStage;
 
         public static EnemyCombatState Spawn(int hp) => new EnemyCombatState { health = hp };
     }

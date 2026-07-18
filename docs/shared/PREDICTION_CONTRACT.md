@@ -1,6 +1,6 @@
 # 게임 런타임 ↔ 예측 엔진 통합 계약
 
-- 버전: 1.1
+- 버전: 1.2
 - 확정일: 2026-07-18
 - 적용 대상: `PrecogPrototype`
 - 상태: **MVP 구현 기준 확정**
@@ -596,7 +596,6 @@ mapVersion = fixed
 행동 생성의 정렬 순서는 고정한다.
 
 ```text
-Wait
 ForwardMove
 LeftMove
 RightMove
@@ -607,10 +606,14 @@ LeftDash
 RightDash
 Attack
 Lunge(targetId 오름차순)
+Wait
 ```
 
 불가능하거나 쿨타임인 행동은 생성하지 않는다.
-동일 점수 후보는 입력 시퀀스 사전순, 그다음 candidateId 오름차순으로 정렬한다.
+Wait는 공격·투사체 통과, Recovery 종료, 쿨다운 회복처럼 대기할 전술적 이유가 있는
+경우를 위한 최후순위 행동이다. 동일 점수 후보는 연속 Wait 횟수, 전체 Wait 횟수가
+적은 순서로 고른 뒤 입력 시퀀스 사전순, candidateId 오름차순으로 정렬한다.
+전술적 이유가 확인되지 않은 연속 Wait는 1회를 초과하지 않는다.
 
 즉시 폐기 조건:
 

@@ -18,6 +18,8 @@ namespace Game.Prediction
         public int hitsTaken;     // 계약의 expectedHits
         public int dashCount;
         public int lungeCount;
+        public int waitCount;
+        public int consecutiveWaitCount;
         public int ticksSurvived;
 
         public float safetyScore;

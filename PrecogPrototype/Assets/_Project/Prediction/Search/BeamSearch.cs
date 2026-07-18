@@ -17,7 +17,7 @@ namespace Game.Prediction
         {
             ulong initialHash = WorldHash.Compute(in snapshot);
 
-            if (!snapshot.player.alive)
+            if (snapshot.player.combat.hp <= 0)
             {
                 ScoreBreakdown deadBreakdown = ThreatEvaluator.Score(in snapshot, 0, 0, 0, 0, false);
                 return new[]
@@ -96,6 +96,10 @@ namespace Game.Prediction
 
                     for (int a = 0; a < actionCount; a++)
                     {
+                        bool isWait = actionBuffer[a].type == MacroActionType.Wait;
+                        // 계약 1.2: 전술적 근거가 아직 없는 연속 Wait는 1회를 초과하지 않는다.
+                        if (isWait && parentNode.consecutiveWaitCount >= 1) continue;
+
                         int childBuffer = pool.Rent();
                         if (childBuffer < 0) continue; // 풀 고갈 — 용량 산정상 발생하면 안 되지만 방어적으로 스킵
 
@@ -108,7 +112,7 @@ namespace Game.Prediction
                             float yaw = ComputeAimYaw(in childWorld);
                             InputCmd cmd = actionBuffer[a].ToInputCmd(yaw, ticks);
                             SimStep.Run(ref childWorld, in cmd, in services);
-                            if (!childWorld.player.alive) { survived = false; ticks++; break; }
+                            if (childWorld.player.combat.hp <= 0) { survived = false; ticks++; break; }
                         }
 
                         ref readonly SimWorld finalWorld = ref pool.Get(childBuffer);
@@ -118,12 +122,12 @@ namespace Game.Prediction
                         {
                             if (parentWorld.enemies[i].alive && !finalWorld.enemies[i].alive)
                             {
-                                if (finalWorld.enemies[i].enemyTypeId == 0) killedNormalThisStep++;
-                                else killedMidThisStep++;
+                                if (finalWorld.enemies[i].ai.archetype == Archetype.LargeMelee) killedMidThisStep++;
+                                else killedNormalThisStep++;
                             }
                         }
                         int damageThisStep = Mathf.Max(0, TotalHp(in parentWorld) - TotalHp(in finalWorld));
-                        int hitsThisStep = Mathf.Max(0, parentWorld.player.health - finalWorld.player.health);
+                        int hitsThisStep = Mathf.Max(0, parentWorld.player.combat.hp - finalWorld.player.combat.hp);
                         bool isRepeated = parentNode.depth > 0 && actionBuffer[a].type == parentNode.actionTaken.type;
 
                         int childKillNormal = parentNode.killCountNormal + killedNormalThisStep;
@@ -132,6 +136,8 @@ namespace Game.Prediction
                         int childHitsTaken = parentNode.hitsTaken + hitsThisStep;
                         int childDashCount = parentNode.dashCount + (IsDash(actionBuffer[a].type) ? 1 : 0);
                         int childLungeCount = parentNode.lungeCount + (actionBuffer[a].type == MacroActionType.Lunge ? 1 : 0);
+                        int childWaitCount = parentNode.waitCount + (isWait ? 1 : 0);
+                        int childConsecutiveWaitCount = isWait ? parentNode.consecutiveWaitCount + 1 : 0;
 
                         ScoreBreakdown breakdown = ThreatEvaluator.Score(
                             in finalWorld, childKillNormal, childKillMid, childDamageDealt, childHitsTaken, isRepeated);
@@ -148,6 +154,8 @@ namespace Game.Prediction
                             hitsTaken = childHitsTaken,
                             dashCount = childDashCount,
                             lungeCount = childLungeCount,
+                            waitCount = childWaitCount,
+                            consecutiveWaitCount = childConsecutiveWaitCount,
                             ticksSurvived = parentNode.ticksSurvived + ticks,
                             alive = survived,
                             score = breakdown.Total,
@@ -193,7 +201,8 @@ namespace Game.Prediction
                         if (used[e]) continue;
                         ulong key = nodes[expansionIndices[e]].stateKey;
                         if (ContainsKey(chosenKeys, nextBeamCount, key)) continue;
-                        if (bestLocal < 0 || nodes[expansionIndices[e]].score > nodes[expansionIndices[bestLocal]].score)
+                        if (bestLocal < 0 || IsBetterCandidate(
+                                in nodes[expansionIndices[e]], in nodes[expansionIndices[bestLocal]]))
                             bestLocal = e;
                     }
                     if (bestLocal < 0) break; // 서로 다른 키 후보 소진
@@ -207,7 +216,8 @@ namespace Game.Prediction
                     for (int e = 0; e < expansionCount; e++)
                     {
                         if (used[e]) continue;
-                        if (bestLocal < 0 || nodes[expansionIndices[e]].score > nodes[expansionIndices[bestLocal]].score)
+                        if (bestLocal < 0 || IsBetterCandidate(
+                                in nodes[expansionIndices[e]], in nodes[expansionIndices[bestLocal]]))
                             bestLocal = e;
                     }
                     if (bestLocal < 0) break;
@@ -221,7 +231,8 @@ namespace Game.Prediction
                     pool.Return(nodes[expansionIndices[e]].worldBufferIndex);
                 }
 
-                if (nextBeamCount > 0 && nodes[nextBeam[0]].score > nodes[bestOverallNode].score)
+                if (nextBeamCount > 0 &&
+                    IsBetterCandidate(in nodes[nextBeam[0]], in nodes[bestOverallNode]))
                     bestOverallNode = nextBeam[0];
 
                 System.Array.Copy(nextBeam, currentBeam, nextBeamCount);
@@ -244,7 +255,8 @@ namespace Game.Prediction
                     for (int e = 0; e < currentBeamCount; e++)
                     {
                         if (used[e]) continue;
-                        if (bestLocal < 0 || nodes[currentBeam[e]].score > nodes[currentBeam[bestLocal]].score)
+                        if (bestLocal < 0 || IsBetterCandidate(
+                                in nodes[currentBeam[e]], in nodes[currentBeam[bestLocal]]))
                             bestLocal = e;
                     }
                     used[bestLocal] = true;
@@ -311,6 +323,19 @@ namespace Game.Prediction
         static bool IsDash(MacroActionType type) =>
             type == MacroActionType.DashForward || type == MacroActionType.DashBackward ||
             type == MacroActionType.DashLeft || type == MacroActionType.DashRight;
+
+        static bool IsBetterCandidate(in SearchNode candidate, in SearchNode current)
+        {
+            const float ScoreEpsilon = 1e-5f;
+            if (candidate.score > current.score + ScoreEpsilon) return true;
+            if (candidate.score < current.score - ScoreEpsilon) return false;
+            if (candidate.consecutiveWaitCount != current.consecutiveWaitCount)
+                return candidate.consecutiveWaitCount < current.consecutiveWaitCount;
+            if (candidate.waitCount != current.waitCount)
+                return candidate.waitCount < current.waitCount;
+            // 완전 동률은 생성 순서가 승리하도록 false를 유지한다.
+            return false;
+        }
 
         static bool ContainsKey(ulong[] keys, int count, ulong key)
         {

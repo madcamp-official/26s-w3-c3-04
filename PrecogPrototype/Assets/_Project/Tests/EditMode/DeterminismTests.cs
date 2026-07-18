@@ -87,5 +87,40 @@ namespace Game.Sim.Tests
                 Assert.AreEqual(expected, WorldHash.Compute(in w2));
             }
         }
+
+        [Test]
+        public void Snapshot_CopiesProjectileState_Independently()
+        {
+            SimWorld source = BuildWorld();
+            source.SpawnProjectile(new Vector3(1f, 2f, 3f), new Vector3(4f, 0f, 0f));
+
+            SimWorld copy = Snapshot.Clone(in source);
+            Assert.AreEqual(WorldHash.Compute(in source), WorldHash.Compute(in copy));
+            Assert.AreNotSame(source.enemies, copy.enemies);
+            Assert.AreNotSame(source.projectiles, copy.projectiles);
+
+            copy.projectiles[0].pos += Vector3.right;
+            Assert.AreNotEqual(WorldHash.Compute(in source), WorldHash.Compute(in copy));
+            Assert.AreEqual(new Vector3(1f, 2f, 3f), source.projectiles[0].pos);
+        }
+
+        [Test]
+        public void ProjectileSimulation_AdvancesFixedState_Deterministically()
+        {
+            SimWorld first = BuildWorld();
+            first.SpawnProjectile(Vector3.zero, new Vector3(12f, 0f, 0f));
+            SimWorld second = Snapshot.Clone(in first);
+            SimServices services = StubServices.Create();
+
+            for (int i = 0; i < 5; i++)
+            {
+                InputCmd empty = InputCmd.Empty;
+                SimStep.Run(ref first, in empty, in services);
+                SimStep.Run(ref second, in empty, in services);
+            }
+
+            Assert.AreEqual(WorldHash.Compute(in first), WorldHash.Compute(in second));
+            Assert.AreEqual(1f, first.projectiles[0].pos.x, 1e-5f);
+        }
     }
 }

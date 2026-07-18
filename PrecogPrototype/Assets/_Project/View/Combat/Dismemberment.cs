@@ -1,32 +1,48 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Game.Sim;
 
 namespace Game.View
 {
     /// <summary>
-    /// 처치 시 몸을 슬라이스해 "잘린 단면"을 보여준다. ★ combat 소유·독립. 읽기 전용.
-    /// 적이 죽는 프레임(alive true→false)에 그 위치·회전·크기로 캡슐 메시를 만들어
-    /// 조준/스윙 방향의 평면으로 두 조각으로 가른다. 조각엔 Rigidbody로 물리·피 파티클.
-    /// EntityViews는 죽으면 캡슐을 끄므로 그쪽 안 건드리고 같은 자리 시체가 나타난다.
-    /// 지금은 캡슐(알약 두 쪽) — 나중에 진짜 사람 메시로 원본만 교체하면 슬라이서 재사용.
+    /// 처치 연출: 몸을 슬라이스해 "잘린 단면"을 보여준다. ★ combat 소유·독립. 읽기 전용.
+    ///
+    /// 두 경로:
+    ///  1) 일반 처치(alive true→false, 글로리킬 아님): 죽는 프레임에 카메라 대각선 평면으로 2조각(즉시 물리).
+    ///  2) 대형몹 글로리킬(gloryStage 1→2→3): 단계식 3조각.
+    ///     stage1=위쪽 절단 → 2조각(붙어서 흔들림), stage2=아래쪽 절단 → 3조각(여전히 흔들림),
+    ///     stage3=폭발(조각 물리 방출 + 피). 절단면은 위/아래로 오프셋한 평행면이라 교차 없이 3조각.
+    /// 크기는 죽은 적 개별 height/radius 반영(대형몹 3배). EntityViews는 gloryStage>0면 캡슐을 끔.
     /// </summary>
     public class Dismemberment : MonoBehaviour
     {
         readonly bool[] prevAlive = new bool[SimConfig.MaxEnemies];
         readonly bool[] seen      = new bool[SimConfig.MaxEnemies];
+        readonly byte[] prevGlory = new byte[SimConfig.MaxEnemies];
+        readonly GloryVictim[] victims = new GloryVictim[SimConfig.MaxEnemies];
         int slashParity;
 
-        Mesh capsuleSrc;                 // 적 크기 반영된 캡슐(슬라이스 원본)
+        Mesh capsuleSrc;                 // 그런트 기준 캡슐(슬라이스 원본). 대형은 transform 스케일로 확대.
         Material shellMat, fleshMat;
         ParticleSystem blood;
 
         const float CorpseLife = 5f;
+        // 절단 평면 법선: 위 + 정면(로컬) 살짝 → 사선. 두 절단은 이 법선을 위/아래로만 오프셋(평행 → 3조각).
+        static readonly Vector3 CutN = (Vector3.up + Vector3.forward * 0.35f).normalized;
+
+        class GloryVictim
+        {
+            public readonly List<CorpsePiece> pieces = new();
+            public CorpsePiece restPiece;   // stage1의 '나머지'(stage2에서 재분할 후 제거)
+            public Mesh restMesh;
+            public Vector3 center; public Quaternion rot; public float scale;
+        }
 
         void Awake()
         {
             capsuleSrc = BuildScaledCapsule();
-            shellMat = Mat(new Color(0.5f, 0.05f, 0.05f), false);        // 겉면(검붉은, 피격색 통일)
-            fleshMat = Mat(new Color(0.30f, 0.02f, 0.02f), true);        // 단면(짙은 속살, 양면)
+            shellMat = Mat(new Color(0.5f, 0.05f, 0.05f), false);
+            fleshMat = Mat(new Color(0.30f, 0.02f, 0.02f), true);
             BuildBlood();
         }
 
@@ -39,45 +55,98 @@ namespace Game.View
             for (int i = 0; i < w.enemyCount; i++)
             {
                 ref readonly EnemySim e = ref w.enemies[i];
-                if (seen[i] && prevAlive[i] && !e.alive)
-                    SliceCorpse(e.pos, e.yaw);
-                seen[i]      = true;
+                byte gs = e.combat.gloryStage;
+
+                if (seen[i])
+                {
+                    if (gs != prevGlory[i]) GloryTransition(i, gs, in e);
+                    // 일반 처치(글로리킬 아닌 죽음)만 즉시 2조각 슬라이스
+                    if (prevAlive[i] && !e.alive && gs == 0 && prevGlory[i] == 0)
+                        SliceCorpse(e.pos, e.yaw, e.height, e.radius / SimConfig.EnemyRadius);
+                }
+                seen[i] = true;
                 prevAlive[i] = e.alive;
+                prevGlory[i] = gs;
             }
         }
 
-        void SliceCorpse(Vector3 feet, float yaw)
+        // ───────────────────────── 글로리킬 단계식 ─────────────────────────
+
+        void GloryTransition(int i, byte to, in EnemySim e)
         {
-            Vector3 center = feet + Vector3.up * (SimConfig.EnemyHeight * 0.5f);
-            Quaternion rot = Quaternion.Euler(0f, yaw, 0f);
-
-            // 절단 평면: 카메라 스크린 평면 내 대각선 법선(슬래시 방향 교대) → 대각 단면
-            Camera cam = Main.Instance.Cam;
-            Vector3 fwd = cam != null ? cam.transform.forward : Vector3.forward;
-            Vector3 up  = cam != null ? cam.transform.up      : Vector3.up;
-            slashParity ^= 1;
-            Vector3 worldN = (Quaternion.AngleAxis(slashParity == 0 ? 45f : -45f, fwd) * up).normalized;
-
-            // 로컬 평면(코프스 스케일=1이라 회전만 역변환). 평면점=중심=로컬 원점.
-            Vector3 localN = (Quaternion.Inverse(rot) * worldN).normalized;
-
-            if (!MeshSlicer.Slice(capsuleSrc, Vector3.zero, localN, out Mesh aboveM, out Mesh belowM))
-                return;
-
-            MakePiece(aboveM, center, rot,  worldN);
-            MakePiece(belowM, center, rot, -worldN);
-
-            blood.transform.SetPositionAndRotation(center, Quaternion.LookRotation(worldN));
-            blood.Emit(40);
+            switch (to)
+            {
+                case 1: GloryStart(i, in e); break;
+                case 2: GlorySecondCut(i);   break;
+                case 3: GloryExplode(i);     break;
+                default: GloryCleanup(i);    break;   // 0 등: 남은 조각 정리
+            }
         }
 
-        void MakePiece(Mesh mesh, Vector3 pos, Quaternion rot, Vector3 pushDir)
+        void GloryStart(int i, in EnemySim e)
         {
-            var go = new GameObject("Corpse");
-            // Ignore Raycast(2): 플레이어 지형 감지(DefaultRaycastLayers)에선 빠지고,
-            // 물리 충돌 매트릭스로는 지형과 계속 부딪힘 → 밟히지 않으면서 바닥엔 떨어짐.
-            go.layer = 2;
-            go.transform.SetPositionAndRotation(pos, rot);
+            float scale  = e.radius / SimConfig.EnemyRadius;
+            Vector3 center = e.pos + Vector3.up * (e.height * 0.5f);
+            Quaternion rot = Quaternion.Euler(0f, e.yaw, 0f);
+            float off = SimConfig.EnemyHeight * 0.5f * 0.4f;   // 기준 메시 반높이의 40%
+
+            if (!MeshSlicer.Slice(capsuleSrc, CutN * off, CutN, out Mesh topM, out Mesh restM))
+                return;
+
+            var v = new GloryVictim { center = center, rot = rot, scale = scale, restMesh = restM };
+            v.pieces.Add(HeldPiece(topM, center, rot, scale));
+            v.restPiece = HeldPiece(restM, center, rot, scale);
+            v.pieces.Add(v.restPiece);
+            victims[i] = v;
+        }
+
+        void GlorySecondCut(int i)
+        {
+            var v = victims[i];
+            if (v == null || v.restMesh == null) return;
+            float off = SimConfig.EnemyHeight * 0.5f * 0.4f;
+
+            if (!MeshSlicer.Slice(v.restMesh, -CutN * off, CutN, out Mesh midM, out Mesh botM))
+                return;
+
+            if (v.restPiece != null) { v.pieces.Remove(v.restPiece); Destroy(v.restPiece.gameObject); v.restPiece = null; }
+            v.restMesh = null;
+            v.pieces.Add(HeldPiece(midM, v.center, v.rot, v.scale));
+            v.pieces.Add(HeldPiece(botM, v.center, v.rot, v.scale));
+        }
+
+        void GloryExplode(int i)
+        {
+            var v = victims[i];
+            if (v == null) return;
+            for (int k = 0; k < v.pieces.Count; k++)
+            {
+                var pc = v.pieces[k];
+                if (pc == null) continue;
+                Vector3 hor = new Vector3(Random.Range(-1f, 1f), 0f, Random.Range(-1f, 1f));
+                if (hor.sqrMagnitude < 1e-4f) hor = Vector3.forward;
+                Vector3 imp = hor.normalized * 2.2f + Vector3.up * (2.5f + k * 0.6f);
+                pc.Release(imp, Random.insideUnitSphere * 6f);
+            }
+            blood.transform.position = v.center;
+            blood.Emit(60);
+            victims[i] = null;
+        }
+
+        void GloryCleanup(int i)
+        {
+            var v = victims[i];
+            if (v == null) return;
+            foreach (var pc in v.pieces) if (pc != null) Destroy(pc.gameObject);
+            victims[i] = null;
+        }
+
+        CorpsePiece HeldPiece(Mesh mesh, Vector3 center, Quaternion rot, float scale)
+        {
+            var go = new GameObject("GloryPiece");
+            go.layer = 2;   // IgnoreRaycast (플레이어 지형 감지 제외, 물리 충돌은 유지)
+            go.transform.SetPositionAndRotation(center, rot);
+            go.transform.localScale = Vector3.one * scale;
 
             go.AddComponent<MeshFilter>().mesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterials = new[] { shellMat, fleshMat };
@@ -86,7 +155,54 @@ namespace Game.View
             mc.sharedMesh = mesh; mc.convex = true;
 
             var rb = go.AddComponent<Rigidbody>();
-            rb.mass = 3f;
+            rb.mass = 3f * scale;
+
+            var cp = go.AddComponent<CorpsePiece>();
+            cp.Init(center, rot, scale);
+
+            Destroy(go, CorpseLife + 3f);   // 폭발 안 나도 누수 방지(안전망)
+            return cp;
+        }
+
+        // ───────────────────────── 일반 처치(2조각 즉시) ─────────────────────────
+
+        void SliceCorpse(Vector3 feet, float yaw, float height, float scale)
+        {
+            Vector3 center = feet + Vector3.up * (height * 0.5f);
+            Quaternion rot = Quaternion.Euler(0f, yaw, 0f);
+
+            Camera cam = Main.Instance.Cam;
+            Vector3 fwd = cam != null ? cam.transform.forward : Vector3.forward;
+            Vector3 up  = cam != null ? cam.transform.up      : Vector3.up;
+            slashParity ^= 1;
+            Vector3 worldN = (Quaternion.AngleAxis(slashParity == 0 ? 45f : -45f, fwd) * up).normalized;
+            Vector3 localN = (Quaternion.Inverse(rot) * worldN).normalized;
+
+            if (!MeshSlicer.Slice(capsuleSrc, Vector3.zero, localN, out Mesh aboveM, out Mesh belowM))
+                return;
+
+            MakePiece(aboveM, center, rot,  worldN, scale);
+            MakePiece(belowM, center, rot, -worldN, scale);
+
+            blood.transform.SetPositionAndRotation(center, Quaternion.LookRotation(worldN));
+            blood.Emit(40);
+        }
+
+        void MakePiece(Mesh mesh, Vector3 pos, Quaternion rot, Vector3 pushDir, float scale)
+        {
+            var go = new GameObject("Corpse");
+            go.layer = 2;
+            go.transform.SetPositionAndRotation(pos, rot);
+            go.transform.localScale = Vector3.one * scale;
+
+            go.AddComponent<MeshFilter>().mesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterials = new[] { shellMat, fleshMat };
+
+            var mc = go.AddComponent<MeshCollider>();
+            mc.sharedMesh = mesh; mc.convex = true;
+
+            var rb = go.AddComponent<Rigidbody>();
+            rb.mass = 3f * scale;
             rb.AddForce(pushDir * 2.2f + Vector3.up * 1.5f, ForceMode.VelocityChange);
             rb.AddTorque(Random.insideUnitSphere * 4f, ForceMode.VelocityChange);
 
@@ -103,7 +219,6 @@ namespace Game.View
 
             Vector3[] v = srcMesh.vertices;
             Vector3[] n = srcMesh.normals;
-            // EntityViews 캡슐 스케일과 동일: (r*2, h*0.5, r*2). 기본 캡슐 높이2·반경0.5 기준.
             Vector3 s = new Vector3(SimConfig.EnemyRadius * 2f, SimConfig.EnemyHeight * 0.5f,
                                     SimConfig.EnemyRadius * 2f);
             for (int i = 0; i < v.Length; i++)
@@ -139,7 +254,7 @@ namespace Game.View
             m.simulationSpace = ParticleSystemSimulationSpace.World;
             m.playOnAwake     = false;
 
-            var em = blood.emission; em.enabled = false;   // 수동 Emit
+            var em = blood.emission; em.enabled = false;
             var sh = blood.shape; sh.shapeType = ParticleSystemShapeType.Cone; sh.angle = 35f; sh.radius = 0.1f;
 
             var r = blood.GetComponent<ParticleSystemRenderer>();
@@ -152,8 +267,48 @@ namespace Game.View
             var sh = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             var m = new Material(sh) { color = c };
             if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", c);
-            if (doubleSided && m.HasProperty("_Cull")) m.SetFloat("_Cull", 0f);   // 단면 양면 렌더
+            if (doubleSided && m.HasProperty("_Cull")) m.SetFloat("_Cull", 0f);
             return m;
+        }
+    }
+
+    /// <summary>
+    /// 글로리킬 조각. 방출 전엔 kinematic으로 제자리 근처에서 약하게 흔들리다,
+    /// Release 시 물리로 폭발한다. ★ 뷰 전용 연출.
+    /// </summary>
+    public class CorpsePiece : MonoBehaviour
+    {
+        Vector3 home; Quaternion homeRot; float scale; float seed;
+        bool held = true;
+        Rigidbody rb;
+
+        public void Init(Vector3 pos, Quaternion rot, float scale)
+        {
+            home = pos; homeRot = rot; this.scale = scale;
+            seed = pos.x * 13.1f + pos.z * 7.7f;
+            rb = GetComponent<Rigidbody>();
+            rb.isKinematic = true;
+        }
+
+        void Update()
+        {
+            if (!held) return;
+            float t = Time.time;
+            float wob = 0.02f * scale;
+            Vector3 off = new Vector3(Mathf.Sin(t * 18f + seed),
+                                      Mathf.Sin(t * 15f + seed * 1.7f),
+                                      Mathf.Cos(t * 21f + seed)) * wob;
+            transform.position = home + off;
+            transform.rotation = homeRot * Quaternion.Euler(off * 300f);
+        }
+
+        public void Release(Vector3 impulse, Vector3 torque)
+        {
+            held = false;
+            rb.isKinematic = false;
+            rb.AddForce(impulse, ForceMode.VelocityChange);
+            rb.AddTorque(torque, ForceMode.VelocityChange);
+            Destroy(gameObject, 5f);
         }
     }
 
