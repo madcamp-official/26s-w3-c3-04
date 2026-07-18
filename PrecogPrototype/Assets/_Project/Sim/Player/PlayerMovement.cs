@@ -46,6 +46,7 @@ namespace Game.Sim
             {
                 p.dashTicks = SimConfig.DashDurationTicks;
                 p.dashDir = DashVector(cmd.dashDirection, fwd, right);
+                p.dashSpeed = SimConfig.DashInitialSpeed;   // 임펄스: 초기 속도 부여(첫 틱이 가장 강함)
                 p.dashCharges--;
                 if (p.dashRecharge == 0) p.dashRecharge = SimConfig.DashRechargeTicks;
             }
@@ -53,13 +54,9 @@ namespace Game.Sim
             Vector3 horiz;
             if (p.dashTicks > 0)
             {
-                // 둠식 임펄스: 첫 틱이 가장 크고 지수 감쇠. 틱별 거리 = 총거리 × d^i × (1-d)/(1-d^N)
-                int elapsed = SimConfig.DashDurationTicks - p.dashTicks;   // 0..N-1
-                float d = Mathf.Clamp(SimConfig.DashDecay, 0.01f, 0.99f);
-                int n = SimConfig.DashDurationTicks;
-                float norm = (1f - d) / (1f - Mathf.Pow(d, n));
-                float tickDist = SimConfig.DashDistance * Mathf.Pow(d, elapsed) * norm;
-                horiz = p.dashDir * tickDist;
+                // 진짜 임펄스: 현재 속도로 이동 → 드래그로 감쇠. 총 거리는 힘·드래그에서 자동.
+                horiz = p.dashDir * (p.dashSpeed * dt);
+                p.dashSpeed *= SimConfig.DashDecay;
                 p.dashTicks--;
             }
             else

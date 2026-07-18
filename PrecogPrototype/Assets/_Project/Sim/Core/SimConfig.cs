@@ -24,10 +24,11 @@ namespace Game.Sim
         public static float AirJumpBoost    = 5f;    // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
         public static int   AirJumpBoostTicks = 12;  // 임펄스 지속(감쇠)
 
-        // ── 4방향 대시 (둠 이터널식 임펄스: 첫 틱 최대 → 지수 감쇠. 이동 전용) ──
-        public static float DashDistance      = 4.2f;   // 총 이동 거리(m)
-        public static int   DashDurationTicks = 10;     // ~0.17초
-        public static float DashDecay         = 0.65f;  // 틱별 감쇠(작을수록 앞에 몰림 = 더 스냅)
+        // ── 4방향 대시 (진짜 임펄스: 초기 속도 부여 → 매 틱 드래그로 감쇠. 이동 전용) ──
+        //    총 거리 = InitialSpeed·dt·(1-decay^N)/(1-decay) 로 자동 산출(F1 패널에 표시).
+        public static float DashInitialSpeed  = 55f;    // 튀어나가는 힘(m/s) — 첫 틱이 가장 강함
+        public static float DashDecay         = 0.78f;  // 틱별 속도 유지율(드래그). 낮을수록 빨리 멈춤
+        public static int   DashDurationTicks = 12;     // 최대 지속(속도가 죽어도 이 틱에 종료)
         public static int   DashMaxCharges    = 2;      // 둠식 2스택
         public static int   DashRechargeTicks = 60;     // 스택당 1초
 

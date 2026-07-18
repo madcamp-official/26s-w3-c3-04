@@ -28,6 +28,7 @@ namespace Game.Sim
             h = MixV(h, w.player.jumpBoostDir);
             h = Mix(h, (ulong)w.player.dashTicks);
             h = MixV(h, w.player.dashDir);
+            h = MixF(h, w.player.dashSpeed);
             h = Mix(h, (ulong)w.player.dashCharges);
             h = Mix(h, (ulong)w.player.dashRecharge);
             h = CombatHash.MixPlayer(h, in w.player.combat);   // combat 소유 해시

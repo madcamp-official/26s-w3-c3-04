@@ -16,7 +16,7 @@ namespace Game.View
         bool captured;
 
         // 기본값 캡처(코드 초기값 = 리셋 목표)
-        float dMove, dJump, dAirBoost, dDashDist, dDashDecay, dAtkRange, dAtkAngle, dAtkHeight;
+        float dMove, dJump, dAirBoost, dDashInit, dDashDecay, dAtkRange, dAtkAngle, dAtkHeight;
         float dLgSpeed, dLgMin, dLgMax, dLgAngle, dLgStop, dLgHeight;
         int dJumpBuf, dAirBoostT, dDashTicks, dDashCharges, dDashRecharge;
         int dAtkW, dAtkA, dAtkR, dLgW, dLgMinT, dLgR, dLgCool, dLgBind, dHp, dHitStun;
@@ -25,7 +25,7 @@ namespace Game.View
         {
             dMove = SimConfig.PlayerMoveSpeed; dJump = SimConfig.PlayerJumpSpeed;
             dJumpBuf = SimConfig.JumpBufferTicks; dAirBoost = SimConfig.AirJumpBoost; dAirBoostT = SimConfig.AirJumpBoostTicks;
-            dDashDist = SimConfig.DashDistance; dDashTicks = SimConfig.DashDurationTicks; dDashDecay = SimConfig.DashDecay;
+            dDashInit = SimConfig.DashInitialSpeed; dDashTicks = SimConfig.DashDurationTicks; dDashDecay = SimConfig.DashDecay;
             dDashCharges = SimConfig.DashMaxCharges; dDashRecharge = SimConfig.DashRechargeTicks;
             dAtkW = CombatConfig.AttackWindupTicks; dAtkA = CombatConfig.AttackActiveTicks; dAtkR = CombatConfig.AttackRecoveryTicks;
             dAtkRange = CombatConfig.AttackConeRange; dAtkAngle = CombatConfig.AttackConeHalfAngle; dAtkHeight = CombatConfig.AttackHeightTolerance;
@@ -41,7 +41,7 @@ namespace Game.View
         {
             SimConfig.PlayerMoveSpeed = dMove; SimConfig.PlayerJumpSpeed = dJump;
             SimConfig.JumpBufferTicks = dJumpBuf; SimConfig.AirJumpBoost = dAirBoost; SimConfig.AirJumpBoostTicks = dAirBoostT;
-            SimConfig.DashDistance = dDashDist; SimConfig.DashDurationTicks = dDashTicks; SimConfig.DashDecay = dDashDecay;
+            SimConfig.DashInitialSpeed = dDashInit; SimConfig.DashDurationTicks = dDashTicks; SimConfig.DashDecay = dDashDecay;
             SimConfig.DashMaxCharges = dDashCharges; SimConfig.DashRechargeTicks = dDashRecharge;
             CombatConfig.AttackWindupTicks = dAtkW; CombatConfig.AttackActiveTicks = dAtkA; CombatConfig.AttackRecoveryTicks = dAtkR;
             CombatConfig.AttackConeRange = dAtkRange; CombatConfig.AttackConeHalfAngle = dAtkAngle; CombatConfig.AttackHeightTolerance = dAtkHeight;
@@ -80,10 +80,11 @@ namespace Game.View
             SimConfig.AirJumpBoost = FSlider("2단점프 임펄스", SimConfig.AirJumpBoost, 0f, 14f);
             SimConfig.AirJumpBoostTicks = ISlider("임펄스 지속(틱)", SimConfig.AirJumpBoostTicks, 1, 30);
 
-            GUILayout.Label("<b>대시 (둠식 임펄스)</b>", Rich());
-            SimConfig.DashDistance = FSlider("총 거리(m)", SimConfig.DashDistance, 2f, 8f);
-            SimConfig.DashDurationTicks = ISlider("지속(틱)", SimConfig.DashDurationTicks, 4, 20);
-            SimConfig.DashDecay = FSlider("감쇠(작을수록 스냅)", SimConfig.DashDecay, 0.3f, 0.95f);
+            GUILayout.Label("<b>대시 (진짜 임펄스: 초기 속도 → 드래그)</b>", Rich());
+            SimConfig.DashInitialSpeed = FSlider("초기 속도/힘(m/s)", SimConfig.DashInitialSpeed, 20f, 90f);
+            SimConfig.DashDecay = FSlider("드래그(낮을수록 빨리 멈춤)", SimConfig.DashDecay, 0.5f, 0.95f);
+            SimConfig.DashDurationTicks = ISlider("최대 지속(틱)", SimConfig.DashDurationTicks, 4, 24);
+            GUILayout.Label($"→ 총 거리 ≈ {DashDistance():0.00} m", Rich());
             SimConfig.DashMaxCharges = ISlider("스택", SimConfig.DashMaxCharges, 1, 3);
             SimConfig.DashRechargeTicks = ISlider("재충전(틱)", SimConfig.DashRechargeTicks, 20, 180);
 
@@ -117,6 +118,15 @@ namespace Game.View
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        /// <summary>임펄스 총 거리 = v0·dt·(1-decay^N)/(1-decay). PlayerMovement와 동일 공식.</summary>
+        static float DashDistance()
+        {
+            float d = Mathf.Clamp(SimConfig.DashDecay, 0.01f, 0.999f);
+            int n = SimConfig.DashDurationTicks;
+            float sum = (1f - Mathf.Pow(d, n)) / (1f - d);
+            return SimConfig.DashInitialSpeed * SimConfig.TickDelta * sum;
         }
 
         static float FSlider(string label, float v, float min, float max)

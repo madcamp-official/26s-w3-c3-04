@@ -14,9 +14,10 @@ namespace Game.Sim
         public int     jumpBoostTicks;    // 2단 점프 수평 임펄스 남은 틱
         public Vector3 jumpBoostDir;      // 임펄스 방향(발동 순간 고정)
 
-        // 4방향 대시 (수평, 시작 순간 방향 고정)
+        // 4방향 대시 (임펄스: 초기 속도 후 드래그 감쇠. 방향은 시작 순간 고정)
         public int     dashTicks;      // >0이면 대시 중
         public Vector3 dashDir;        // 수평 방향(고정)
+        public float   dashSpeed;      // 현재 대시 속도(매 틱 드래그로 감쇠)
         public int     dashCharges;
         public int     dashRecharge;   // 다음 충전까지 남은 틱
 
