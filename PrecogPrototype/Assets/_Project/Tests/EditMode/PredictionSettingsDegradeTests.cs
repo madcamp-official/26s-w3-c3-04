@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using UnityEngine;
 using Game.Prediction;
 
 namespace Game.Sim.Tests
@@ -47,13 +48,28 @@ namespace Game.Sim.Tests
         }
 
         [Test]
-        public void Degrade_ReducesDepthFurther_Above50Enemies()
+        public void Degrade_ReducesDepthFurther_AtAndAbove50Enemies()
         {
             PredictionSettings baseline = PredictionSettings.Full;
-            PredictionSettings at50 = PredictionSettings.Degrade(baseline, 50);
-            PredictionSettings at64 = PredictionSettings.Degrade(baseline, 64);
+            PredictionSettings at40 = PredictionSettings.Degrade(baseline, 40);   // >=32 tier only
+            PredictionSettings at64 = PredictionSettings.Degrade(baseline, 64);   // >=50 tier too
 
-            Assert.Less(at64.macroDepth, at50.macroDepth);
+            Assert.Less(at64.macroDepth, at40.macroDepth);
+        }
+
+        [Test]
+        public void Degrade_ThirtyTwoAndFiftyAreInclusiveBoundaries()
+        {
+            // 32/50마리 실측(305ms/340ms)이 하드리밋(300ms)을 살짝 넘겨서, 경계를
+            // 초과(>)가 아니라 이상(>=)으로 바꿔 정확히 32·50마리도 강한 축소를 받게 했다.
+            PredictionSettings baseline = PredictionSettings.Full;
+
+            PredictionSettings at32 = PredictionSettings.Degrade(baseline, 32);
+            Assert.AreEqual(6, at32.beamWidth);
+            Assert.Less(at32.macroDepth, baseline.macroDepth);
+
+            PredictionSettings at50 = PredictionSettings.Degrade(baseline, 50);
+            Assert.AreEqual(Mathf.RoundToInt(baseline.macroDepth * 0.5f), at50.macroDepth);
         }
 
         [Test]

@@ -85,7 +85,7 @@ namespace Game.Prediction
 
             if (enemyCount > 16)
                 s.beamWidth = Mathf.Min(s.beamWidth, 8);
-            if (enemyCount > 32)
+            if (enemyCount >= 32)
             {
                 s.beamWidth = Mathf.Min(s.beamWidth, 6);
                 s.macroDepth = Mathf.Max(1, Mathf.RoundToInt(s.macroDepth * (2f / 3f)));
@@ -94,7 +94,7 @@ namespace Game.Prediction
                 // 않지만(그러려면 ActionGenerator에 별도 파라미터가 필요) 같은 방향의 축소다.
                 s.maxActionsPerNode = Mathf.Min(s.maxActionsPerNode, 8);
             }
-            if (enemyCount > 50)
+            if (enemyCount >= 50)
                 s.macroDepth = Mathf.Max(1, Mathf.RoundToInt(baseline.macroDepth * 0.5f));
 
             return s;
