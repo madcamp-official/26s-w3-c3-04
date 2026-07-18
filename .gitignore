@@ -66,3 +66,6 @@ crashlytics-build.properties
 
 # --- Unity 3D 생성 메타 (특정 폴더에 대해서만) ---
 # .meta 파일은 반드시 커밋해야 하므로 무시하지 않는다.
+
+# 원본 에셋 아카이브(압축) — git 비대상
+/imported/
