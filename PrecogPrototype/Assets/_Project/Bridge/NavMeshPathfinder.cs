@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 using Game.Sim;
@@ -6,53 +5,27 @@ using Game.Sim;
 namespace Game.Bridge
 {
     /// <summary>
-    /// IPathfinder 구현 = NavMesh.CalculatePath. 결정론 검증 완료.
-    /// 하강 테두리(edge,landing) 목록을 들고, "가장 가까운 테두리"와 "경로 길이"를 제공.
-    /// 하강할지 말지 판단은 Sim(EnemyMovement)이 이 길이들을 비교해서 한다.
+    /// 레거시 씬 모드 폴백 IPathfinder = NavMesh.CalculatePath → Walk 스텝만.
+    /// 코드 아레나는 GraphPathfinder(그래프)를 쓴다. 씬 모드엔 그래프가 없어 하강(Jump) 없음.
     /// </summary>
     public class NavMeshPathfinder : IPathfinder
     {
         readonly NavMeshPath path = new NavMeshPath();
-        readonly List<(Vector3 edge, Vector3 landing)> drops;
         const float SampleRadius = 4f;
 
-        public NavMeshPathfinder(List<(Vector3, Vector3)> dropEdges)
+        public PathStep NextStep(Vector3 from, Vector3 to)
         {
-            drops = dropEdges ?? new List<(Vector3, Vector3)>();
-        }
-
-        public bool NextCorner(Vector3 from, Vector3 to, out Vector3 next)
-        {
-            next = to;
-            if (!Calc(from, to)) return false;
-            var c = path.corners;
-            if (c.Length >= 2) { next = c[1]; return true; }
-            if (c.Length == 1) { next = c[0]; return true; }
-            return false;
-        }
-
-        public float PathLength(Vector3 from, Vector3 to)
-        {
-            if (!Calc(from, to)) return -1f;
-            if (path.status != NavMeshPathStatus.PathComplete) return -1f;
-            var c = path.corners;
-            float len = 0f;
-            for (int i = 0; i < c.Length - 1; i++) len += Vector3.Distance(c[i], c[i + 1]);
-            return len;
-        }
-
-        public bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing)
-        {
-            edge = default; landing = default;
-            if (drops.Count == 0) return false;
-            float best = float.PositiveInfinity;
-            bool found = false;
-            for (int i = 0; i < drops.Count; i++)
+            var step = new PathStep
             {
-                float d = (drops[i].edge - from).sqrMagnitude;
-                if (d < best) { best = d; edge = drops[i].edge; landing = drops[i].landing; found = true; }
-            }
-            return found;
+                kind = MoveKind.None, next = to,
+                currentNodeId = -1, nextNodeId = -1, destinationNodeId = -1, linkId = -1,
+                corridorWidth = float.MaxValue
+            };
+            if (!Calc(from, to)) return step;
+            var c = path.corners;
+            if (c.Length >= 2) { step.kind = MoveKind.Walk; step.next = c[1]; }
+            else if (c.Length == 1) { step.kind = MoveKind.Walk; step.next = c[0]; }
+            return step;
         }
 
         bool Calc(Vector3 from, Vector3 to)

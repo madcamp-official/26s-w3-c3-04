@@ -58,6 +58,7 @@ namespace Game.Sim
         {
             if (slot % 5 == 4) return (CombatType.Melee, MobilityType.Ground, SizeClass.Large);   // 대형근접
             if (slot % 4 == 3) return (CombatType.Melee, MobilityType.Charge, SizeClass.Normal);  // 돌진근접
+            if (slot % 6 == 5) return (CombatType.Ranged, MobilityType.Flying, SizeClass.Normal); // 공중원거리
             if (slot % 3 == 2) return (CombatType.Ranged, MobilityType.Ground, SizeClass.Normal); // 원거리잡
             return (CombatType.Melee, MobilityType.Ground, SizeClass.Normal);                     // 근접잡
         }

@@ -29,6 +29,7 @@ namespace Game.Sim
             PlayerMovement.Step(ref w.player, in pcmd, in svc, dt);
             PlayerCombat.Step(ref w, in pcmd, in svc, dt);   // ← combat (평타/런지/글로리킬)
 
+            EnemyBrain.ComputeSeparation(in w);          // ← 이웃 회피 벡터 O(N²) 1회 산출(뭉침 방지)
             for (int i = 0; i < w.enemyCount; i++)
                 EnemyBrain.Step(ref w, i, in svc, dt);   // ← AI 세션 (상태머신; 내부에서 이동은 EnemyMovement)
 

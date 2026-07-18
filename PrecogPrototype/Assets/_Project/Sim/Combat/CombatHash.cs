@@ -34,6 +34,7 @@ namespace Game.Sim
             h = Mix(h, (ulong)c.lungeTravelTicks);
             h = Mix(h, c.lungeHitDone ? 1UL : 0UL);
             h = Mix(h, (ulong)c.lungeCooldown);
+            h = Mix(h, (ulong)c.lungeStacks);
             h = Mix(h, c.gloryPhase);
             h = Mix(h, (ulong)c.gloryTicks);
             h = Mix(h, (ulong)c.gloryTargetId);

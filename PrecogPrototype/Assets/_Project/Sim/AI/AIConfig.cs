@@ -27,6 +27,19 @@ namespace Game.Sim
         public const int   ChargeMissRecovery = 40;    // 실패 후딜(김)
         public const float ChargeWallStopFrac = 0.4f;  // 이번 틱 이동이 의도의 이 비율 미만 = 벽 정지
 
+        // ── 몹 분리(boids Rule 1): 겹치기 전에 이웃 반대방향으로 미리 조향. 결정론(난수 X) ──
+        public const float SeparationRadius  = 1.6f;  // 몸(반경 합) 밖으로 이만큼까지 개인공간
+        public const float SeparationWeight  = 0.9f;  // 추격/이동 대비 분리 세기
+        public const float SeparationMaxPush = 2.5f;  // 과밀 시 분리벡터 폭주 방지 클램프
+
+        // ── 공중 원거리 (커코데몬형) — 원거리 × Flying. 낮게 부유, 공격은 지상 원거리와 공유 ──
+        //    벽은 MoveHorizontal 슬라이드, 몹끼리는 분리 스티어링이 담당(클래식 난수 우회 폐기).
+        public const float FlyHoverOffset  = 2f;    // 플레이어 y + 이만큼 위를 유지(낮게 = 대공 닿음)
+        public const float FlySpeed        = 3.5f;  // 느린 부유(수평·수직 공통)
+        public const float FlyBandMin      = 5f;    // 이보다 가까우면 수평 후퇴
+        public const float FlyBandMax      = 14f;   // 이보다 멀면 수평 접근
+        public const float FlyMinClearance = 1f;    // 지면 위 최소 여유(안 꺼지게)
+
         // ── 지각(perception) ──
         public const float EnemyEyeHeight = 0.8f;   // LOS 레이 원점(적)·발사 원점
         public const float PlayerTorso    = 0.7f;   // LOS 겨냥점(플레이어 몸통)

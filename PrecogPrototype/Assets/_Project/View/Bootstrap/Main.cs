@@ -47,8 +47,8 @@ namespace Game.View
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
             // 노드 그래프가 있으면 그걸로(예측 친화·Physics 0), 없으면 런타임 NavMesh 폴백.
             IPathfinder pathfinder = map.navGraph != null
-                ? new GraphPathfinder(map.navGraph, map.drops)
-                : (IPathfinder)new NavMeshPathfinder(map.drops);
+                ? new GraphPathfinder(map.navGraph)
+                : (IPathfinder)new NavMeshPathfinder();
             services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers), pathfinder);
 
             world = SimWorld.Create();
@@ -102,13 +102,13 @@ namespace Game.View
 
             SpawnTick();
 
-            // 하강 결정 감지
+            // 하강 결정 감지 (그래프 Jump 링크 태움 → EdgePause 진입)
             for (int i = 0; i < world.enemyCount; i++)
             {
                 if (prevWorld.enemyCount > i &&
                     prevWorld.enemies[i].descentPhase == DescentPhase.None &&
-                    world.enemies[i].descentPhase == DescentPhase.ApproachEdge)
-                    Debug.Log($"[하강] 적 {i} 하강 결정(걷기보다 점프가 짧음) (tick {world.tick})");
+                    world.enemies[i].descentPhase == DescentPhase.EdgePause)
+                    Debug.Log($"[하강] 적 {i} 하강(그래프 Jump 링크) (tick {world.tick})");
             }
         }
 

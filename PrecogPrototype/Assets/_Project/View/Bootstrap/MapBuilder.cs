@@ -121,9 +121,9 @@ namespace Game.View
         }
 
         /// <summary>
-        /// 이 아레나의 나브 노드 그래프(G1 1차). 층별 주요 지점 + 경사로 연결.
-        /// 하강은 drops 목록(NearestDropEdge)이 담당 — 그래프는 걷기 경로만(walk 링크).
-        /// 노드-투-노드라 다소 거칠다(로컬 스티어링/부스터/그래프-하강은 이후 단계).
+        /// 이 아레나의 나브 노드 그래프. 층별 주요 지점 + 경사로(walk) + 하강(Jump, 일방 high→low).
+        /// 최단경로가 Jump를 태우면 몹이 하강 실행 — 자체판단 없음. Boost(부스터 상행)는 이후.
+        /// 노드-투-노드라 다소 거칠다(로컬 스티어링/노드 촘촘화는 이후 단계).
         /// </summary>
         static NavGraph BuildNavGraph()
         {
@@ -145,16 +145,25 @@ namespace Game.View
                 N(0f, 9f, 22f, 3),       // 13 3F 다리 중앙
                 N(-14f, 3f, 17f, 1),     // 14 반층 NW
                 N(14f, 3f, -17f, 1),     // 15 반층 SE
+                N(0f, 0f, 20f, 0),       // 16 1F 북(3F 다리 하강 착지)
             };
 
             var links = new List<NavLink>();
             void W(int a, int b) { const float w = 4f; links.Add(new NavLink(a, b, MoveKind.Walk, w)); links.Add(new NavLink(b, a, MoveKind.Walk, w)); }
+            void J(int a, int b) { links.Add(new NavLink(a, b, MoveKind.Jump, 4f)); }   // 일방 하강
             W(0, 1); W(0, 2); W(0, 3); W(0, 4); W(0, 5); W(0, 6); W(1, 3); W(2, 4);  // 1F
             W(3, 7); W(4, 9);          // 1F→2F 경사로12
             W(7, 8); W(9, 10);         // 2F 내부
             W(8, 11); W(10, 12);       // 2F→3F 경사로23
             W(11, 13); W(12, 13);      // 3F 다리
             W(5, 14); W(6, 15);        // 1F→반층 경사로
+            W(0, 16); W(5, 16);        // 1F 북 노드
+
+            // 하강(Jump, 일방 high→low). 최단경로가 이걸 태우면 몹이 하강 실행.
+            J(13, 16);                 // 3F 다리 → 1F 북(걸어 돌면 매우 김 → 여기서 하강 이득)
+            J(11, 8); J(12, 10);       // 3F 타워 → 2F
+            J(7, 3); J(9, 4);          // 2F → 1F
+            J(14, 5); J(15, 6);        // 반층 → 1F
 
             return NavGraph.Create(nodes, links.ToArray());
         }

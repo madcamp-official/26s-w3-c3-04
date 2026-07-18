@@ -23,18 +23,17 @@ namespace Game.Sim
             // ── 런지 진행 중이면 그것만 (Travel 이동·에임 고정) ──
             if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref w, in svc, dt); return; }
 
-            // ── 런지 시작: 우클릭 + (쿨 0) + 유효 대상. 평타 중이어도 캔슬 발동(제2의 평타) ──
-            if (cmd.lunge && c.lungeCooldown == 0 && c.hitStunTicks == 0)
+            // ── 런지 시작: 우클릭 + 스택>0 + 쿨0 + 유효 대상. 스택은 처치로만 충전 ──
+            if (cmd.lunge && c.lungeStacks > 0 && c.lungeCooldown == 0 && c.hitStunTicks == 0)
             {
                 int targetId = cmd.lungeTargetId >= 0
                     ? cmd.lungeTargetId
                     : FindLungeTarget(in w, in p, in svc);
                 if (targetId >= 0 && TryLockDestination(in w, in p, in svc, targetId, out Vector3 dest))
                 {
-                    // 고정 짧은 Travel 틱 (거리 무관 → 먼 것도 순식간, 잔상처럼 꽂힘)
-                    int travel = Mathf.Max(1, CombatConfig.LungeTravelTicks);
+                    int travel = Mathf.Max(1, CombatConfig.LungeTravelTicks);   // 순간이동급 블링크
 
-                    c.lungePhase = CombatConfig.LgTravel;   // 윈드업 없음 — 즉시 날아감
+                    c.lungePhase = CombatConfig.LgTravel;   // 윈드업 없음 — 즉시 발동
                     c.lungeTicks = 0;
                     c.lungeTargetId = targetId;
                     c.lungeStart = p.pos;
@@ -42,8 +41,10 @@ namespace Game.Sim
                     c.lungeTravelTicks = travel;
                     c.lungeHitDone = false;
                     c.lungeCooldown = CombatConfig.LungeCooldownTicks;
+                    c.lungeStacks--;            // 스택 1 소모
+                    p.jumpCount = 0;            // 우클 직후 더블점프 리필
 
-                    // 표적 이동봉쇄(bind): 위치·중력 동결(공중이면 공중에). 공격은 계속한다.
+                    // 표적 이동봉쇄(bind): 블링크 동안만 위치·중력 동결(공중이면 공중에). 공격은 계속.
                     int ti = FindEnemyIndex(in w, targetId);
                     if (ti >= 0)
                         w.enemies[ti].combat.bindTicks = travel + CombatConfig.LungeBindExtraTicks;
@@ -121,11 +122,10 @@ namespace Game.Sim
             Vector3 look = (ti >= 0 ? w.enemies[ti].pos : c.lungeDest) - p.pos; look.y = 0f;
             if (look.sqrMagnitude > 1e-4f) p.yaw = Mathf.Atan2(look.x, look.z) * Mathf.Rad2Deg;
 
+            // 블링크: 남은 거리를 남은 틱으로 분배 → 마지막 틱에 도착점 도달. 캡슐 스윕으로 3D 관통 차단.
             int total = Mathf.Max(1, c.lungeTravelTicks);
-            float he = EaseOut((float)c.lungeTicks / total);
-            Vector3 target = Vector3.Lerp(c.lungeStart, c.lungeDest, he);   // 직선 + ease-out(쑤욱→감속)
-
-            Vector3 delta = target - p.pos;
+            int remain = Mathf.Max(1, total - c.lungeTicks + 1);
+            Vector3 delta = (c.lungeDest - p.pos) / remain;
             float dist = delta.magnitude;
             if (dist > 1e-5f)
             {
@@ -142,8 +142,9 @@ namespace Game.Sim
             }
             p.vel = Vector3.zero;
 
+            // 블링크 끝 → 임팩트(CombatResolve) + 즉시 조작 복귀(후딜 0)
             if (c.lungeTicks >= total)
-            { c.lungePhase = CombatConfig.LgRecovery; c.lungeTicks = 0; }   // 도착 → 임팩트 → 즉시 종료
+            { c.lungePhase = CombatConfig.LgRecovery; c.lungeTicks = 0; }
         }
 
         /// <summary>런지 즉시 종료: 표적 바인드 해제, 피해 없음(도착 전 벽 캔슬용).</summary>
@@ -197,6 +198,7 @@ namespace Game.Sim
                         c.gloryPhase = CombatConfig.GlNone; c.gloryTicks = 0;
                         target.alive = false;             // 실제 사망(뷰 폭발은 gloryStage=3로 이미 처리)
                         target.combat.deathTick = w.tick;
+                        c.lungeStacks = Mathf.Min(CombatConfig.LungeMaxStacks, c.lungeStacks + 1);   // 처형 = 스택 +1
                     }
                     break;
             }
@@ -282,9 +284,6 @@ namespace Game.Sim
             dest.y = e.pos.y + CombatConfig.LungeAimUp;   // 적과 같은 높이 + 살짝 위(위든 아래든 나란히)
             return true;
         }
-
-        /// <summary>ease-out(감속): 첫 구간이 가장 빠르고 끝으로 갈수록 느려짐. 1-(1-t)^2.</summary>
-        static float EaseOut(float t) { t = Mathf.Clamp01(t); float u = 1f - t; return 1f - u * u; }
 
         /// <summary>id로 살아있는 적 인덱스. 없으면 -1.</summary>
         public static int FindEnemyIndex(in SimWorld w, int id)

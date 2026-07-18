@@ -27,19 +27,14 @@ namespace Game.Sim
     }
 
     /// <summary>
-    /// 경로 질의. 실제 계산은 Bridge(NavMesh.CalculatePath)가 한다.
-    /// 하강 판단은 우리(Sim)가 한다 — 걷는 길 길이 vs 점프 길 길이 비교.
+    /// 경로 질의. 그래프 사전계산표 조회(예측 친화). 하강/부스터는 링크 종류(MoveKind)로 표현 —
+    /// 자체 판단 없이 최단경로가 Jump/Boost 링크를 태우면 몹이 그 기동을 실행한다.
+    /// (레거시 씬 모드는 NavMesh 어댑터가 Walk만 반환.)
     /// </summary>
     public interface IPathfinder
     {
-        /// <summary>from→to 경로의 다음 코너. 경로 없으면 false.</summary>
-        bool NextCorner(Vector3 from, Vector3 to, out Vector3 next);
-
-        /// <summary>from→to 경로 전체 길이(코너 합산). 도달 불가면 -1.</summary>
-        float PathLength(Vector3 from, Vector3 to);
-
-        /// <summary>from에서 가장 가까운 하강 테두리와 그 착지점. 없으면 false.</summary>
-        bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing);
+        /// <summary>from→to 경로의 다음 스텝(다음 노드 + 이동 종류). 경로 없으면 kind=None.</summary>
+        PathStep NextStep(Vector3 from, Vector3 to);
     }
 
     /// <summary>Sim이 한 틱 도는 데 필요한 바깥 서비스 묶음.</summary>

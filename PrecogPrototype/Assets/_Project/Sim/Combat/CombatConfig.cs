@@ -13,7 +13,7 @@ namespace Game.Sim
         public static int AttackWindupTicks   = 6;    // 0.10초
         public static int AttackActiveTicks   = 2;    // 슬래시 판정
         public static int AttackRecoveryTicks = 12;   // 0.20초 — 총 0.33초
-        public static float AttackConeRange       = 1.8f;
+        public static float AttackConeRange       = 2.6f;
         public static float AttackConeHalfAngle   = 55f;
         public static float AttackHeightTolerance = 1.0f;   // 높이차 허용
 
@@ -24,27 +24,28 @@ namespace Game.Sim
         public static int PlayerMaxHp        = 1000000;   // 임시: 테스트용 무한 체력(원래 3)
         public static int PlayerHitStunTicks = 0;   // 임시: 피격 경직 0(원래 30). 구조는 유지
 
-        // ── 타깃 런지 (우클릭): 펜싱식 임펄스. 윈드업·후딜 0, Travel 중 완전 잠금+에임 타깃 고정 ──
+        // ── 타깃 런지 (우클릭): 둠 글로리킬식. 순간이동급 블링크 → 아래→위 베기. 블링크 틱만 잠금 ──
         public const byte LgNone = 0, LgWindup = 1, LgTravel = 2, LgRecovery = 3;
-        public static int   LungeWindupTicks    = 0;     // 없음(즉시 발동). 슬라이더로 부활 가능
-        public static int   LungeTravelTicks    = 6;     // 고정 짧은 틱(거리 무관) — 직선 ease-out
+        public static int   LungeWindupTicks    = 0;     // 없음(즉시 발동)
+        public static int   LungeTravelTicks    = 3;     // 블링크(순간이동급). 이 틱만 이동·에임 잠금
         public static int   LungeRecoveryTicks  = 0;     // 없음(도착 즉시 조작 복귀)
         public static int   LungeCooldownTicks  = 0;     // 쿨 없음
+        public static int   LungeMaxStacks      = 1;     // 스택 상한(1칸). 처치로 +1 충전, 런지 1회 = 1 소모
         public static float LungeMinRange       = 1.2f;
         public static float LungeMaxRange       = 12f;
         public static float LungeAimRadius      = 2.0f;  // 조준 레이 수직 보정 반경(판정 핵심)
-        public static float LungeStopDistance   = 0.9f;  // 적 옆 이 거리 지점으로 이동(수평)
-        public static float LungeHeightTolerance = 6f;   // 위/아래 찌르기 허용 높이차(공중 대상 포함)
+        public static float LungeStopDistance   = 0.9f;  // 적 앞 이 거리 지점으로 이동
+        public static float LungeHeightTolerance = 6f;   // 위/아래 허용 높이차(공중 대상 포함)
         public static float LungeAimUp          = 0.4f;  // 도착점을 적보다 살짝 위로(딱 붙는 느낌)
-        public static int   LungeBindExtraTicks = 8;     // 바인드 = Travel+이 여유
+        public static int   LungeBindExtraTicks = 4;     // 바인드 = 블링크+이 여유
         // 임팩트 쫀득함 (View 전용 — 예측 무해)
         public static int   LungeHitStopTicks   = 7;     // 접촉 순간 프리즈(글로리킬 느낌)
         public static float LungeFovKick        = 12f;   // 접촉 순간 FOV 킥(도)
 
         // ── 대형몹 글로리킬 처형 (막타 → 컷신). 진행 중 플레이어 무적·조작잠금 ──
         public const byte  GlNone = 0, GlSlash1 = 1, GlSlash2 = 2, GlDash = 3;
-        public static int   GlorySlashTicks = 30;   // 슬래시 1·2 각각 (0.5s — 모션 보이게)
-        public static int   GloryDashTicks  = 17;   // 피니시 러쉬 (0.28s)
+        public static int   GlorySlashTicks = 7;    // 슬래시 1·2 각각(빠르게). 7+7+10=24틱 ≈ 0.4초
+        public static int   GloryDashTicks  = 10;   // 피니시 올려베기
         public static float GloryDashSpeed  = 40f;  // 러쉬 속도
     }
 }
