@@ -19,12 +19,11 @@ namespace Game.Sim
         public const float PlayerRadius    = 0.28f;
         public const float PlayerHeight    = 1.15f;
 
-        // 질풍참 (이동만 — 스턴/대미지는 전투 단계)
-        public const float DashSpeed         = 40f;   // 순간 속도 (거리↑)
-        public const int   DashDurationTicks = 11;    // 약 0.18초 → 최대 사거리 ~7.3칸
-        public const float DashAimHeight     = 0.95f; // 돌진 조준 레이 원점 높이(눈높이) — 표면까지만 감
-        public const int   DashMaxCharges    = 2;
-        public const int   DashRechargeTicks = 90;    // 충전당 1.5초
+        // 4방향 대시 (카메라 기준 전후좌우, 이동 전용 — 피해·무적 없음)
+        public const float DashSpeed         = 26f;   // 평균 속도 → 총 거리 26×9/60 ≈ 3.9m
+        public const int   DashDurationTicks = 9;     // 0.15초
+        public const int   DashMaxCharges    = 1;
+        public const int   DashRechargeTicks = 60;    // 1초
 
         // 적. 크기 축소(부피 ~1/4), 튜닝 대상
         public const float EnemyMoveSpeed  = 6f;    // 근접 그런트 = 플레이어 7의 ~0.85× (원거리는 자체 4)
@@ -42,7 +41,6 @@ namespace Game.Sim
         public const int EnemyMidHp    = 3;   // 중형몹 HP
         public const int EnemyLargeHp  = 4;   // 대형몹 HP (크기 3배)
         public const float EnemyLargeScale = 3f;   // 대형몹 크기 배율
-        public const int GuardMax      = 240; // 가드 게이지 최대(4등분 → 칼등치기 4회)
         //  스킬 세부 틱(윈드업/액티브/스턴 등)은 combat 소유 파일에 둔다.
 
         // 테두리 하강 (순간이동식 + 자체 판단). 전부 잠정.

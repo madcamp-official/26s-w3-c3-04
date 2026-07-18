@@ -13,37 +13,29 @@ namespace Game.Sim
         public int  attackPhaseTicks;
         public bool attackHitDone;
 
-        // 체력 (적 공격으로 감소 — 적용은 CombatResolve가 방어판정 후)
+        // 체력·피격 (적용은 CombatResolve가)
         public int  hp;
+        public int  hitStunTicks;       // >0이면 피격 경직(수평 조작 제한)
 
-        // 막기 (우클릭 홀드)
-        public bool blocking;
-        public int  guardGauge;
-        public int  guardIdleTicks;     // 비홀드 지속 틱(회복 지연용)
-
-        // 칼등치기 (막기 중 좌클릭) — 글로리킬식 러쉬 + 넉백
-        public byte    backstrikePhase; // 0 None / 1 Lunge / 2 Recovery
-        public int     backstrikeTicks;
-        public Vector3 backstrikeTarget;// 대상 위치(카메라 고정·러쉬)
-        public bool    hasBackstrikeTarget;
-        public bool    backstrikeHitDone;// 임팩트 1회 처리 플래그
-
-        // 질풍참 관통 (이동은 PlayerMovement, 판정만 combat)
-        public bool dashPierceDone;
+        // 타깃 런지 (우클릭) — 시작 순간 targetId·도착점 고정, Travel 중 재추적 없음
+        public byte    lungePhase;      // LgNone/Windup/Travel/Recovery
+        public int     lungeTicks;
+        public int     lungeTargetId;   // 대상 적 id (-1=없음)
+        public Vector3 lungeStart;
+        public Vector3 lungeDest;       // 적 앞 0.9m 지점(고정)
+        public bool    lungeHitDone;    // 임팩트 1회 처리 플래그
+        public int     lungeCooldown;   // 남은 쿨타임 틱
 
         // 대형몹 글로리킬 처형 (컷신). 진행 중 무적·조작잠금.
         public byte    gloryPhase;      // GlNone/GlSlash1/GlSlash2/GlDash
         public int     gloryTicks;
         public int     gloryTargetId;   // 처형 대상 적 인덱스
-        public Vector3 gloryDir;        // 질풍참 피니시 관통 방향(고정)
-
-        // 보정/돌진 중 전면 방어 남은 틱
-        public int frontGuardTicks;
+        public Vector3 gloryDir;        // 피니시 러쉬 방향(고정)
 
         public static PlayerCombatState Initial => new PlayerCombatState
         {
             hp = CombatConfig.PlayerMaxHp,
-            guardGauge = SimConfig.GuardMax,
+            lungeTargetId = -1,
         };
     }
 }

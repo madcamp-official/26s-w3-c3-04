@@ -18,16 +18,16 @@ namespace Game.Sim
 
             w.prevPlayerPos = w.player.pos;   // 이동 전 위치 → 원거리 리드 조준용 속도 산출
 
-            // 글로리킬 처형 중엔 조작 잠금(이동·점프·대시·공격·막기). 시선은 통과(카메라 고정이 이김).
+            // 글로리킬 처형 중엔 조작 잠금(이동·점프·대시·공격·런지). 시선은 통과(카메라 고정이 이김).
             InputCmd pcmd = cmd;
             if (w.player.combat.gloryPhase != CombatConfig.GlNone)
             {
                 pcmd.move = Vector2.zero;
-                pcmd.jump = pcmd.dash = pcmd.attack = pcmd.block = false;
+                pcmd.jump = pcmd.dash = pcmd.attack = pcmd.lunge = false;
             }
 
             PlayerMovement.Step(ref w.player, in pcmd, in svc, dt);
-            PlayerCombat.Step(ref w, in pcmd, in svc, dt);   // ← combat 세션 (평타/막기/칼등치기/글로리킬)
+            PlayerCombat.Step(ref w, in pcmd, in svc, dt);   // ← combat (평타/런지/글로리킬)
 
             for (int i = 0; i < w.enemyCount; i++)
                 EnemyBrain.Step(ref w, i, in svc, dt);   // ← AI 세션 (상태머신; 내부에서 이동은 EnemyMovement)

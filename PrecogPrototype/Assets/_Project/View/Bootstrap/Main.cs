@@ -62,7 +62,7 @@ namespace Game.View
             Cursor.visible = false;
 
             Debug.Log($"[Main] 시작. 스폰지점 {spawnPoints.Count}개, {SimConfig.SpawnIntervalTicks}틱마다 소환(최대 {SimConfig.SpawnCap}).\n" +
-                      "  WASD 이동 · 마우스 시점 · Space 더블점프 · Shift 질풍참 · 좌클릭 평타 · 우클릭 막기 · F 예측 · Esc 커서");
+                      "  WASD 이동 · 마우스 시점 · Space 더블점프 · Shift+WASD 4방향 대시 · 좌클릭 평타 · 우클릭 런지 · F 예측 · Esc 커서");
         }
 
         void Update()

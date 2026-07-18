@@ -4,7 +4,7 @@ using Game.Sim;
 namespace Game.View
 {
     /// <summary>
-    /// 칼등치기 중 카메라를 대상에 고정(글로리킬식). ★ combat 소유·독립. 화면연출 계층.
+    /// 런지·글로리킬 중 카메라를 대상에 고정. ★ combat 소유·독립. 화면연출 계층.
     /// Main이 Update에서 매 프레임 카메라를 생 입력각으로 세팅한다. 그래서 여기서 슬러프의
     /// "출발점"을 cam.transform.rotation으로 삼으면 매 프레임 리셋에 휘둘려 끊기고 안 잠긴다.
     ///
@@ -33,16 +33,16 @@ namespace Game.View
             ref readonly SimWorld w = ref main.World;
             ref readonly PlayerCombatState c = ref w.player.combat;
 
-            // 대상: 글로리킬(처형 대상 몹) 우선, 아니면 칼등치기 대상
-            bool glory   = c.gloryPhase != CombatConfig.GlNone;
-            bool bstrike = c.backstrikePhase != CombatConfig.BsNone && c.hasBackstrikeTarget;
-            if (!glory && !bstrike)
+            // 대상: 글로리킬(처형 대상 몹) 우선, 아니면 런지 도착점(고정)
+            bool glory = c.gloryPhase != CombatConfig.GlNone;
+            bool lunge = c.lungePhase != CombatConfig.LgNone && c.lungeTargetId >= 0;
+            if (!glory && !lunge)
             {
                 if (locked) { main.SetLookYaw(curYaw); locked = false; }  // 해제: 최종 yaw 인계(원복 방지)
                 return;
             }
 
-            Vector3 targetPos = glory ? w.enemies[c.gloryTargetId].pos : c.backstrikeTarget;
+            Vector3 targetPos = glory ? w.enemies[c.gloryTargetId].pos : c.lungeDest;
 
             if (!locked)
             {

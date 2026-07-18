@@ -11,10 +11,9 @@ namespace Game.Sim
         public bool    grounded;
         public int     jumpCount;
 
-        // 질풍참
-        public int     dashTicks;      // >0이면 돌진 중
-        public Vector3 dashDir;        // 3D 시선 방향(고정)
-        public float   dashDist;       // 남은 이동 거리(레이로 첫 표면까지만) → 0되면 정지
+        // 4방향 대시 (수평, 시작 순간 방향 고정)
+        public int     dashTicks;      // >0이면 대시 중
+        public Vector3 dashDir;        // 수평 방향(고정)
         public int     dashCharges;
         public int     dashRecharge;   // 다음 충전까지 남은 틱
 

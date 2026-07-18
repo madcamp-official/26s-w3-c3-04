@@ -7,7 +7,7 @@ namespace Game.View
     /// 1인칭 칼(직육면체) 뷰모델. ★ combat 소유·독립 — Main/EntityViews 안 건드림.
     /// 클릭 반응이 아니라 SIM 상태(Main.Instance.World.player)를 매 프레임 읽어 포즈를 구동한다.
     /// → 칼 번쩍임과 실제 판정 틱이 정확히 일치. 상태 전이에서 CombatAudio 원샷 재생.
-    /// 포즈: 평타(겐지 사선베기) · 질풍참(찌르기 돌진) · 막기(가로 가드) · 칼등치기(가로 가드+전방 밀기).
+    /// 포즈: 평타(사선베기) · 4방향 대시(낮춰 들기) · 타깃 런지(찌르기 러쉬).
     /// </summary>
     public class SwordView : MonoBehaviour
     {
@@ -17,9 +17,7 @@ namespace Game.View
         // 이전 프레임 상태(전이 감지)
         byte prevAttack;
         bool prevDash;
-        bool prevBlock;
-        byte prevBackstrike;
-        int  prevGuard = int.MinValue;
+        byte prevLunge;
 
         void Update()
         {
@@ -53,47 +51,32 @@ namespace Game.View
             if (dash && !prevDash) CombatAudio.Dash();
             prevDash = dash;
 
-            bool block = p.combat.blocking;
-            if (block && !prevBlock) CombatAudio.GuardRaise();   // 켤 때: 스윽
-            prevBlock = block;
-
-            // 막기 성공(챙): 게이지 감소 + 막는 중 + 칼등치기 아님 → 공격을 막아낸 것(휴리스틱).
-            //   ※ 게이지는 칼등치기로도 소모되나, 그 시작 프레임은 backstrikePhase가 Lunge라 배제됨.
-            //     현재 로직 기준 정확하나 SIM 로직 바뀌면 깨질 수 있는 임시방편.
-            int guard = p.combat.guardGauge;
-            if (prevGuard != int.MinValue && guard < prevGuard
-                && p.combat.blocking && p.combat.backstrikePhase == CombatConfig.BsNone)
-                CombatAudio.Block();
-            prevGuard = guard;
-
-            byte bs = p.combat.backstrikePhase;
-            if (bs != prevBackstrike)
+            byte lg = p.combat.lungePhase;
+            if (lg != prevLunge)
             {
-                if (prevBackstrike == CombatConfig.BsNone && bs == CombatConfig.BsLunge)
-                    CombatAudio.Backstrike();
-                prevBackstrike = bs;
+                if (prevLunge == CombatConfig.LgNone && lg == CombatConfig.LgWindup)
+                    CombatAudio.Backstrike();   // 런지 발동음(구 칼등치기 사운드 재사용)
+                prevLunge = lg;
             }
         }
 
-        // ── 포즈 결정 (우선순위: 칼등치기 > 질풍참 > 막기 > 평타 > idle) ──
+        // ── 포즈 결정 (우선순위: 런지 > 대시 > 평타 > idle) ──
         void ApplyPose(in PlayerSim p)
         {
             Vector3 pos; Quaternion rot;
 
-            if (p.combat.backstrikePhase != CombatConfig.BsNone)
-                Backstrike(in p.combat, out pos, out rot);
+            if (p.combat.lungePhase != CombatConfig.LgNone)
+                Lunge(in p.combat, out pos, out rot);
             else if (p.dashTicks > 0)
                 Dash(out pos, out rot);
-            else if (p.combat.blocking)
-                Guard(out pos, out rot);
             else if (p.combat.attackPhase != CombatConfig.PhNone)
                 Attack(in p.combat, out pos, out rot);
             else
                 Idle(out pos, out rot);
 
-            // 평타/질풍참/칼등치기는 크리스프하게(직접), 나머지는 부드럽게 보간
-            bool crisp = p.combat.attackPhase != CombatConfig.PhNone || p.dashTicks > 0
-                         || p.combat.backstrikePhase != CombatConfig.BsNone;
+            // 평타/런지는 크리스프하게(직접), 나머지는 부드럽게 보간
+            bool crisp = p.combat.attackPhase != CombatConfig.PhNone
+                         || p.combat.lungePhase != CombatConfig.LgNone;
             float k = crisp ? 1f : 1f - Mathf.Exp(-25f * Time.unscaledDeltaTime);
             pivot.localPosition = Vector3.Lerp(pivot.localPosition, pos, k);
             pivot.localRotation = Quaternion.Slerp(pivot.localRotation, rot, k);
@@ -136,31 +119,41 @@ namespace Game.View
             }
         }
 
-        /// <summary>질풍참: 칼을 정면으로 쭉 뻗은 찌르기 돌진 자세.</summary>
+        /// <summary>4방향 대시: 칼을 살짝 낮춰 몸에 붙인 자세(이동 전용 티).</summary>
         static void Dash(out Vector3 pos, out Quaternion rot)
         {
-            pos = new Vector3(0.14f, -0.10f, 0.72f);
-            rot = Quaternion.Euler(-4f, 0f, 0f);   // 날이 +Z 정면
+            pos = new Vector3(0.24f, -0.28f, 0.44f);
+            rot = Quaternion.Euler(22f, 8f, 0f);
         }
 
-        /// <summary>막기: 칼을 가로로 눕혀 정면을 막는 자세(날이 화면 가로로 가로지름).</summary>
-        static readonly Vector3 GuardPos = new Vector3(0.05f, -0.02f, 0.55f);
-        static readonly Vector3 GuardEul = new Vector3(6f, 90f, 0f);   // yaw 90 → 날이 가로
-
-        static void Guard(out Vector3 pos, out Quaternion rot)
-        { pos = GuardPos; rot = Quaternion.Euler(GuardEul); }
-
-        /// <summary>칼등치기: 가로 가드 자세를 유지한 채 앞으로 쭉 밀었다가 복귀.</summary>
-        static void Backstrike(in PlayerCombatState c, out Vector3 pos, out Quaternion rot)
+        /// <summary>타깃 런지: 칼을 정면으로 쭉 뻗는 찌르기. Windup 준비 → Travel 최대 → Recovery 복귀.</summary>
+        static void Lunge(in PlayerCombatState c, out Vector3 pos, out Quaternion rot)
         {
-            rot = Quaternion.Euler(GuardEul);   // 가로 유지
-            float push;   // 0=가드, 1=최대 전방
-            if (c.backstrikePhase == CombatConfig.BsLunge)
-                push = Frac(c.backstrikeTicks, CombatConfig.BackstrikeLungeTicks);
-            else // Recovery: 되돌아옴
-                push = 1f - Frac(c.backstrikeTicks, CombatConfig.BackstrikeRecoveryTicks);
+            rot = Quaternion.Euler(-4f, 0f, 0f);   // 날이 +Z 정면
+            Vector3 ready  = new Vector3(0.20f, -0.16f, 0.40f);   // 당겨 잡음
+            Vector3 thrust = new Vector3(0.10f, -0.08f, 0.85f);   // 최대 찌름
 
-            pos = GuardPos + new Vector3(0f, 0f, 0.35f * push);
+            switch (c.lungePhase)
+            {
+                case CombatConfig.LgWindup:
+                {
+                    float t = Frac(c.lungeTicks, CombatConfig.LungeWindupTicks);
+                    pos = Vector3.Lerp(IdlePos, ready, t);
+                    break;
+                }
+                case CombatConfig.LgTravel:
+                {
+                    float t = Frac(c.lungeTicks, CombatConfig.LungeTravelTicks);
+                    pos = Vector3.Lerp(ready, thrust, t);
+                    break;
+                }
+                default: // Recovery
+                {
+                    float t = Frac(c.lungeTicks, CombatConfig.LungeRecoveryTicks);
+                    pos = Vector3.Lerp(thrust, IdlePos, t);
+                    break;
+                }
+            }
         }
 
         static float Frac(int ticks, int total) => total <= 0 ? 1f : Mathf.Clamp01((float)ticks / total);

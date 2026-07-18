@@ -6,7 +6,7 @@ namespace Game.View
     /// <summary>
     /// 전투 손맛(juice). ★ combat 소유·독립. 읽기 전용(SimWorld 안 씀).
     /// 적 피격/처치를 프레임 간 상태 비교로 감지 → 카메라 셰이크 + 스파크 + 타격음.
-    /// 플레이어 질풍참/칼등치기 시작에도 셰이크.
+    /// 플레이어 대시/런지 시작에도 셰이크.
     /// ※ 히트스톱은 HitStop.cs 담당(중복 timeScale 조작 방지). 카메라 고정·HUD도 SIM 세션 몫.
     /// </summary>
     public class CombatFeedback : MonoBehaviour
@@ -26,7 +26,7 @@ namespace Game.View
 
         // 플레이어 상태 추적
         bool prevDash;
-        byte prevBackstrike;
+        byte prevLunge;
 
         ParticleSystem sparks;
 
@@ -63,9 +63,9 @@ namespace Game.View
             if (dash && !prevDash) AddShake(0.10f);
             prevDash = dash;
 
-            byte bs = w.player.combat.backstrikePhase;
-            if (bs != prevBackstrike && bs == CombatConfig.BsLunge) AddShake(0.14f);
-            prevBackstrike = bs;
+            byte lg = w.player.combat.lungePhase;
+            if (lg != prevLunge && lg == CombatConfig.LgTravel) AddShake(0.14f);
+            prevLunge = lg;
         }
 
         void LateUpdate()
