@@ -25,8 +25,8 @@ namespace Game.Sim.Tests
         }
 
         [TestCase(17)]
-        [TestCase(32)]
-        public void Degrade_ReducesBeamWidthOnly_Between17And32Enemies(int enemyCount)
+        [TestCase(31)]
+        public void Degrade_ReducesBeamWidthOnly_Between17And31Enemies(int enemyCount)
         {
             PredictionSettings baseline = PredictionSettings.Full;
             PredictionSettings degraded = PredictionSettings.Degrade(baseline, enemyCount);
@@ -35,9 +35,10 @@ namespace Game.Sim.Tests
             Assert.AreEqual(baseline.macroDepth, degraded.macroDepth, "이 구간에선 깊이는 안 줄어야 함");
         }
 
+        [TestCase(32)]
         [TestCase(33)]
         [TestCase(50)]
-        public void Degrade_ReducesBeamAndDepth_Between33And50Enemies(int enemyCount)
+        public void Degrade_ReducesBeamAndDepth_AtAndAbove32Enemies(int enemyCount)
         {
             PredictionSettings baseline = PredictionSettings.Full;
             PredictionSettings degraded = PredictionSettings.Degrade(baseline, enemyCount);
