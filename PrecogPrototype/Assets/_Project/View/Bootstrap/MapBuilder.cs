@@ -2,15 +2,17 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 using Unity.AI.Navigation;
+using Game.Sim;
 
 namespace Game.View
 {
-    /// <summary>맵 생성 결과: 하강 테두리 + 스폰 지점 + 플레이어 시작점.</summary>
+    /// <summary>맵 생성 결과: 하강 테두리 + 스폰 지점 + 플레이어 시작점 + 나브 그래프.</summary>
     public class MapResult
     {
         public List<(Vector3 edge, Vector3 landing)> drops = new();
         public List<Vector3> spawns = new();
         public Vector3 playerSpawn;
+        public NavGraph navGraph;   // null이면 NavMeshPathfinder 폴백(씬 모드 등)
     }
 
     /// <summary>
@@ -112,9 +114,53 @@ namespace Game.View
             r.spawns.Add(new Vector3(-23f, 9f, -23f));  // 3F SW 타워
             r.playerSpawn = new Vector3(0f, 0f, 10f);   // 1F 중앙 개활지
 
+            r.navGraph = BuildNavGraph();   // ← 예측 친화 노드 그래프(NavMesh 대체)
+
             Light();
             return r;
         }
+
+        /// <summary>
+        /// 이 아레나의 나브 노드 그래프(G1 1차). 층별 주요 지점 + 경사로 연결.
+        /// 하강은 drops 목록(NearestDropEdge)이 담당 — 그래프는 걷기 경로만(walk 링크).
+        /// 노드-투-노드라 다소 거칠다(로컬 스티어링/부스터/그래프-하강은 이후 단계).
+        /// </summary>
+        static NavGraph BuildNavGraph()
+        {
+            var nodes = new NavNode[]
+            {
+                N(0f, 0f, 0f, 0),        // 0  1F 중앙
+                N(14f, 0f, -6f, 0),      // 1  1F SE
+                N(-14f, 0f, 6f, 0),      // 2  1F NW
+                N(10f, 0f, -2f, 0),      // 3  NE 경사로12 하단
+                N(-10f, 0f, 2f, 0),      // 4  SW 경사로12 하단
+                N(-6f, 0f, 17f, 0),      // 5  NW 반층경사로 하단
+                N(6f, 0f, -17f, 0),      // 6  SE 반층경사로 하단
+                N(10f, 4.5f, 6f, 2),     // 7  NE 경사로12 상단(2F)
+                N(10f, 4.5f, 18f, 2),    // 8  NE 경사로23 하단
+                N(-10f, 4.5f, -6f, 2),   // 9  SW 경사로12 상단
+                N(-10f, 4.5f, -18f, 2),  // 10 SW 경사로23 하단
+                N(18f, 9f, 20f, 3),      // 11 NE 타워/경사로23 상단(3F)
+                N(-18f, 9f, -20f, 3),    // 12 SW 타워
+                N(0f, 9f, 22f, 3),       // 13 3F 다리 중앙
+                N(-14f, 3f, 17f, 1),     // 14 반층 NW
+                N(14f, 3f, -17f, 1),     // 15 반층 SE
+            };
+
+            var links = new List<NavLink>();
+            void W(int a, int b) { const float w = 4f; links.Add(new NavLink(a, b, MoveKind.Walk, w)); links.Add(new NavLink(b, a, MoveKind.Walk, w)); }
+            W(0, 1); W(0, 2); W(0, 3); W(0, 4); W(0, 5); W(0, 6); W(1, 3); W(2, 4);  // 1F
+            W(3, 7); W(4, 9);          // 1F→2F 경사로12
+            W(7, 8); W(9, 10);         // 2F 내부
+            W(8, 11); W(10, 12);       // 2F→3F 경사로23
+            W(11, 13); W(12, 13);      // 3F 다리
+            W(5, 14); W(6, 15);        // 1F→반층 경사로
+
+            return NavGraph.Create(nodes, links.ToArray());
+        }
+
+        static NavNode N(float x, float y, float z, byte level)
+            => new NavNode { pos = new Vector3(x, y, z), level = level };
 
         public static MapResult BuildFromScene(Vector3 refPoint)
         {

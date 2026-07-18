@@ -45,8 +45,11 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
-            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers),
-                                       new NavMeshPathfinder(map.drops));
+            // 노드 그래프가 있으면 그걸로(예측 친화·Physics 0), 없으면 런타임 NavMesh 폴백.
+            IPathfinder pathfinder = map.navGraph != null
+                ? new GraphPathfinder(map.navGraph, map.drops)
+                : (IPathfinder)new NavMeshPathfinder(map.drops);
+            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers), pathfinder);
 
             world = SimWorld.Create();
             world.player = PlayerSim.Spawn(map.playerSpawn);
