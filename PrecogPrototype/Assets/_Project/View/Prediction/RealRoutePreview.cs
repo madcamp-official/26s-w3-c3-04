@@ -46,6 +46,22 @@ namespace Game.View
                 if (route.ghostFrames.Count == 0 || route.ghostFrames[route.ghostFrames.Count - 1].tick != last.tick)
                     route.ghostFrames.Add(last);
 
+                // 계약 3.1/3.1.1절: 0.5초 격자와 무관하게, 실제 행동이 시작된 정확한 틱마다
+                // 별도 액션 잔상 — 판정 대상은 이것뿐이다(일반 잔상은 가독성용).
+                foreach (PredictedActionEvent evt in plan.actionEvents)
+                {
+                    if (evt.tick < 0 || evt.tick >= plan.predictedFrames.Length) continue;
+                    PredictedFrame f = plan.predictedFrames[evt.tick];
+                    route.actionMarkers.Add(new ActionMarker
+                    {
+                        tick = evt.tick,
+                        position = f.playerPosition,
+                        yaw = f.playerYaw,
+                        type = evt.type,
+                        targetId = evt.targetId,
+                    });
+                }
+
                 CollectKillPositions(in w, in services, plan, settings.macroTicks, route.kills);
                 routes.Add(route);
             }

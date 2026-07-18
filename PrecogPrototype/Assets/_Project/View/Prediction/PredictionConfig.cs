@@ -37,6 +37,7 @@ namespace Game.View
         public const float DomeWidth     = 0.18f;
         public static readonly Color DomeColor  = new Color(0.3f, 0.9f, 1f, 0.9f);
         public static readonly Color GhostColor = new Color(0.5f, 0.9f, 1f, 0.5f);   // 정지 잔상(반투명)
+        public static readonly Color ActionMarkColor = new Color(1f, 0.95f, 0.3f);   // 액션(대시/평타/런지) 잔상 — 판정 대상, 눈에 띄는 노랑
         public static readonly Color StartMarkerColor = new Color(0.85f, 1f, 0.75f);  // 시작점(=나), 불투명 밝은 연두
         public const float KillMarkY      = 1.3f;   // 처치 마커 높이
 

@@ -32,7 +32,8 @@ namespace Game.View
 
         LineRenderer domeLr;
         readonly List<LineRenderer> lines = new List<LineRenderer>();
-        readonly List<Transform> ghostMarks = new List<Transform>();   // 0.5초 간격 정지 잔상(계약 3.1.1절)
+        readonly List<Transform> ghostMarks = new List<Transform>();    // 0.5초 간격 정지 잔상(계약 3.1.1절, 가독성용)
+        readonly List<Transform> actionMarks = new List<Transform>();   // 실제 행동 시작 틱(계약 3.1절, 판정 대상)
         Transform startMarker;   // 시작 위치(=나) 표시 캡슐
         readonly List<Transform> killMarks = new List<Transform>();
 
@@ -70,6 +71,7 @@ namespace Game.View
                 // 여기서는 그 결과(실제로 움직인 w)를 카메라·잔상 표시에만 반영한다.
                 PredictedRoute r = routes.Count > 0 ? routes[selected] : null;
                 UpdateGhostMarks(r);
+                UpdateActionMarks(r);
                 UpdateKillMarks(r);
                 PlaceCameraFirstPerson(in w);
                 return;
@@ -180,6 +182,7 @@ namespace Game.View
 
             var r = routes.Count > 0 ? routes[selected] : null;
             UpdateGhostMarks(r);
+            UpdateActionMarks(r);
             UpdateKillMarks(r);
         }
 
@@ -299,6 +302,37 @@ namespace Game.View
             return go.transform;
         }
 
+        /// <summary>계약 3.1/3.1.1절: 0.5초 격자와 무관하게 실제 행동이 시작된 정확한 틱마다
+        /// 별도로 강조되는 액션 잔상(대시/평타/런지) — 리듬 판정 대상은 이것뿐이다. 일반
+        /// 잔상(캡슐)과 다른 모양(큐브)으로 구분해서, 같은 0.5초 안에 여러 행동이 있어도
+        /// 각자 눈에 띄게 보이도록 한다. Perfect/Good/Miss 강조는 아직 없음(리듬 판정 자체가
+        /// 이후 Phase) — 지금은 위치·존재만 표시한다.</summary>
+        void UpdateActionMarks(PredictedRoute r)
+        {
+            int need = r != null ? r.actionMarkers.Count : 0;
+            while (actionMarks.Count < need) actionMarks.Add(MakeActionMark());
+
+            for (int i = 0; i < actionMarks.Count; i++)
+            {
+                bool used = i < need && state != State.Idle;
+                actionMarks[i].gameObject.SetActive(used);
+                if (!used) continue;
+                ActionMarker m = r.actionMarkers[i];
+                actionMarks[i].position = m.position + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
+                actionMarks[i].rotation = Quaternion.Euler(0f, m.yaw, 0f);
+            }
+        }
+
+        Transform MakeActionMark()
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = "PredictActionMark";
+            Object.Destroy(go.GetComponent<Collider>());
+            go.transform.localScale = Vector3.one * 0.4f;
+            go.GetComponent<Renderer>().material = SolidMat(PredictionConfig.ActionMarkColor);
+            return go.transform;
+        }
+
         void UpdateKillMarks(PredictedRoute r)
         {
             int need = r != null ? r.kills.Count : 0;
@@ -324,6 +358,7 @@ namespace Game.View
             if (domeLr != null) domeLr.gameObject.SetActive(on);
             for (int i = 0; i < lines.Count; i++) lines[i].gameObject.SetActive(on && i < routes.Count);
             for (int i = 0; i < ghostMarks.Count; i++) ghostMarks[i].gameObject.SetActive(on);
+            for (int i = 0; i < actionMarks.Count; i++) actionMarks[i].gameObject.SetActive(on);
             if (startMarker != null) startMarker.gameObject.SetActive(on);
             for (int i = 0; i < killMarks.Count; i++) killMarks[i].gameObject.SetActive(on);
         }
