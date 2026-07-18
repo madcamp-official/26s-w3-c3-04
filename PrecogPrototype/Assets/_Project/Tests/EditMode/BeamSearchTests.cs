@@ -8,6 +8,7 @@ namespace Game.Sim.Tests
     /// <summary>
     /// docs/shared/PREDICTION_INTEGRATION_PLAN.md 15장 G3 미니 탐색 기준:
     /// 사망 후보 제거, 생존 경로 1개 이상 반환, 반복 실행 시 같은 후보 반환.
+    /// docs/shared/PREDICTION_CONTRACT.md 10장 "반환 후보 최대 3"도 함께 확인한다.
     /// </summary>
     public class BeamSearchTests
     {
@@ -40,12 +41,26 @@ namespace Game.Sim.Tests
         {
             SimWorld world = BuildSafeWorld();
             SimServices services = StubServices.Create();
-            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Mini);
+            CandidatePath[] results = PredictionPlanner.Plan(in world, in services, PredictionSettings.Mini);
+            CandidatePath result = results[0];
 
             Assert.IsNotNull(result);
             Assert.IsFalse(result.isDeadFallback, "위협이 먼 상황에서 사망 폴백이 나오면 안 됨");
             Assert.Greater(result.actions.Length, 0, "생존 가능한 상황이면 최소 1개 행동은 계획돼야 함");
-            Assert.AreNotEqual(float.NegativeInfinity, result.score);
+            Assert.AreNotEqual(float.NegativeInfinity, result.TotalScore);
+        }
+
+        [Test]
+        public void Plan_ReturnsUpToThreeCandidates_SortedByScoreDescending()
+        {
+            SimWorld world = BuildSafeWorld();
+            SimServices services = StubServices.Create();
+            CandidatePath[] results = PredictionPlanner.Plan(in world, in services, PredictionSettings.Mini);
+
+            Assert.GreaterOrEqual(results.Length, 1);
+            Assert.LessOrEqual(results.Length, 3, "계약 10장 \"반환 후보 최대 3\"");
+            for (int i = 1; i < results.Length; i++)
+                Assert.GreaterOrEqual(results[i - 1].TotalScore, results[i].TotalScore, "점수 내림차순이어야 함");
         }
 
         [Test]
@@ -55,27 +70,27 @@ namespace Game.Sim.Tests
             SimServices services = StubServices.Create();
             PredictionSettings settings = PredictionSettings.Mini;
 
-            CandidatePath first = PredictionPlanner.Plan(in world, in services, settings);
+            CandidatePath first = PredictionPlanner.Plan(in world, in services, settings)[0];
 
             for (int i = 0; i < 5; i++)
             {
-                CandidatePath repeat = PredictionPlanner.Plan(in world, in services, settings);
+                CandidatePath repeat = PredictionPlanner.Plan(in world, in services, settings)[0];
                 Assert.AreEqual(first.actions.Length, repeat.actions.Length, $"반복 {i}: 행동 개수 불일치");
                 for (int a = 0; a < first.actions.Length; a++)
                 {
                     Assert.AreEqual(first.actions[a].type, repeat.actions[a].type, $"반복 {i}, 인덱스 {a}: 행동 종류 불일치");
                     Assert.AreEqual(first.actions[a].lungeTargetId, repeat.actions[a].lungeTargetId, $"반복 {i}, 인덱스 {a}: 런지 타깃 불일치");
                 }
-                Assert.AreEqual(first.score, repeat.score, 1e-6f, $"반복 {i}: 점수 불일치");
+                Assert.AreEqual(first.TotalScore, repeat.TotalScore, 1e-6f, $"반복 {i}: 점수 불일치");
             }
         }
 
         [Test]
-        public void MiniSearch_FallsBackToLongestSurvivor_WhenAllCandidatesDie()
+        public void MiniSearch_FallsBackToBestScoringDead_WhenAllCandidatesDie()
         {
             SimWorld world = BuildLethalWorld();
             SimServices services = StubServices.Create();
-            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Mini);
+            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Mini)[0];
 
             Assert.IsNotNull(result);
             Assert.IsTrue(result.isDeadFallback, "회피 불가능한 즉사 상황이면 사망 폴백이어야 함");

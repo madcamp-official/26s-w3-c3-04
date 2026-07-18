@@ -3,59 +3,59 @@ using Game.Sim;
 
 namespace Game.Prediction
 {
+    /// <summary>세 갈래 점수(안전·처치·난이도)와 Beam 정렬용 합산치.</summary>
+    public struct ScoreBreakdown
+    {
+        public float safety;
+        public float kill;
+        public float difficulty;
+        public float Total => safety + kill + difficulty;
+    }
+
     /// <summary>
-    /// 최소 후보 점수화. 문서 12장 "초기 평가값" 중 이번 마일스톤에 필요한
-    /// 생존·잔여 HP·최근접 위협 거리·포위 압박·처치 수·누적 피해량을 반영한다.
+    /// 후보 점수화. docs/shared/PREDICTION_CONTRACT.md 12장 가중치(피격 -200/탈출경로 +80/
+    /// 포위 무문턱 -30/남은 대시 +20/동일 행동 반복 -5)를 그대로 넣어봤다가, 시각화 도구로
+    /// 재검증하는 과정에서 회귀를 발견했다: 적이 처음부터 사거리 밖(3~6마리 시나리오)이면
+    /// Beam Search가 아예 접근을 안 함.
     ///
-    /// 안전 거리 보너스는 SafeDistanceCap에서 포화시킨다 — 이미 충분히 안전한 거리(공격/런지
-    /// 사거리 밖으로 여유 있게 벗어난 정도)면 더 멀어져도 추가 점수가 없다. 그렇지 않으면
-    /// "한없이 멀어지기"가 언제나 "처치"보다 유리해져서, 위협이 없을 때 예측이 무조건 후퇴만
-    /// 추천하는 겁쟁이가 된다(Milestone 2 시각화 도구로 실제 관찰됨).
+    /// 원인 두 가지:
+    /// 1. 계약이 못박은 행동 순서상 Wait가 제일 앞이라, "아직 아무 일도 안 일어난" 동점
+    ///    상황(이동/대기/후퇴가 전부 같은 점수)에서 Wait가 항상 동률 승리.
+    /// 2. "남은 대시 1회 +20"은 대시를 쓰는 순간 사라지는 보상이라, 장거리 접근에 대시가
+    ///    꼭 필요한 상황에서도 대시 자체를 안 쓰는 쪽으로 유도됨.
     ///
-    /// 누적 피해량(damageDealt)은 별도로 보상한다 — 그렇지 않으면 Beam Search가 근시안적으로
-    /// 군다: 런지 한 방으로 적을 못 죽이고 회복 중인 상태는 "아직 처치 못 한 상태"라 즉시 점수가
-    /// 낮게 보여서, 다음 매크로 스텝에서 평타로 마무리했을 더 높은 점수를 보기도 전에 Beam에서
-    /// 잘려나간다(시각화 도구로 실제 관찰됨). 적중한 피해에 즉시 점수를 줘서 "때렸지만 아직
-    /// 안 죽인" 상태도 후퇴보다 낫게 만들어 그 가지가 살아남게 한다.
+    /// 사용자와 상의 후, 평가 공식만 이전에 실제로 잘 동작했던 버전(HP·처치·피해·안전거리
+    /// 포화·포위 문턱)으로 되돌리고 여기서부터 다시 발전시키기로 했다. 행동 생성 순서
+    /// (ActionGenerator)와 반환 후보 개수(BeamSearch) 등 계약의 다른 부분은 그대로 둔다 —
+    /// 이번 롤백은 평가 쪽에 한정한다.
     ///
-    /// SafetyBonus는 "가장 가까운 적 1마리"만 본다 — 여러 마리에게 완전히 포위된 상태에서
-    /// 한쪽으로 뚫고 나가면 그 순간 "가장 가까운 적"만 멀어져 보여서, 등 뒤에 남은 다수를
-    /// 무시하고 "안전하다"고 착각한다(적 12마리로 포위한 시나리오에서 실제 관찰: 1마리만
-    /// 처치하고 나머지 11마리를 내버려 둔 채 이탈). SurroundedPenalty는 위협 반경 안의 생존 적
-    /// 수 전체에 비례해 감점해서, 다수에게 둘러싸인 상태 자체를 계속 나쁘게 평가한다.
-    ///
-    /// SurroundedTolerance(=4)만큼은 감점하지 않는다 — OPTIMIZATION.md 5장의 "동시 공격 허용
-    /// 최대 4~6마리"를 정상 교전 범위로 보고 맞췄다. 문턱을 낮게 두면(2 등) 적 2~3마리가
-    /// 뭉쳐있는 흔한 상황까지 위험해 보여서 다시 무조건 후퇴만 하는 겁쟁이로 돌아간다(실제
-    /// 관찰: 적 3마리·6마리 시나리오가 전부 후퇴로 바뀜).
-    ///
-    /// 알려진 한계: 이 값은 "반경 안 개수"만 보므로, 적이 촘촘히 뭉친 포위(예: 적 6마리가
-    /// 좁은 구역에 모여있음)는 잘 잡아내지만, 적이 넓게 퍼진 원형 포위(예: 적 12마리가 9m
-    /// 반경에 고르게 흩어짐)는 교전 중에도 반경 안 개수가 문턱을 잘 안 넘어서 이 페널티가
-    /// 거의 작동하지 않는다. 후자를 제대로 잡으려면 "몇 마리가 가까운가"가 아니라 "여러
-    /// 방향에서 동시에 위협받는가"(각도 분포) 같은 다른 지표가 필요 — 다음 튜닝 과제로 남긴다.
+    /// 사망 후보 점수는 그대로 유한값(PredictionScoreConfig.PlayerDeath)을 쓴다 — 이건
+    /// 전멸 폴백에서 "가장 덜 나쁜" 후보를 고를 수 있게 해준 개선이라 이번 회귀와 무관하다.
     /// </summary>
     public static class ThreatEvaluator
     {
-        const float HpWeight = 10f;
-        const float KillWeight = 30f;
-        const float DamageWeight = 8f;
-        const float SafeDistanceWeight = 1f;
-        const float SafeDistanceCap = 6f;
-        const float SurroundedRadius = 5f;
-        const int SurroundedTolerance = 4;
-        const float SurroundedWeight = 2f;
-
-        public static float Score(in SimWorld world, int killCount, int damageDealt)
+        public static ScoreBreakdown Score(
+            in SimWorld world,
+            int killCountNormal, int killCountMid, int damageDealt, int hitsTaken,
+            bool isRepeatedAction)
         {
-            if (!world.player.alive) return float.NegativeInfinity;
+            int killCount = killCountNormal + killCountMid;
+            var s = new ScoreBreakdown
+            {
+                kill = killCount * PredictionScoreConfig.KillWeight + damageDealt * PredictionScoreConfig.DamageWeight,
+            };
 
-            float score = world.player.health * HpWeight;
-            score += killCount * KillWeight;
-            score += damageDealt * DamageWeight;
-            score += SafetyBonus(in world) * SafeDistanceWeight;
-            score -= SurroundedExcess(in world) * SurroundedWeight;
-            return score;
+            if (!world.player.alive)
+            {
+                s.safety = PredictionScoreConfig.PlayerDeath;
+                return s;
+            }
+
+            s.safety = world.player.health * PredictionScoreConfig.HpWeight
+                     + SafetyBonus(in world) * PredictionScoreConfig.SafeDistanceWeight
+                     - SurroundedExcess(in world) * PredictionScoreConfig.SurroundedWeight;
+            // difficulty는 이번 롤백에서 비움(계약의 대시 보존/반복 페널티가 회귀 원인이라 제외).
+            return s;
         }
 
         static float SafetyBonus(in SimWorld world)
@@ -70,12 +70,10 @@ namespace Game.Prediction
                 float distance = CombatMath.FlatDistance(world.player.pos, enemy.pos);
                 if (distance < nearest) nearest = distance;
             }
-            if (!anyAlive) return SafeDistanceCap;
-            return Mathf.Min(nearest, SafeDistanceCap);
+            if (!anyAlive) return PredictionScoreConfig.SafeDistanceCap;
+            return Mathf.Min(nearest, PredictionScoreConfig.SafeDistanceCap);
         }
 
-        /// <summary>위협 반경(SurroundedRadius) 안에 있는 생존 적 수 중 SurroundedTolerance를
-        /// 넘는 초과분. 적 2~3마리가 뭉쳐있는 평범한 교전은 0을 반환해 감점하지 않는다.</summary>
         static int SurroundedExcess(in SimWorld world)
         {
             int count = 0;
@@ -83,9 +81,10 @@ namespace Game.Prediction
             {
                 ref readonly EnemySim enemy = ref world.enemies[i];
                 if (!enemy.alive) continue;
-                if (CombatMath.FlatDistance(world.player.pos, enemy.pos) <= SurroundedRadius) count++;
+                if (CombatMath.FlatDistance(world.player.pos, enemy.pos) <= PredictionScoreConfig.SurroundedRadius)
+                    count++;
             }
-            return Mathf.Max(0, count - SurroundedTolerance);
+            return Mathf.Max(0, count - PredictionScoreConfig.SurroundedTolerance);
         }
     }
 }

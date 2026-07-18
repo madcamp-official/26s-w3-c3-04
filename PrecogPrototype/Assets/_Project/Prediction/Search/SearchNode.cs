@@ -9,11 +9,21 @@ namespace Game.Prediction
         public int worldBufferIndex;
         public int parentIndex;   // 루트는 -1
         public MacroAction actionTaken;
-        public float score;
+        public float score;       // safetyScore+killScore+difficultyScore 합(Beam 정렬용)
         public int depth;
-        public int killCount;
+
+        public int killCountNormal;
+        public int killCountMid;
         public int damageDealt;
+        public int hitsTaken;     // 계약의 expectedHits
+        public int dashCount;
+        public int lungeCount;
         public int ticksSurvived;
+
+        public float safetyScore;
+        public float killScore;
+        public float difficultyScore;
+
         public bool alive;
         public ulong stateKey;
     }

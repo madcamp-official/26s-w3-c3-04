@@ -5,26 +5,42 @@ namespace Game.Prediction
 {
     /// <summary>
     /// Beam Search 본체. `PredictionSettings.Mini`(G3 미니 탐색)와 `Full`(3초/Beam-12
-    /// 본탐색) 모두 이 하나로 돈다. 사망 후보 즉시 폐기, 반복 실행 시 같은 후보 반환,
-    /// StateDeduplicator로 빔이 비슷한 상태로 몰리지 않도록 한다. 후보 확장 중
+    /// 본탐색) 모두 이 하나로 돈다. 사망 후보 즉시 폐기(빔 확장에선 제외하되, 전멸
+    /// 폴백을 위해 점수는 계산해둔다), 반복 실행 시 같은 후보 반환, StateDeduplicator로
+    /// 빔이 비슷한 상태로 몰리지 않도록 한다. docs/shared/PREDICTION_CONTRACT.md 10장의
+    /// "반환 후보 최대 3"에 따라 점수 내림차순 최대 3개를 반환한다. 후보 확장 중
     /// GameObject/LINQ/List 없이 고정 배열과 WorldBufferPool만 사용한다.
     /// </summary>
     public static class BeamSearch
     {
-        public static CandidatePath Run(in SimWorld snapshot, in SimServices services, in PredictionSettings settings)
+        public static CandidatePath[] Run(in SimWorld snapshot, in SimServices services, in PredictionSettings settings)
         {
             ulong initialHash = WorldHash.Compute(in snapshot);
 
             if (!snapshot.player.alive)
-                return new CandidatePath
+            {
+                ScoreBreakdown deadBreakdown = ThreatEvaluator.Score(in snapshot, 0, 0, 0, 0, false);
+                return new[]
                 {
-                    actions = System.Array.Empty<MacroAction>(),
-                    killCount = 0,
-                    durationTicks = 0,
-                    score = float.NegativeInfinity,
-                    initialSnapshotHash = initialHash,
-                    isDeadFallback = true,
+                    new CandidatePath
+                    {
+                        candidateId = 0,
+                        actions = System.Array.Empty<MacroAction>(),
+                        killCount = 0,
+                        damageDealt = 0,
+                        dashCount = 0,
+                        lungeCount = 0,
+                        expectedHits = 0,
+                        durationTicks = 0,
+                        safetyScore = deadBreakdown.safety,
+                        killScore = deadBreakdown.kill,
+                        difficultyScore = deadBreakdown.difficulty,
+                        initialSnapshotHash = initialHash,
+                        mapVersion = snapshot.mapVersion,
+                        isDeadFallback = true,
+                    },
                 };
+            }
 
             int maxPerDepth = settings.beamWidth * settings.maxActionsPerNode;
             int poolCapacity = settings.beamWidth * (settings.maxActionsPerNode + 1) + 1;
@@ -44,16 +60,17 @@ namespace Game.Prediction
             // 루트: 스냅샷 그대로.
             int rootBuffer = pool.Rent();
             pool.CopyInto(rootBuffer, in snapshot);
+            ScoreBreakdown rootBreakdown = ThreatEvaluator.Score(in snapshot, 0, 0, 0, 0, false);
             nodes[nodeCount] = new SearchNode
             {
                 worldBufferIndex = rootBuffer,
                 parentIndex = -1,
                 actionTaken = default,
-                score = ThreatEvaluator.Score(in snapshot, 0, 0),
+                score = rootBreakdown.Total,
+                safetyScore = rootBreakdown.safety,
+                killScore = rootBreakdown.kill,
+                difficultyScore = rootBreakdown.difficulty,
                 depth = 0,
-                killCount = 0,
-                damageDealt = 0,
-                ticksSurvived = 0,
                 alive = true,
             };
             int rootIndex = nodeCount;
@@ -63,7 +80,7 @@ namespace Game.Prediction
 
             int bestOverallNode = rootIndex;
             int bestDeadNode = -1;
-            int bestDeadTicks = -1;
+            float bestDeadScore = float.NegativeInfinity;
 
             for (int depth = 0; depth < settings.macroDepth && currentBeamCount > 0; depth++)
             {
@@ -76,8 +93,6 @@ namespace Game.Prediction
                     ref readonly SimWorld parentWorld = ref pool.Get(parentNode.worldBufferIndex);
 
                     int actionCount = ActionGenerator.Generate(in parentWorld, in services, in settings, actionBuffer);
-                    int enemiesAliveBefore = CountAlive(in parentWorld);
-                    int totalHpBefore = TotalHp(in parentWorld);
 
                     for (int a = 0; a < actionCount; a++)
                     {
@@ -97,10 +112,29 @@ namespace Game.Prediction
                         }
 
                         ref readonly SimWorld finalWorld = ref pool.Get(childBuffer);
-                        int killedThisStep = Mathf.Max(0, enemiesAliveBefore - CountAlive(in finalWorld));
-                        int childKillCount = parentNode.killCount + killedThisStep;
-                        int damageThisStep = Mathf.Max(0, totalHpBefore - TotalHp(in finalWorld));
+
+                        int killedNormalThisStep = 0, killedMidThisStep = 0;
+                        for (int i = 0; i < parentWorld.enemyCount; i++)
+                        {
+                            if (parentWorld.enemies[i].alive && !finalWorld.enemies[i].alive)
+                            {
+                                if (finalWorld.enemies[i].enemyTypeId == 0) killedNormalThisStep++;
+                                else killedMidThisStep++;
+                            }
+                        }
+                        int damageThisStep = Mathf.Max(0, TotalHp(in parentWorld) - TotalHp(in finalWorld));
+                        int hitsThisStep = Mathf.Max(0, parentWorld.player.health - finalWorld.player.health);
+                        bool isRepeated = parentNode.depth > 0 && actionBuffer[a].type == parentNode.actionTaken.type;
+
+                        int childKillNormal = parentNode.killCountNormal + killedNormalThisStep;
+                        int childKillMid = parentNode.killCountMid + killedMidThisStep;
                         int childDamageDealt = parentNode.damageDealt + damageThisStep;
+                        int childHitsTaken = parentNode.hitsTaken + hitsThisStep;
+                        int childDashCount = parentNode.dashCount + (IsDash(actionBuffer[a].type) ? 1 : 0);
+                        int childLungeCount = parentNode.lungeCount + (actionBuffer[a].type == MacroActionType.Lunge ? 1 : 0);
+
+                        ScoreBreakdown breakdown = ThreatEvaluator.Score(
+                            in finalWorld, childKillNormal, childKillMid, childDamageDealt, childHitsTaken, isRepeated);
 
                         var childNode = new SearchNode
                         {
@@ -108,12 +142,19 @@ namespace Game.Prediction
                             parentIndex = parentIndex,
                             actionTaken = actionBuffer[a],
                             depth = parentNode.depth + 1,
-                            killCount = childKillCount,
+                            killCountNormal = childKillNormal,
+                            killCountMid = childKillMid,
                             damageDealt = childDamageDealt,
+                            hitsTaken = childHitsTaken,
+                            dashCount = childDashCount,
+                            lungeCount = childLungeCount,
                             ticksSurvived = parentNode.ticksSurvived + ticks,
                             alive = survived,
-                            score = survived ? ThreatEvaluator.Score(in finalWorld, childKillCount, childDamageDealt) : float.NegativeInfinity,
-                            stateKey = survived ? StateDeduplicator.ComputeKey(in finalWorld, childKillCount) : 0UL,
+                            score = breakdown.Total,
+                            safetyScore = breakdown.safety,
+                            killScore = breakdown.kill,
+                            difficultyScore = breakdown.difficulty,
+                            stateKey = survived ? StateDeduplicator.ComputeKey(in finalWorld, childKillNormal + childKillMid) : 0UL,
                         };
                         nodes[nodeCount] = childNode;
 
@@ -123,9 +164,9 @@ namespace Game.Prediction
                         }
                         else
                         {
-                            if (childNode.ticksSurvived > bestDeadTicks)
+                            if (childNode.score > bestDeadScore)
                             {
-                                bestDeadTicks = childNode.ticksSurvived;
+                                bestDeadScore = childNode.score;
                                 bestDeadNode = nodeCount;
                             }
                             pool.Return(childBuffer);
@@ -187,30 +228,52 @@ namespace Game.Prediction
                 currentBeamCount = nextBeamCount;
             }
 
-            int resultNode;
+            var resultNodes = new int[3];
+            int resultCount = 0;
             bool deadFallback = false;
+
             if (currentBeamCount > 0)
             {
-                resultNode = currentBeam[0]; // 마지막 depth 최상위 = 최종 최선
+                // currentBeam은 2-pass 선별 때문에 전체가 점수순 정렬임을 보장 못 하므로,
+                // 반환 직전에만 상위 최대 3개를 명시적으로 뽑는다(배열 크기 작아 비용 무시).
+                System.Array.Clear(used, 0, currentBeamCount);
+                int topN = Mathf.Min(3, currentBeamCount);
+                for (int r = 0; r < topN; r++)
+                {
+                    int bestLocal = -1;
+                    for (int e = 0; e < currentBeamCount; e++)
+                    {
+                        if (used[e]) continue;
+                        if (bestLocal < 0 || nodes[currentBeam[e]].score > nodes[currentBeam[bestLocal]].score)
+                            bestLocal = e;
+                    }
+                    used[bestLocal] = true;
+                    resultNodes[resultCount++] = currentBeam[bestLocal];
+                }
             }
             else if (bestOverallNode != rootIndex)
             {
-                resultNode = bestOverallNode; // 더 얕은 depth에서 살아남은 최선
+                resultNodes[resultCount++] = bestOverallNode; // 더 얕은 depth에서 살아남은 최선
             }
             else if (bestDeadNode >= 0)
             {
-                resultNode = bestDeadNode; // 전부 사망 — 가장 오래 생존한 후보로 폴백
+                resultNodes[resultCount++] = bestDeadNode; // 전부 사망 — 점수가 가장 덜 나쁜 후보로 폴백
                 deadFallback = true;
             }
             else
             {
-                resultNode = rootIndex; // 확장 자체가 없었음(행동 후보 0개)
+                resultNodes[resultCount++] = rootIndex; // 확장 자체가 없었음(행동 후보 0개)
             }
 
-            return BuildCandidate(nodes, resultNode, settings.macroDepth, initialHash, deadFallback);
+            var results = new CandidatePath[resultCount];
+            for (int i = 0; i < resultCount; i++)
+                results[i] = BuildCandidate(nodes, resultNodes[i], settings.macroDepth, initialHash, deadFallback, i, snapshot.mapVersion);
+            return results;
         }
 
-        static CandidatePath BuildCandidate(SearchNode[] nodes, int resultNode, int macroDepth, ulong initialHash, bool deadFallback)
+        static CandidatePath BuildCandidate(
+            SearchNode[] nodes, int resultNode, int macroDepth, ulong initialHash,
+            bool deadFallback, int candidateId, int mapVersion)
         {
             var reversed = new MacroAction[macroDepth];
             int count = 0;
@@ -228,29 +291,32 @@ namespace Game.Prediction
             SearchNode result = nodes[resultNode];
             return new CandidatePath
             {
+                candidateId = candidateId,
                 actions = actions,
-                killCount = result.killCount,
+                killCount = result.killCountNormal + result.killCountMid,
                 damageDealt = result.damageDealt,
+                dashCount = result.dashCount,
+                lungeCount = result.lungeCount,
+                expectedHits = result.hitsTaken,
                 durationTicks = result.ticksSurvived,
-                score = result.score,
+                safetyScore = result.safetyScore,
+                killScore = result.killScore,
+                difficultyScore = result.difficultyScore,
                 initialSnapshotHash = initialHash,
+                mapVersion = mapVersion,
                 isDeadFallback = deadFallback,
             };
         }
+
+        static bool IsDash(MacroActionType type) =>
+            type == MacroActionType.DashForward || type == MacroActionType.DashBackward ||
+            type == MacroActionType.DashLeft || type == MacroActionType.DashRight;
 
         static bool ContainsKey(ulong[] keys, int count, ulong key)
         {
             for (int i = 0; i < count; i++)
                 if (keys[i] == key) return true;
             return false;
-        }
-
-        static int CountAlive(in SimWorld world)
-        {
-            int count = 0;
-            for (int i = 0; i < world.enemyCount; i++)
-                if (world.enemies[i].alive) count++;
-            return count;
         }
 
         /// <summary>생존 적의 HP 합. 매크로 스텝 전후 차이로 "죽이진 못했지만 때린" 피해를 잡아낸다.</summary>

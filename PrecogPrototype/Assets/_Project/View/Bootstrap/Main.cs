@@ -13,7 +13,14 @@ namespace Game.View
     {
         public static Main Instance { get; private set; }
         public ref readonly SimWorld World => ref world;
+        public SimServices Services => services;
         public Camera Cam => cam;
+
+        /// <summary>디버그 미리보기(PredictionPreview)용 상황 설정 훅. 실제 게임 규칙 우회 없음 — AddEnemy만 호출.</summary>
+        public void SpawnEnemyNear(Vector3 pos) => world.AddEnemy(pos);
+
+        /// <summary>디버그용 시나리오 리셋 — 살아있는 적 전부 제거.</summary>
+        public void ClearAllEnemies() => world.enemyCount = 0;
 
         [SerializeField] float eyeHeight = 1.0f;   // 줄인 키(1.15)에 맞춤
         public bool useSceneGeometry;   // true=씬 지형(Synty) 사용, false=코드 큐브맵
@@ -76,8 +83,11 @@ namespace Game.View
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
 
+            gameObject.AddComponent<PredictionPreview>();
+
             Debug.Log($"[Main] 뼈대 시작. 적 {world.enemyCount}. " +
-                      "WASD 이동 · 마우스 시점 · Space 더블점프 · Shift 4방향 대시 · 우클릭 타깃 런지 · Esc 커서해제");
+                      "WASD 이동 · 마우스 시점 · Space 더블점프 · Shift 4방향 대시 · 우클릭 타깃 런지 · Esc 커서해제 · " +
+                      "P 예측 미리보기 · O 적 추가 · K 적 전부 제거");
         }
 
         void Update()

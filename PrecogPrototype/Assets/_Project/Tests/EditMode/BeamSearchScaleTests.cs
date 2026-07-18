@@ -46,7 +46,7 @@ namespace Game.Sim.Tests
         {
             SimWorld world = BuildSixEnemySafeWorld();
             SimServices services = StubServices.Create();
-            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Full);
+            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Full)[0];
 
             Assert.IsNotNull(result);
             Assert.IsFalse(result.isDeadFallback, "위협이 먼 상황에서 사망 폴백이 나오면 안 됨");
@@ -60,17 +60,17 @@ namespace Game.Sim.Tests
             SimServices services = StubServices.Create();
             PredictionSettings settings = PredictionSettings.Full;
 
-            CandidatePath first = PredictionPlanner.Plan(in world, in services, settings);
+            CandidatePath first = PredictionPlanner.Plan(in world, in services, settings)[0];
             for (int i = 0; i < 3; i++)
             {
-                CandidatePath repeat = PredictionPlanner.Plan(in world, in services, settings);
+                CandidatePath repeat = PredictionPlanner.Plan(in world, in services, settings)[0];
                 Assert.AreEqual(first.actions.Length, repeat.actions.Length, $"반복 {i}: 행동 개수 불일치");
                 for (int a = 0; a < first.actions.Length; a++)
                 {
                     Assert.AreEqual(first.actions[a].type, repeat.actions[a].type, $"반복 {i}, 인덱스 {a}: 행동 종류 불일치");
                     Assert.AreEqual(first.actions[a].lungeTargetId, repeat.actions[a].lungeTargetId, $"반복 {i}, 인덱스 {a}: 런지 타깃 불일치");
                 }
-                Assert.AreEqual(first.score, repeat.score, 1e-6f, $"반복 {i}: 점수 불일치");
+                Assert.AreEqual(first.TotalScore, repeat.TotalScore, 1e-6f, $"반복 {i}: 점수 불일치");
             }
         }
 
@@ -83,7 +83,7 @@ namespace Game.Sim.Tests
             SimServices services = StubServices.Create();
 
             var stopwatch = Stopwatch.StartNew();
-            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Full);
+            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Full)[0];
             stopwatch.Stop();
 
             Assert.IsNotNull(result);

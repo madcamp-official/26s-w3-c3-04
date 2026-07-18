@@ -7,7 +7,7 @@ namespace Game.Prediction.Editor
 {
     /// <summary>
     /// 예측 결과를 텍스트로 확인하는 개발용 도구. 실제 씬/Physics 없이 평지 스텁으로
-    /// 미리 정한 두 상황을 돌려 Beam Search가 실제로 어떤 행동 시퀀스와 궤적을
+    /// 미리 정한 다양한 상황을 돌려 Beam Search가 실제로 어떤 행동 시퀀스와 궤적을
     /// 찾아내는지 콘솔에 출력한다. 회귀 검증용이 아니라 눈으로 확인하는 용도.
     /// </summary>
     public static class PredictionVisualizer
@@ -15,11 +15,33 @@ namespace Game.Prediction.Editor
         [MenuItem("Precog/예측 시각화 (텍스트, 콘솔)")]
         static void RunDemo()
         {
-            RunScenario("시나리오 1 — 여유 있는 거리 (적 3마리)", BuildSpreadOutWorld());
-            RunScenario("시나리오 2 — 코앞에 적 (런지 사거리 안)", BuildCloseQuartersWorld());
+            RunScenario("1. 여유 있는 거리 (적 3마리)", BuildRoomyWorld());
+            Separator();
+            RunScenario("2. 코앞에 적 (런지 사거리 안, 적 2마리)", BuildCloseQuartersWorld());
+            Separator();
+            RunScenario("3. 체력 위험 (HP 1, 적 2마리 근접)", BuildLowHpWorld());
+            Separator();
+            RunScenario("4. 적 공격 임박 (Windup 중, 회피 시급)", BuildImminentAttackWorld());
+            Separator();
+            RunScenario("5. 대시 소진 상태 (도보 이동만 가능)", BuildDashExhaustedWorld());
+            Separator();
+            RunScenario("6. 좁은 구석 (한쪽 부채꼴에 몰림, 적 4마리)", BuildCorneredWorld());
+            Separator();
+            RunScenario("7. 혼합 거리 (근접 3마리 + 낙오자 원거리 1마리)", BuildMixedRangeWorld());
+            Separator();
+            RunScenario("8. 대칭 포위 (적 6마리)", BuildSymmetricWorld());
+            Separator();
+            RunScenario("9. 완전 원형 포위 (적 12마리)", BuildCircleWorld(12, 9f, 3f));
+            Separator();
+            RunScenario("10. 대규모 웨이브 (적 30마리, 스트레스 테스트)", BuildCircleWorld(30, 10f, 2f));
         }
 
-        static SimWorld BuildSpreadOutWorld()
+        static void Separator()
+        {
+            Debug.Log(new string('=', 60));
+        }
+
+        static SimWorld BuildRoomyWorld()
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(new Vector3(0f, 0f, 10f));
@@ -38,6 +60,97 @@ namespace Game.Prediction.Editor
             return world;
         }
 
+        /// <summary>HP 1 — 즉사는 아니지만 한 대만 더 맞으면 끝. 신중하게 노는지 확인.</summary>
+        static SimWorld BuildLowHpWorld()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(new Vector3(0f, 0f, 5f));
+            world.player.health = 1;
+            world.AddEnemy(new Vector3(0f, 0f, 2f));
+            world.AddEnemy(new Vector3(2f, 0f, 3f));
+            return world;
+        }
+
+        /// <summary>적 하나가 이미 Windup 중(명중까지 8틱) — 그 자리에서 맞을지 피할지 시급하게 판단해야 함.</summary>
+        static SimWorld BuildImminentAttackWorld()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(new Vector3(0f, 0f, 3f));
+            world.AddEnemy(new Vector3(0f, 0f, 1f));
+            world.AddEnemy(new Vector3(3f, 0f, 4f));
+
+            ref EnemySim urgent = ref world.enemies[0];
+            urgent.aiState = EnemyAIState.AttackWindup;
+            urgent.stateTicks = CombatConfig.EnemyAttackWindupTicks - 8;
+            urgent.committedAttackDirection = new Vector3(0f, 0f, -1f);
+            return world;
+        }
+
+        /// <summary>대시 충전 0, 재충전 중 — 대시 없이 순수 도보 이동으로만 대응해야 함.</summary>
+        static SimWorld BuildDashExhaustedWorld()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(new Vector3(0f, 0f, 6f));
+            world.player.dashCharges = 0;
+            world.player.dashRecharge = SimConfig.DashRechargeTicks;
+            world.AddEnemy(new Vector3(0f, 0f, 3f));
+            world.AddEnemy(new Vector3(-2f, 0f, 4f));
+            return world;
+        }
+
+        /// <summary>적 4마리가 한쪽 부채꼴(+x 쪽)을 덮고 있어 그쪽으로는 못 빠짐 — 반대쪽(-x)만 열려있음.</summary>
+        static SimWorld BuildCorneredWorld()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(new Vector3(2f, 0f, 4f));
+            world.AddEnemy(new Vector3(4f, 0f, 2f));
+            world.AddEnemy(new Vector3(4f, 0f, -2f));
+            world.AddEnemy(new Vector3(2f, 0f, -4f));
+            return world;
+        }
+
+        /// <summary>가까운 3마리 + 멀리 떨어진 낙오자 1마리 — 가까운 위협에 집중하고 낙오자는 무시하는지 확인.</summary>
+        static SimWorld BuildMixedRangeWorld()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(new Vector3(2f, 0f, 2f));
+            world.AddEnemy(new Vector3(2.5f, 0f, 1.5f));
+            world.AddEnemy(new Vector3(1.5f, 0f, 2.5f));
+            world.AddEnemy(new Vector3(0f, 0f, -15f));
+            return world;
+        }
+
+        /// <summary>거울대칭 쌍을 포함한 6마리, 전부 한 방향(-z)에 몰려있음.</summary>
+        static SimWorld BuildSymmetricWorld()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(new Vector3(0f, 0f, 30f));
+            world.AddEnemy(new Vector3(2f, 0f, 10f));
+            world.AddEnemy(new Vector3(-2f, 0f, 10f));
+            world.AddEnemy(new Vector3(5f, 0f, 8f));
+            world.AddEnemy(new Vector3(-5f, 0f, 8f));
+            world.AddEnemy(new Vector3(0f, 0f, 12f));
+            world.AddEnemy(new Vector3(0f, 0f, 6f));
+            return world;
+        }
+
+        /// <summary>플레이어를 중심으로 count마리를 원형으로 배치. radiusJitter로 거리에 약간 변화를 줌.</summary>
+        static SimWorld BuildCircleWorld(int count, float radius, float radiusJitter)
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            for (int i = 0; i < count; i++)
+            {
+                float angle = (float)i / count * Mathf.PI * 2f;
+                float r = radius + (i % 3 - 1) * radiusJitter;
+                Vector3 pos = new Vector3(Mathf.Cos(angle) * r, 0f, Mathf.Sin(angle) * r);
+                world.AddEnemy(pos);
+            }
+            return world;
+        }
+
         static void RunScenario(string title, SimWorld world)
         {
             var sb = new StringBuilder();
@@ -52,11 +165,14 @@ namespace Game.Prediction.Editor
             sb.AppendLine($"설정: macroTicks={settings.macroTicks} macroDepth={settings.macroDepth} beamWidth={settings.beamWidth} " +
                           $"(총 {settings.macroTicks * settings.macroDepth}틱 = {settings.macroTicks * settings.macroDepth / 60f:F2}초 예측)");
 
-            CandidatePath plan = PredictionPlanner.Plan(in world, in services, settings);
+            CandidatePath[] plans = PredictionPlanner.Plan(in world, in services, settings);
+            CandidatePath plan = plans[0];
 
             sb.AppendLine();
-            sb.AppendLine("--- 예측 결과 ---");
-            sb.AppendLine($"score={plan.score:F1}  kills={plan.killCount}  durationTicks={plan.durationTicks}  deadFallback={plan.isDeadFallback}");
+            sb.AppendLine($"--- 예측 결과 ({plans.Length}개 후보 중 최상위 표시) ---");
+            sb.AppendLine($"score={plan.TotalScore:F1} (안전{plan.safetyScore:F0}/처치{plan.killScore:F0}/난이도{plan.difficultyScore:F0})  " +
+                          $"kills={plan.killCount}  damageDealt={plan.damageDealt}  dash={plan.dashCount}  lunge={plan.lungeCount}  " +
+                          $"hitsTaken={plan.expectedHits}  durationTicks={plan.durationTicks}  deadFallback={plan.isDeadFallback}");
             sb.AppendLine($"행동 시퀀스 ({plan.actions.Length}개 매크로 스텝, 각 {settings.macroTicks}틱={settings.macroTicks / 60f:F2}초):");
             for (int i = 0; i < plan.actions.Length; i++)
             {

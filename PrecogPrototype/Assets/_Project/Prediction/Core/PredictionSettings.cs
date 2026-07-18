@@ -32,7 +32,7 @@ namespace Game.Prediction
             macroTicks = 15,
             macroDepth = 12,
             beamWidth = 12,
-            maxActionsPerNode = 11, // ActionGenerator.Priority 전체(모든 이동·대시 방향 포함)
+            maxActionsPerNode = 12, // ActionGenerator.Priority 전체(런지 최대 2명 포함, 계약 10장)
         };
     }
 }
