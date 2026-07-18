@@ -32,6 +32,8 @@ namespace Game.View
         public const float RouteWidthSel = 0.32f;   // 선택 루트 굵기
         public const float RouteWidthDim = 0.12f;   // 비선택 루트 굵기
         public const float RouteDimMul   = 0.45f;   // 비선택 루트 밝기 배율
+        public const float RouteAlphaSel = 0.75f;   // 선택 루트 반투명도
+        public const float RouteAlphaDim = 0.4f;    // 비선택 루트 반투명도(더 흐리게)
         public const float DomeWidth     = 0.18f;
         public static readonly Color DomeColor  = new Color(0.3f, 0.9f, 1f, 0.9f);
         public static readonly Color GhostColor = new Color(0.5f, 0.9f, 1f, 0.5f);

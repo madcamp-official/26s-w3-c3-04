@@ -79,7 +79,7 @@ namespace Game.View
 
         void Enter(in SimWorld w)
         {
-            routes = RoutePreviewStub.Build(in w, PredictionConfig.Range, PredictionConfig.RouteColors);
+            routes = RealRoutePreview.Build(in w, Main.Instance.Services, PredictionConfig.RouteColors);
             selected = 0; prevSelected = -1; ghostDist = 0f;
             state = State.Preview;
             fx.SetActive(true);
@@ -116,7 +116,7 @@ namespace Game.View
         {
             if (routes.Count == 0) return;
             var r = routes[selected];
-            string[] names = { "근접순", "원거리순", "스윕" };
+            string[] names = { "최상위", "2순위", "3순위" };   // 실제 예측 점수 순위(더 이상 이동 휴리스틱 아님)
             string nm = selected < names.Length ? names[selected] : selected.ToString();
             Debug.Log($"[예측] 선택 루트 {selected}({nm}) — 처치 {r.kills.Count}, {r.seconds:0.0}초");
         }
@@ -201,7 +201,8 @@ namespace Game.View
         static void StyleLine(LineRenderer lr, Color c, bool sel)
         {
             lr.widthMultiplier = sel ? PredictionConfig.RouteWidthSel : PredictionConfig.RouteWidthDim;
-            Color col = sel ? c : c * PredictionConfig.RouteDimMul; col.a = 1f;
+            Color col = sel ? c : c * PredictionConfig.RouteDimMul;
+            col.a = sel ? PredictionConfig.RouteAlphaSel : PredictionConfig.RouteAlphaDim;   // 반투명 경로선
             lr.startColor = lr.endColor = col;
         }
 
@@ -313,7 +314,10 @@ namespace Game.View
         static Material LineMat()
         {
             var sh = Shader.Find("Sprites/Default") ?? Shader.Find("Universal Render Pipeline/Unlit");
-            return new Material(sh);
+            var m = new Material(sh);
+            // Unlit로 폴백된 경우 기본이 Opaque라 반투명 경로선의 알파가 무시된다 — 명시적으로 켠다.
+            if (m.HasProperty("_Surface")) { m.SetFloat("_Surface", 1f); m.renderQueue = 3000; }
+            return m;
         }
 
         static Material GhostMat()
