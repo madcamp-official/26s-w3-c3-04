@@ -39,6 +39,40 @@ namespace Game.Prediction.Editor
             RunScenario("11. OPTIMIZATION.md 벤치마크 기준점 (적 8마리, 목표 200ms 내외/하드리밋 300ms)", BuildCircleWorld(8, 8f, 2f));
         }
 
+        /// <summary>
+        /// OPTIMIZATION.md 14장의 적 수별 벤치마크(8/16/32/50/64마리)를 전부 Full 설정(Beam
+        /// 12/3초, 스텁 충돌·경로찾기 — 실제 Physics/NavMesh 비용 미포함)으로 돌려서 순수
+        /// Beam Search 자체의 비용이 적 수에 따라 어떻게 늘어나는지만 본다. EnemySimulationTier
+        /// (Precise/Coarse/Dormant) 도입 여부를 결정하기 전에 먼저 이 숫자로 진짜 병목인지
+        /// 확인하기 위한 용도 — 전체 재생 로그는 안 찍고 시간만 요약해서 콘솔에 남긴다.
+        /// </summary>
+        [MenuItem("Precog/예측 성능 벤치마크 (적 수별)")]
+        static void RunEnemyCountBenchmark()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== 적 수별 Beam Search 성능 벤치마크 (Full: Beam 12 / 3초 / 180틱) ===");
+            sb.AppendLine("주의: 스텁 충돌·경로찾기 사용 — 실제 Physics.CapsuleCast/NavMesh 비용은 포함 안 됨.");
+            sb.AppendLine();
+
+            int[] counts = { 8, 16, 32, 50, 64 };
+            foreach (int count in counts)
+            {
+                SimWorld world = BuildCircleWorld(count, 6f + count * 0.25f, 2f);
+                SimServices services = new SimServices(new FlatGroundCollision(), new StraightLinePathfinder());
+                PredictionSettings settings = PredictionSettings.Full;
+
+                var stopwatch = Stopwatch.StartNew();
+                CandidatePath[] plans = PredictionPlanner.Plan(in world, in services, settings);
+                stopwatch.Stop();
+                CandidatePath plan = plans[0];
+
+                sb.AppendLine($"적 {count,3}마리: {stopwatch.Elapsed.TotalMilliseconds,7:F2}ms  " +
+                              $"kills={plan.killCount}  deadFallback={plan.isDeadFallback}");
+            }
+
+            Debug.Log(sb.ToString());
+        }
+
         static void Separator()
         {
             Debug.Log(new string('=', 60));
