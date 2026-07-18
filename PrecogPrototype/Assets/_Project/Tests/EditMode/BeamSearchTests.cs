@@ -99,10 +99,14 @@ namespace Game.Sim.Tests
         }
 
         /// <summary>대형몹 처형(글로리킬)은 트리거 즉시 gloryStage>0로 결과가 잠기고 alive=false는
-        /// ~77틱 뒤(컷신 종료)에야 따라온다. Mini 탐색(45틱 지평)은 컷신 완료를 못 보므로,
-        /// 트리거 시점에 즉시 킬로 인정하는지 확인한다.</summary>
+        /// ~77틱(컷신) 뒤에야 따라온다. 짧은 탐색 지평(매크로 1스텝 15틱)은 컷신 완료를 못 보므로,
+        /// 트리거 시점에 즉시 킬로 인정하는지 확인한다.
+        /// `PredictionSettings.Mini`는 못 쓴다 — maxActionsPerNode=4라 ActionGenerator의
+        /// Priority 순서상 앞 4개(MoveForward/Left/Right/Retreat)로 캡이 이미 다 차서
+        /// Attack 자체가 후보로 안 나온다(설계상 의도된 "행동 4개" 제한, 계약 문서 참고).
+        /// 그래서 대신 짧은 지평(깊이 1) + 전체 행동 세트를 쓰는 별도 설정으로 검증한다.</summary>
         [Test]
-        public void MiniSearch_CreditsGloryKill_AssoonAsTriggered()
+        public void ShortHorizonSearch_CreditsGloryKill_AssoonAsTriggered()
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);
@@ -111,7 +115,14 @@ namespace Game.Sim.Tests
             world.enemies[0].combat.health = 1; // 다음 평타 한 대로 처형 트리거
 
             SimServices services = StubServices.Create();
-            CandidatePath result = PredictionPlanner.Plan(in world, in services, PredictionSettings.Mini)[0];
+            var settings = new PredictionSettings
+            {
+                macroTicks = 15,     // 처형 트리거(~6틱)는 담지만 컷신 완주(~77틱)는 못 담는 짧은 지평
+                macroDepth = 1,
+                beamWidth = 4,
+                maxActionsPerNode = 12,   // Attack까지 후보에 오르도록 전체 행동 세트 사용
+            };
+            CandidatePath result = PredictionPlanner.Plan(in world, in services, settings)[0];
 
             Assert.GreaterOrEqual(result.killCount, 1,
                 "짧은 탐색 지평 안에서도 글로리킬 트리거는 즉시 킬로 인정돼야 함");
