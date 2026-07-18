@@ -76,10 +76,10 @@ namespace Game.View
                     float aimYaw = AimAtNearestEnemy(in replay);
                     InputCmd cmd = action.ToInputCmd(aimYaw, t);
                     SimStep.Run(ref replay, in cmd, in services);
-                    if (!replay.player.alive) break;
+                    if (replay.player.combat.hp <= 0) break;
                 }
                 waypoints.Add(replay.player.pos);
-                if (!replay.player.alive) break;
+                if (replay.player.combat.hp <= 0) break;
             }
 
             var killPositions = new List<Vector3>();

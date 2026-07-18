@@ -10,7 +10,6 @@ namespace Game.Sim
         public const float TickDelta = 1f / TickRate;
 
         public const int   MaxEnemies = 64;
-        public const int   MaxProjectiles = 256;
 
         public const float Gravity = -25f;
 
