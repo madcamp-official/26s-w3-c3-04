@@ -8,11 +8,13 @@ namespace Game.View
     /// <summary>
     /// 예측(예지) 연출 컨트롤러 — View 전용, 예측 봇과 독립.
     /// F: 정지 진입(시간 멈춤+흑백+3인칭) / 진입 중 F: 루트 순환 / 마우스: 궤도 회전 / 좌클릭: 확정 / Esc: 취소.
-    /// 지금은 이동 전용 플레이스홀더 루트 + 고스트 미리보기. 확정 시 자동실행은 이후 Phase.
+    /// 확정하면 카메라만 1인칭으로 전환되고, 고스트가 확정된 경로를 1회 재생한다(Following).
+    /// 실제 플레이어 자동실행(입력 재생)은 아직 아님 — 그건 리듬 판정(Perfect/Good/Miss)까지
+    /// 엮인 더 큰 기능이라 KJH 조율 후 별도로 한다.
     /// </summary>
     public class PredictionController
     {
-        public enum State { Idle, Preview }
+        public enum State { Idle, Preview, Following }
         public State state = State.Idle;
         public bool Frozen => state != State.Idle;
 
@@ -53,6 +55,19 @@ namespace Game.View
             if (state == State.Idle)
             {
                 if (kb.fKey.wasPressedThisFrame) Enter(in w);
+                return;
+            }
+
+            if (state == State.Following)
+            {
+                if (kb.escapeKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame))
+                { Exit(); return; }   // 건너뛰기
+
+                PredictedRoute r = routes.Count > 0 ? routes[selected] : null;
+                bool finished = AnimateGhost(r, loop: false);
+                UpdateKillMarks(r);
+                PlaceCameraFirstPerson(in w);
+                if (finished) Exit();
                 return;
             }
 
@@ -104,12 +119,13 @@ namespace Game.View
 
         void Confirm()
         {
-            if (routes.Count > 0)
-            {
-                var r = routes[selected];
-                Debug.Log($"[예측] 루트 {selected} 확정(스텁) — 처치 {r.kills.Count}, {r.seconds:0.0}초. 자동실행은 이후 Phase.");
-            }
-            Exit();   // 스텁: 지금은 실행 없이 닫음
+            if (routes.Count == 0) { Exit(); return; }
+            var r = routes[selected];
+            state = State.Following;
+            ghostDist = 0f;         // 확정된 경로를 처음부터 1회 재생
+            ToggleSword(true);      // 1인칭 복귀 — 칼도 다시 보이게
+            Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
+            Debug.Log($"[예측] 루트 {selected} 확정 — 1인칭으로 결과 재생 ({r.seconds:0.0}초). Esc/좌클릭으로 건너뛰기.");
         }
 
         void LogSelected()
@@ -148,6 +164,14 @@ namespace Game.View
             Quaternion rot = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
             cam.transform.position = pivot - (rot * Vector3.forward) * PredictionConfig.CamDist;
             cam.transform.rotation = rot;
+        }
+
+        /// <summary>Following 단계: 실제 플레이어 위치·시선에서 1인칭으로(고스트가 앞에서 경로를 걷는 걸 지켜본다).</summary>
+        void PlaceCameraFirstPerson(in SimWorld w)
+        {
+            if (cam == null) return;
+            cam.transform.position = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
+            cam.transform.rotation = Quaternion.Euler(0f, w.player.yaw, 0f);
         }
 
         // ── 비주얼 요소 ──
@@ -230,18 +254,27 @@ namespace Game.View
             return go.transform;
         }
 
-        void AnimateGhost(PredictedRoute r)
+        /// <summary>고스트를 경로 위로 이동시킨다. loop=false면 끝에 닿는 순간 true(1회 재생 완료)를
+        /// 반환한다 — Following 단계가 이걸 보고 자동으로 빠져나간다(Preview는 기본 loop=true).</summary>
+        bool AnimateGhost(PredictedRoute r, bool loop = true)
         {
-            if (r == null || r.path.Count < 2) { ghost.gameObject.SetActive(false); return; }
+            if (r == null || r.path.Count < 2) { ghost.gameObject.SetActive(false); return false; }
             ghost.gameObject.SetActive(true);
 
             float total = PathLength(r.path);
             ghostDist += Time.deltaTime * SimConfig.PlayerMoveSpeed;
-            if (ghostDist > total + PredictionConfig.GhostLoopPause) ghostDist = 0f;   // 끝에서 잠깐 멈췄다 반복
+
+            bool finished = false;
+            if (ghostDist > total + PredictionConfig.GhostLoopPause)
+            {
+                if (loop) ghostDist = 0f;   // 끝에서 잠깐 멈췄다 반복
+                else finished = true;
+            }
 
             Vector3 pos = PointAtDist(r.path, Mathf.Min(ghostDist, total), out float yaw);
             ghost.position = pos + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
             ghost.rotation = Quaternion.Euler(0f, yaw, 0f);
+            return finished;
         }
 
         void UpdateKillMarks(PredictedRoute r)
@@ -258,7 +291,7 @@ namespace Game.View
             }
             for (int i = 0; i < killMarks.Count; i++)
             {
-                bool used = i < need && state == State.Preview;
+                bool used = i < need && state != State.Idle;
                 killMarks[i].gameObject.SetActive(used);
                 if (used) killMarks[i].position = r.kills[i] + Vector3.up * PredictionConfig.KillMarkY;
             }
