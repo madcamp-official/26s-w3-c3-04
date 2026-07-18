@@ -21,6 +21,7 @@ namespace Game.Sim
             h = MixV(h, w.player.pos);
             h = MixV(h, w.player.vel);
             h = MixF(h, w.player.yaw);
+            h = MixF(h, w.player.aimPitch);
             h = Mix(h, w.player.grounded ? 1UL : 0UL);
             h = Mix(h, (ulong)w.player.jumpCount);
             h = Mix(h, (ulong)w.player.jumpBufferTicks);

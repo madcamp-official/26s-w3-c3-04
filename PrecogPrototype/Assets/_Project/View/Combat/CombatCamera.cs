@@ -19,8 +19,7 @@ namespace Game.View
     {
         const float TurnRate = 18f;    // 클수록 빠르게 대상 조준
 
-        float lockYaw;   // 목표 yaw — 잠금 시작 시 1회 확정, 이후 고정
-        float curYaw;    // 부드럽게 따라가는 현재 yaw (지속 상태 — 매 프레임 절대 세팅)
+        float curYaw, curPitch;   // 부드럽게 따라가는 현재 시선 (지속 상태 — 매 프레임 절대 세팅)
         bool  locked;
 
         void LateUpdate()
@@ -33,30 +32,41 @@ namespace Game.View
             ref readonly SimWorld w = ref main.World;
             ref readonly PlayerCombatState c = ref w.player.combat;
 
-            // 대상: 글로리킬(처형 대상 몹) 우선, 아니면 런지 도착점(고정)
             bool glory = c.gloryPhase != CombatConfig.GlNone;
             bool lunge = c.lungePhase != CombatConfig.LgNone && c.lungeTargetId >= 0;
             if (!glory && !lunge)
             {
-                if (locked) { main.SetLookYaw(curYaw); locked = false; }  // 해제: 최종 yaw 인계(원복 방지)
+                if (locked)   // 해제: 최종 시선 인계(yaw·pitch 원복 방지)
+                { main.SetLookYaw(curYaw); main.SetLookPitch(curPitch); locked = false; }
                 return;
             }
 
-            Vector3 targetPos = glory ? w.enemies[c.gloryTargetId].pos : c.lungeDest;
+            // 대상: 글로리킬 처형 몹 우선, 아니면 런지 표적 몹(몸통 겨냥). 표적은 바인드로 정지.
+            Vector3 targetPos = glory ? w.enemies[c.gloryTargetId].pos : LungeTargetPos(in w, c.lungeTargetId);
+            Vector3 aimAt = targetPos + Vector3.up * (SimConfig.EnemyHeight * 0.6f);
+            Vector3 d = aimAt - cam.transform.position;
 
-            if (!locked)
+            float lockYaw, lockPitch;
+            if (d.sqrMagnitude > 1e-4f)
             {
-                // 잠금 시작: 대상 방향 yaw 1회 확정 + 현재 시점에서 출발
-                Vector3 flat = targetPos - cam.transform.position; flat.y = 0f;
-                lockYaw = flat.sqrMagnitude > 1e-4f ? Mathf.Atan2(flat.x, flat.z) * Mathf.Rad2Deg : main.LookYaw;
-                curYaw = main.LookYaw;
-                locked = true;
+                Vector3 e = Quaternion.LookRotation(d).eulerAngles;
+                lockPitch = e.x; lockYaw = e.y;
             }
+            else { lockYaw = main.LookYaw; lockPitch = main.LookPitch; }
 
-            // 지속 상태를 목표로 이은 뒤 절대값 세팅(리셋에 안 휘둘림) — pitch는 입력 유지
+            if (!locked) { curYaw = main.LookYaw; curPitch = main.LookPitch; locked = true; }
+
             float k = 1f - Mathf.Exp(-TurnRate * Time.unscaledDeltaTime);
-            curYaw = Mathf.LerpAngle(curYaw, lockYaw, k);
-            cam.transform.rotation = Quaternion.Euler(main.LookPitch, curYaw, 0f);
+            curYaw   = Mathf.LerpAngle(curYaw, lockYaw, k);
+            curPitch = Mathf.LerpAngle(curPitch, lockPitch, k);
+            cam.transform.rotation = Quaternion.Euler(curPitch, curYaw, 0f);
+        }
+
+        static Vector3 LungeTargetPos(in SimWorld w, int targetId)
+        {
+            for (int i = 0; i < w.enemyCount; i++)
+                if (w.enemies[i].id == targetId) return w.enemies[i].pos;
+            return w.player.combat.lungeDest;   // 표적 소실 시 도착점
         }
     }
 

@@ -42,21 +42,24 @@ namespace Game.Sim
         /// <summary>죽은 슬롯을 재사용(있으면)해 스폰. 없으면 새 슬롯 append. 성공 시 true.</summary>
         public bool AddEnemy(Vector3 at)
         {
-            // 아키타입: 슬롯 인덱스로 결정론 배분(3마다 1은 원거리).
+            // 3축 배분: 슬롯 인덱스로 결정론(5마다 1 대형근접, 나머지 중 3마다 1 원거리, 그 외 근접).
             for (int i = 0; i < enemyCount; i++)
-                if (!enemies[i].alive) { enemies[i] = EnemySim.Spawn(i, at, PickArchetype(i)); return true; }
+                if (!enemies[i].alive) { var (c, m, s) = PickSpawn(i); enemies[i] = EnemySim.Spawn(i, at, c, m, s); return true; }
 
             if (enemyCount >= SimConfig.MaxEnemies) return false;
-            enemies[enemyCount] = EnemySim.Spawn(enemyCount, at, PickArchetype(enemyCount));
+            var (c2, m2, s2) = PickSpawn(enemyCount);
+            enemies[enemyCount] = EnemySim.Spawn(enemyCount, at, c2, m2, s2);
             enemyCount++;
             return true;
         }
 
-        static Archetype PickArchetype(int slot)
+        /// <summary>스폰 슬롯 → (전투, 기동, 크기). 결정론 배분. (층이동·비행은 이후 추가.)</summary>
+        static (CombatType, MobilityType, SizeClass) PickSpawn(int slot)
         {
-            if (slot % 5 == 4) return Archetype.LargeMelee;      // 5마다 1 대형
-            if (slot % 3 == 2) return Archetype.RangedSoldier;   // 나머지 중 원거리
-            return Archetype.MeleeGrunt;
+            if (slot % 5 == 4) return (CombatType.Melee, MobilityType.Ground, SizeClass.Large);   // 대형근접
+            if (slot % 4 == 3) return (CombatType.Melee, MobilityType.Charge, SizeClass.Normal);  // 돌진근접
+            if (slot % 3 == 2) return (CombatType.Ranged, MobilityType.Ground, SizeClass.Normal); // 원거리잡
+            return (CombatType.Melee, MobilityType.Ground, SizeClass.Normal);                     // 근접잡
         }
 
         /// <summary>적→플레이어 히트 큐잉(AI). 적용은 CombatResolve가 방어판정 후.</summary>

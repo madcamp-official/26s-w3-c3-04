@@ -12,7 +12,7 @@ namespace Game.View
     public class InputReader
     {
         public float Yaw   { get; set; }
-        public float Pitch { get; private set; }
+        public float Pitch { get; set; }   // 카메라 전용. 런지 종료 시 CombatCamera가 인계(스냅백 방지)
 
         const float Sens = 0.08f;
         bool jumpBuf, dashBuf, attackBuf, lungeBuf;
@@ -37,6 +37,7 @@ namespace Game.View
         {
             InputCmd cmd = InputCmd.Empty;
             cmd.yaw = Yaw;
+            cmd.pitch = Pitch;   // 런지 조준 레이(상하)
             var kb = Keyboard.current;
             if (kb != null)
             {

@@ -17,7 +17,9 @@ namespace Game.Sim
 
         public static ulong MixAI(ulong h, in EnemyAI a)
         {
-            h = Mix(h, (byte)a.archetype);
+            h = Mix(h, (byte)a.combat);
+            h = Mix(h, (byte)a.mobility);
+            h = Mix(h, (byte)a.size);
             h = Mix(h, (byte)a.state);
             h = Mix(h, (ulong)a.stateTicks);
             h = MixF(h, a.committedDir.x);

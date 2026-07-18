@@ -11,6 +11,7 @@ namespace Game.Sim
         public static void Step(ref PlayerSim p, in InputCmd cmd, in SimServices svc, float dt)
         {
             p.yaw = cmd.yaw;
+            p.aimPitch = cmd.pitch;   // 런지 조준 레이용(이동 상태 무관하게 매 틱 갱신)
             Vector3 fwd = Forward(p.yaw);
             Vector3 right = new Vector3(fwd.z, 0f, -fwd.x);
 

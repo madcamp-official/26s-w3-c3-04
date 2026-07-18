@@ -17,7 +17,7 @@ namespace Game.View
         {
             public Transform  capsule;      // 적 몸(EntityViews)
             public Transform  pivot;        // 무기 회전축(월드 배치, scale 1)
-            public Archetype  archetype;
+            public CombatType combat;       // 무기 종류 결정(근접=칼/원거리=활)
             public bool       built;
             public EnemyState prevState;
             public bool       prevSeen;
@@ -61,8 +61,8 @@ namespace Game.View
                     s.capsule = go.transform;
                 }
 
-                if (!s.built || s.archetype != e.ai.archetype)
-                    BuildWeapon(s, e.ai.archetype);
+                if (!s.built || s.combat != e.ai.combat)
+                    BuildWeapon(s, e.ai.combat);
 
                 s.pivot.gameObject.SetActive(true);
                 HandleTransitions(s, in e, in w.player);
@@ -101,8 +101,8 @@ namespace Game.View
             if (s.recoilT > 0f) s.recoilT = Mathf.MoveTowards(s.recoilT, 0f, Time.deltaTime / 0.18f);
 
             Vector3 hand; Quaternion swing;
-            if (s.archetype == Archetype.MeleeGrunt) MeleePose(in e.ai, out hand, out swing);
-            else                                     RangedPose(s, in e.ai, out hand, out swing);
+            if (s.combat == CombatType.Melee) MeleePose(in e.ai, out hand, out swing);
+            else                              RangedPose(s, in e.ai, out hand, out swing);
 
             Quaternion bodyRot = s.capsule.rotation;   // Euler(0,yaw,0) — 스케일 무시됨
             s.pivot.SetPositionAndRotation(s.capsule.position + bodyRot * hand, bodyRot * swing);
@@ -152,15 +152,15 @@ namespace Game.View
         static float Frac(int ticks, int total) => total <= 0 ? 1f : Mathf.Clamp01((float)ticks / total);
 
         // ── 무기 생성 ──
-        void BuildWeapon(Slot s, Archetype arch)
+        void BuildWeapon(Slot s, CombatType combat)
         {
             if (s.pivot != null) Destroy(s.pivot.gameObject);
 
-            var pv = new GameObject($"EnemyWeapon_{arch}");
+            var pv = new GameObject($"EnemyWeapon_{combat}");
             pv.transform.SetParent(transform, false);   // 매니저(scale 1) 아래
             s.pivot = pv.transform;
 
-            if (arch == Archetype.MeleeGrunt)
+            if (combat == CombatType.Melee)
                 Box(s.pivot, "Blade", new Vector3(0.05f, 0.05f, 0.45f), new Vector3(0f, 0f, 0.22f),
                     Quaternion.identity, meleeMat);
             else
@@ -171,7 +171,7 @@ namespace Game.View
                     Quaternion.Euler(-30f, 0f, 0f), bowMat);
             }
 
-            s.archetype = arch;
+            s.combat = combat;
             s.built = true;
         }
 

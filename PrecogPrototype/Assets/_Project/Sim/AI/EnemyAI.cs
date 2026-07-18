@@ -2,8 +2,13 @@ using UnityEngine;
 
 namespace Game.Sim
 {
-    /// <summary>몹 종류.</summary>
-    public enum Archetype : byte { MeleeGrunt = 0, RangedSoldier = 1, LargeMelee = 2 }
+    /// <summary>
+    /// 몹 정체성 = 3축 조합. 전투(공격 방식) × 기동(이동 방식) × 크기(스탯 변형).
+    /// 개별 종 나열이 아니라 조합 → 돌진·비행은 mobility 값 추가, 대형은 size 플래그만.
+    /// </summary>
+    public enum CombatType   : byte { Melee = 0, Ranged = 1 }
+    public enum MobilityType : byte { Ground = 0, Charge = 1, Traversal = 2, Flying = 3 }
+    public enum SizeClass    : byte { Normal = 0, Large = 1 }
 
     /// <summary>
     /// 몹 AI 상태. 근접: Chase→Windup→Active→Recovery. 원거리(다음 단계): Reposition→Aim→Fire.
@@ -11,24 +16,29 @@ namespace Game.Sim
     /// </summary>
     public enum EnemyState : byte
     {
-        Chase = 0, Windup = 1, Active = 2, Recovery = 3,   // 근접
+        Chase = 0, Windup = 1, Active = 2, Recovery = 3,   // 근접 (돌진도 Windup·Recovery 재사용)
         Reposition = 4, Aim = 5, Fire = 6,                 // 원거리
+        ChargeRun = 7,                                     // 돌진 직진
     }
 
     /// <summary>몹 AI 상태 묶음. ★ AI 세션 소유. EnemySim이 품기만 한다(필드 늘려도 공유파일 안 건드림).</summary>
     public struct EnemyAI
     {
-        public Archetype  archetype;
+        public CombatType   combat;      // 근접/원거리 — 공격 방식
+        public MobilityType mobility;    // 지상/돌진/층이동/비행 — 이동 방식
+        public SizeClass    size;        // 잡/대형 — 스탯 변형
         public EnemyState state;
         public int        stateTicks;
         public Vector3    committedDir;   // 공격 시작 시 고정 → 예지 회피 성립
-        public int        attackCooldown; // 원거리 재발사 쿨(다음 단계)
+        public int        attackCooldown; // 원거리 재발사 쿨
         public bool       hitDone;        // 이번 공격 판정 1회
 
-        public static EnemyAI Spawn(Archetype a) => new EnemyAI
+        public static EnemyAI Spawn(CombatType combat, MobilityType mobility, SizeClass size) => new EnemyAI
         {
-            archetype = a,
-            state = a == Archetype.MeleeGrunt ? EnemyState.Chase : EnemyState.Reposition,
+            combat = combat,
+            mobility = mobility,
+            size = size,
+            state = combat == CombatType.Melee ? EnemyState.Chase : EnemyState.Reposition,
         };
     }
 
@@ -45,11 +55,14 @@ namespace Game.Sim
             if (!e.alive) return;
             if (e.combat.gloryStage > 0) return;   // 글로리킬 처형 중 — AI·이동 정지(얼림)
 
+            // 돌진몹(Charge)은 이동·공격 융합 자체 시퀀스 — mobility로 먼저 분기(바인드도 내부 처리)
+            if (e.ai.mobility == MobilityType.Charge) { StepCharge(ref w, i, in svc, dt); return; }
+
             // 런지 표적 이동봉쇄(bind): 위치·중력 동결(공중이면 공중에 얼음).
             // 공격 시퀀스는 계속 진행한다(붙잡혀도 반격 가능) — Plant/RangedMove가 내부에서 위치만 스킵.
             if (e.combat.bindTicks > 0)
             {
-                if (e.ai.archetype == Archetype.RangedSoldier)
+                if (e.ai.combat == CombatType.Ranged)
                 {
                     if (e.ai.state == EnemyState.Aim || e.ai.state == EnemyState.Fire)
                         AdvanceRanged(ref w, i, in svc, dt);
@@ -59,7 +72,7 @@ namespace Game.Sim
                 return;
             }
 
-            if (e.ai.archetype == Archetype.RangedSoldier) StepRanged(ref w, i, in svc, dt);
+            if (e.ai.combat == CombatType.Ranged) StepRanged(ref w, i, in svc, dt);
             else                                           StepMelee(ref w, i, in svc, dt);
         }
 
@@ -130,6 +143,81 @@ namespace Game.Sim
             }
             Plant(ref e, in svc, dt);
         }
+
+        // ───────────────────────── 돌진 (핑키) ─────────────────────────
+
+        /// <summary>
+        /// 돌진몹: Chase(추격+하강 재사용) → Windup(committed 텔레그래프) → ChargeRun(직진, 접촉/벽/최대거리 정지)
+        /// → Recovery(성공 짧은딜/실패 긴딜). 완주 — 피격으로 안 끊긴다(회피는 옆으로). 반경 1.5배(Spawn에서).
+        /// </summary>
+        static void StepCharge(ref SimWorld w, int i, in SimServices svc, float dt)
+        {
+            ref EnemySim e = ref w.enemies[i];
+            ref EnemyAI ai = ref e.ai;
+
+            if (e.combat.bindTicks > 0) return;   // 런지 바인드: 그 자리 동결(공중이면 공중에)
+
+            switch (ai.state)
+            {
+                case EnemyState.Windup:
+                    e.yaw = Mathf.Atan2(ai.committedDir.x, ai.committedDir.z) * Mathf.Rad2Deg;
+                    ai.stateTicks++;
+                    if (ai.stateTicks >= AIConfig.ChargeWindupTicks)
+                    { ai.state = EnemyState.ChargeRun; ai.stateTicks = 0; ai.hitDone = false; }
+                    Plant(ref e, in svc, dt);
+                    break;
+
+                case EnemyState.ChargeRun:
+                {
+                    ai.stateTicks++;
+                    Vector3 before = e.pos;
+                    float wish = AIConfig.ChargeSpeed * dt;
+                    e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, ai.committedDir * wish, e.radius, e.height);
+                    CharacterMotor.ResolveVertical(svc.Collision, ref e.pos, ref e.vel, dt, out e.grounded);
+                    float moved = FlatDist(before, e.pos);
+
+                    // 접촉 → 피해 1회 (히트 큐)
+                    float contact = e.radius + SimConfig.PlayerRadius + 0.15f;
+                    if (!ai.hitDone && FlatDist(e.pos, w.player.pos) <= contact)
+                    { w.QueuePlayerHit(ai.committedDir, AIConfig.ChargeDamage); ai.hitDone = true; }
+
+                    bool wall  = moved < wish * AIConfig.ChargeWallStopFrac;   // 벽에 막힘
+                    bool maxed = ai.stateTicks * wish >= AIConfig.ChargeMaxDist;
+                    if (ai.hitDone || wall || maxed)
+                    { ai.state = EnemyState.Recovery; ai.stateTicks = 0; }
+                    break;
+                }
+
+                case EnemyState.Recovery:
+                    ai.stateTicks++;
+                    Plant(ref e, in svc, dt);
+                    if (ai.stateTicks >= (ai.hitDone ? AIConfig.ChargeHitRecovery : AIConfig.ChargeMissRecovery))
+                    { ai.state = EnemyState.Chase; ai.stateTicks = 0; ai.hitDone = false; }
+                    break;
+
+                default:   // Chase(및 초기 상태) — 추격 + 개시 판단
+                    if (e.descentPhase == DescentPhase.None)
+                    {
+                        Vector3 to = w.player.pos - e.pos; to.y = 0f;
+                        float hd = to.magnitude;
+                        if (hd <= AIConfig.ChargeMinRange && hd <= SimConfig.EnemyAggroRange
+                            && HasLOS(in e, in w.player, in svc))
+                        {
+                            ai.committedDir = hd > 1e-4f ? to / hd : Forward(e.yaw);
+                            e.yaw = Mathf.Atan2(ai.committedDir.x, ai.committedDir.z) * Mathf.Rad2Deg;
+                            ai.state = EnemyState.Windup;
+                            ai.stateTicks = 0;
+                            Plant(ref e, in svc, dt);
+                            return;
+                        }
+                    }
+                    EnemyMovement.Step(ref e, in w.player, in svc, dt);   // 추격 + 하강 재사용
+                    break;
+            }
+        }
+
+        static float FlatDist(Vector3 a, Vector3 b)
+        { float dx = a.x - b.x, dz = a.z - b.z; return Mathf.Sqrt(dx * dx + dz * dz); }
 
         // ───────────────────────── 원거리 솔저 ─────────────────────────
 

@@ -42,21 +42,22 @@ namespace Game.Sim
         public Vector3      descentEdge;     // 걸어갈 절벽 테두리
         public Vector3      descentLanding;  // 순간이동 착지점 (id별 분산 포함)
 
-        public static EnemySim Spawn(int id, Vector3 at, Archetype archetype)
+        public static EnemySim Spawn(int id, Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
         {
-            bool large = archetype == Archetype.LargeMelee;
+            bool large = size == SizeClass.Large;
             float scale = large ? SimConfig.EnemyLargeScale : 1f;
             int hp = large ? SimConfig.EnemyLargeHp : SimConfig.EnemyNormalHp;
+            float radiusMul = mobility == MobilityType.Charge ? AIConfig.ChargeRadiusMul : 1f;   // 돌진몹 반경 1.5배(높이는 그대로)
             return new EnemySim
             {
                 id = id,
                 alive = true,
                 pos = at,
                 grounded = true,
-                radius = SimConfig.EnemyRadius * scale,
+                radius = SimConfig.EnemyRadius * scale * radiusMul,
                 height = SimConfig.EnemyHeight * scale,
                 combat = EnemyCombatState.Spawn(hp),
-                ai = EnemyAI.Spawn(archetype),
+                ai = EnemyAI.Spawn(combat, mobility, size),
             };
         }
     }

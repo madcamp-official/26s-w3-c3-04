@@ -20,8 +20,8 @@ namespace Game.Sim
             if (c.hitStunTicks > 0) c.hitStunTicks--;
             if (c.lungeCooldown > 0) c.lungeCooldown--;
 
-            // ── 런지 진행 중이면 그것만 (Travel 이동 포함) ──
-            if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref p, in svc, dt); return; }
+            // ── 런지 진행 중이면 그것만 (Travel 이동·에임 고정) ──
+            if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref w, in svc, dt); return; }
 
             // ── 런지 시작: 우클릭 + (쿨 0) + 유효 대상. 평타 중이어도 캔슬 발동(제2의 평타) ──
             if (cmd.lunge && c.lungeCooldown == 0 && c.hitStunTicks == 0)
@@ -31,12 +31,10 @@ namespace Game.Sim
                     : FindLungeTarget(in w, in p, in svc);
                 if (targetId >= 0 && TryLockDestination(in w, in p, in svc, targetId, out Vector3 dest))
                 {
-                    // 거리 비례 Travel 틱 (멀수록 길게, 하한 있음 — 순간이동 방지)
-                    Vector3 run = dest - p.pos; run.y = 0f;
-                    int travel = Mathf.Max(CombatConfig.LungeTravelMinTicks,
-                        Mathf.CeilToInt(run.magnitude / (CombatConfig.LungeTravelSpeed * SimConfig.TickDelta)));
+                    // 고정 짧은 Travel 틱 (거리 무관 → 먼 것도 순식간, 잔상처럼 꽂힘)
+                    int travel = Mathf.Max(1, CombatConfig.LungeTravelTicks);
 
-                    c.lungePhase = CombatConfig.LgWindup;
+                    c.lungePhase = CombatConfig.LgTravel;   // 윈드업 없음 — 즉시 날아감
                     c.lungeTicks = 0;
                     c.lungeTargetId = targetId;
                     c.lungeStart = p.pos;
@@ -48,8 +46,7 @@ namespace Game.Sim
                     // 표적 이동봉쇄(bind): 위치·중력 동결(공중이면 공중에). 공격은 계속한다.
                     int ti = FindEnemyIndex(in w, targetId);
                     if (ti >= 0)
-                        w.enemies[ti].combat.bindTicks =
-                            CombatConfig.LungeWindupTicks + travel + CombatConfig.LungeBindExtraTicks;
+                        w.enemies[ti].combat.bindTicks = travel + CombatConfig.LungeBindExtraTicks;
 
                     // 평타 중이었으면 캔슬
                     c.attackPhase = CombatConfig.PhNone;
@@ -101,52 +98,64 @@ namespace Game.Sim
         }
 
         /// <summary>
-        /// 런지 진행. Windup(대상 응시) → Travel(고정 도착점으로 보간, 벽 슬라이드) → Recovery.
-        /// Travel 중 대상이 움직여도 재추적하지 않는다(도착점 고정). 임팩트는 CombatResolve가
-        /// Recovery 진입 후 1회 처리(lungeHitDone).
+        /// 런지 진행(윈드업 없음). Travel: 직선 ease-out으로 도착점까지, 매 틱 에임을 타깃에 고정,
+        /// 3D 캡슐 스윕으로 관통 차단. 벽에 막히면 즉시 캔슬(피해 없음, 바인드 해제).
+        /// 도착 시 LgRecovery(0틱)로 넘어가 CombatResolve가 임팩트 1회 처리 후 즉시 종료.
         /// </summary>
-        static void StepLunge(ref PlayerSim p, in SimServices svc, float dt)
+        static void StepLunge(ref SimWorld w, in SimServices svc, float dt)
         {
+            ref PlayerSim p = ref w.player;
             ref PlayerCombatState c = ref p.combat;
             c.lungeTicks++;
 
-            switch (c.lungePhase)
+            if (c.lungePhase == CombatConfig.LgRecovery)
             {
-                case CombatConfig.LgWindup:
-                    if (c.lungeTicks >= CombatConfig.LungeWindupTicks)
-                    { c.lungePhase = CombatConfig.LgTravel; c.lungeTicks = 0; }
-                    break;
-
-                case CombatConfig.LgTravel:
-                {
-                    // 남은 거리를 남은 틱으로 분배 → Travel 끝엔 반드시 도착점(벽이면 슬라이드로 최대한)
-                    int total = Mathf.Max(1, c.lungeTravelTicks);
-                    Vector3 to = c.lungeDest - p.pos; to.y = 0f;
-                    int remain = Mathf.Max(1, total - c.lungeTicks + 1);
-                    Vector3 step = to / remain;
-                    p.pos = CharacterMotor.MoveHorizontal(svc.Collision, p.pos, step,
-                                                          SimConfig.PlayerRadius, SimConfig.PlayerHeight);
-                    // 수직은 도착점 높이로 보간(같은 층 제약이라 미세 차이만)
-                    p.pos.y = Mathf.Lerp(c.lungeStart.y, c.lungeDest.y, (float)c.lungeTicks / total);
-                    p.vel = Vector3.zero;
-                    if (c.lungeTicks >= total)
-                    {
-                        if (svc.Collision.SampleGround(p.pos, 2f, out float gy)) p.pos.y = gy;
-                        c.lungePhase = CombatConfig.LgRecovery;
-                        c.lungeTicks = 0;
-                    }
-                    break;
-                }
-
-                case CombatConfig.LgRecovery:
-                    if (c.lungeTicks >= CombatConfig.LungeRecoveryTicks)
-                    {
-                        c.lungePhase = CombatConfig.LgNone;
-                        c.lungeTicks = 0;
-                        c.lungeTargetId = -1;
-                    }
-                    break;
+                if (c.lungeTicks >= CombatConfig.LungeRecoveryTicks)
+                { c.lungePhase = CombatConfig.LgNone; c.lungeTicks = 0; c.lungeTargetId = -1; }
+                return;
             }
+
+            // ── LgTravel ──
+            // 에임 타깃 고정: 표적을 매 틱 바라봄(마우스 무시). 표적은 바인드로 정지 상태.
+            int ti = FindEnemyIndex(in w, c.lungeTargetId);
+            Vector3 look = (ti >= 0 ? w.enemies[ti].pos : c.lungeDest) - p.pos; look.y = 0f;
+            if (look.sqrMagnitude > 1e-4f) p.yaw = Mathf.Atan2(look.x, look.z) * Mathf.Rad2Deg;
+
+            int total = Mathf.Max(1, c.lungeTravelTicks);
+            float he = EaseOut((float)c.lungeTicks / total);
+            Vector3 target = Vector3.Lerp(c.lungeStart, c.lungeDest, he);   // 직선 + ease-out(쑤욱→감속)
+
+            Vector3 delta = target - p.pos;
+            float dist = delta.magnitude;
+            if (dist > 1e-5f)
+            {
+                Vector3 dir = delta / dist;
+                Vector3 bottom = p.pos + Vector3.up * SimConfig.PlayerRadius;
+                Vector3 topC   = p.pos + Vector3.up * (SimConfig.PlayerHeight - SimConfig.PlayerRadius);
+                CastHit hit = svc.Collision.CapsuleCast(bottom, topC, SimConfig.PlayerRadius, dir, dist);
+                float moved = hit.hit ? Mathf.Max(0f, hit.distance - 0.02f) : dist;
+                p.pos += dir * moved;
+
+                // 벽에 막힘(거의 못 나아감) + 아직 도착 전 → 즉시 캔슬
+                if (hit.hit && moved < dist * 0.1f && Vector3.Distance(p.pos, c.lungeDest) > 0.3f)
+                { CancelLunge(ref w); return; }
+            }
+            p.vel = Vector3.zero;
+
+            if (c.lungeTicks >= total)
+            { c.lungePhase = CombatConfig.LgRecovery; c.lungeTicks = 0; }   // 도착 → 임팩트 → 즉시 종료
+        }
+
+        /// <summary>런지 즉시 종료: 표적 바인드 해제, 피해 없음(도착 전 벽 캔슬용).</summary>
+        static void CancelLunge(ref SimWorld w)
+        {
+            ref PlayerCombatState c = ref w.player.combat;
+            int ti = FindEnemyIndex(in w, c.lungeTargetId);
+            if (ti >= 0) w.enemies[ti].combat.bindTicks = 0;
+            c.lungePhase = CombatConfig.LgNone;
+            c.lungeTicks = 0;
+            c.lungeTargetId = -1;
+            c.lungeHitDone = false;
         }
 
         /// <summary>
@@ -201,54 +210,56 @@ namespace Game.Sim
         }
 
         /// <summary>
-        /// 런지 자동 타깃: 정면 반각 30° + 거리 1.2~8 + 높이차 0.8 + LOS.
-        /// 우선순위 = 화면 중앙 각도(dot) → 거리 → id (전부 결정론적 동률 해소).
-        /// 예측(ActionGenerator)도 이 함수를 그대로 재사용한다 — 중복 구현 금지.
+        /// 런지 자동 타깃: 3D 조준 레이(yaw+aimPitch)로부터의 "수직 거리"가 가장 작은 적.
+        /// 각도가 아니라 수직 거리라, 같은 각도면 먼 적이 불리 → "가깝고 조준점에 걸린 적"을 우선.
+        /// 게이트: 레이 앞쪽 거리 min~max + 수직거리 ≤ 보정반경 + 높이차 + LOS.
+        /// 우선순위 = 수직거리 → 레이앞거리 → id (전부 결정론적). 예측도 이 함수 재사용.
         /// </summary>
         public static int FindLungeTarget(in SimWorld w, in PlayerSim p, in SimServices svc)
         {
+            Vector3 eye = p.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
+            Vector3 dir = AimDir(p.yaw, p.aimPitch);
+
             int bestId = -1;
-            float bestDot = -2f;
-            float bestSq = float.MaxValue;
-            Vector3 fwd = new Vector3(Mathf.Sin(p.yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(p.yaw * Mathf.Deg2Rad));
+            float bestPerp = float.MaxValue;
+            float bestAlong = float.MaxValue;
 
             for (int i = 0; i < w.enemyCount; i++)
             {
                 ref readonly EnemySim e = ref w.enemies[i];
-                if (!IsLungeable(in p, in e, in svc)) continue;
+                if (!IsLungeable(in p, in e, in svc, eye, dir, out float perp, out float along)) continue;
 
-                Vector3 to = e.pos - p.pos; to.y = 0f;
-                float sq = to.sqrMagnitude;
-                float dot = sq > 1e-6f ? Vector3.Dot(fwd, to / Mathf.Sqrt(sq)) : 1f;
-
-                bool better = dot > bestDot + 1e-6f
-                    || (Mathf.Abs(dot - bestDot) <= 1e-6f
-                        && (sq < bestSq - 1e-5f
-                            || (Mathf.Abs(sq - bestSq) <= 1e-5f && e.id < bestId)));
+                bool better = perp < bestPerp - 1e-5f
+                    || (Mathf.Abs(perp - bestPerp) <= 1e-5f
+                        && (along < bestAlong - 1e-5f
+                            || (Mathf.Abs(along - bestAlong) <= 1e-5f && e.id < bestId)));
                 if (!better) continue;
-                bestId = e.id; bestDot = dot; bestSq = sq;
+                bestId = e.id; bestPerp = perp; bestAlong = along;
             }
             return bestId;
         }
 
-        /// <summary>런지 유효 대상인가: 생존 + 처형 중 아님 + 거리·정면각·높이차·시야.</summary>
-        static bool IsLungeable(in PlayerSim p, in EnemySim e, in SimServices svc)
+        static Vector3 AimDir(float yaw, float pitch)
+            => Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
+
+        /// <summary>런지 유효 대상인가 + 조준 레이 기준 perp(수직거리)·along(앞거리) 산출.</summary>
+        static bool IsLungeable(in PlayerSim p, in EnemySim e, in SimServices svc,
+                                Vector3 eye, Vector3 dir, out float perp, out float along)
         {
+            perp = float.MaxValue; along = float.MaxValue;
             if (!e.alive || e.combat.gloryStage > 0) return false;
             if (Mathf.Abs(e.pos.y - p.pos.y) > CombatConfig.LungeHeightTolerance) return false;
 
-            Vector3 to = e.pos - p.pos; to.y = 0f;
-            float dist = to.magnitude;
-            if (dist < CombatConfig.LungeMinRange || dist > CombatConfig.LungeMaxRange + e.radius) return false;
+            Vector3 c = e.pos + Vector3.up * (e.height * 0.5f);   // 적 중심
+            Vector3 v = c - eye;
+            along = Vector3.Dot(v, dir);                          // 레이 앞쪽 투영 거리
+            if (along < CombatConfig.LungeMinRange || along > CombatConfig.LungeMaxRange + e.radius) return false;
 
-            if (!CombatHit.InCone(p.pos, p.yaw, e.pos,
-                                  CombatConfig.LungeMaxRange + e.radius, CombatConfig.LungeHalfAngle))
-                return false;
+            perp = (v - dir * along).magnitude;                   // 레이까지 수직 거리(조준 벗어난 정도)
+            if (perp > CombatConfig.LungeAimRadius + e.radius) return false;   // 조준 보정 밖
 
-            // LOS: 플레이어 몸통 → 적 몸통
-            Vector3 eye = p.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
-            Vector3 tgt = e.pos + Vector3.up * (e.height * 0.6f);
-            Vector3 d = tgt - eye; float len = d.magnitude;
+            // LOS: 눈 → 적 중심
+            Vector3 d = c - eye; float len = d.magnitude;
             if (len > 1e-4f && svc.Collision.Raycast(eye, d / len, len).hit) return false;
             return true;
         }
@@ -262,14 +273,18 @@ namespace Game.Sim
             if (idx < 0) return false;
             ref readonly EnemySim e = ref w.enemies[idx];
 
-            Vector3 dir = e.pos - p.pos; dir.y = 0f;
-            if (dir.sqrMagnitude < 1e-6f) return false;
-            dir.Normalize();
-            dest = e.pos - dir * (CombatConfig.LungeStopDistance + e.radius);
-            if (svc.Collision.SampleGround(dest + Vector3.up * 0.5f, 2f, out float gy)) dest.y = gy;
-            else dest.y = e.pos.y;
+            // 수평 방향으로만 정지간격을 두어 "적 옆(수평 인접)"에 서게. 높이는 적 + 살짝 위.
+            Vector3 flat = e.pos - p.pos; flat.y = 0f;
+            if (flat.sqrMagnitude < 1e-6f)
+                flat = new Vector3(Mathf.Sin(p.yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(p.yaw * Mathf.Deg2Rad));
+            flat.Normalize();
+            dest = e.pos - flat * (CombatConfig.LungeStopDistance + e.radius);
+            dest.y = e.pos.y + CombatConfig.LungeAimUp;   // 적과 같은 높이 + 살짝 위(위든 아래든 나란히)
             return true;
         }
+
+        /// <summary>ease-out(감속): 첫 구간이 가장 빠르고 끝으로 갈수록 느려짐. 1-(1-t)^2.</summary>
+        static float EaseOut(float t) { t = Mathf.Clamp01(t); float u = 1f - t; return 1f - u * u; }
 
         /// <summary>id로 살아있는 적 인덱스. 없으면 -1.</summary>
         public static int FindEnemyIndex(in SimWorld w, int id)

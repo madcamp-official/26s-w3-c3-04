@@ -8,6 +8,7 @@ namespace Game.Sim
         public Vector3 pos;
         public Vector3 vel;
         public float   yaw;
+        public float   aimPitch;   // 조준 상하각(cmd.pitch 반영) — 런지 타깃 레이용
         public bool    grounded;
         public int     jumpCount;
         public int     jumpBufferTicks;   // 착지 직전 점프 선입력 버퍼

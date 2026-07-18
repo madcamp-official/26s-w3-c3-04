@@ -66,7 +66,7 @@ namespace Game.Sim
             ref EnemySim e = ref w.enemies[i];
             ref PlayerCombatState pc = ref w.player.combat;
 
-            if (e.ai.archetype == Archetype.LargeMelee && pc.gloryPhase == CombatConfig.GlNone
+            if (e.ai.size == SizeClass.Large && pc.gloryPhase == CombatConfig.GlNone
                 && e.combat.health - CombatConfig.Damage <= 0)
             {
                 pc.gloryPhase = CombatConfig.GlSlash1;

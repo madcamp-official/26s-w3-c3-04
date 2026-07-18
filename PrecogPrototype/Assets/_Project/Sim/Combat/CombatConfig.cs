@@ -24,19 +24,22 @@ namespace Game.Sim
         public static int PlayerMaxHp        = 1000000;   // 임시: 테스트용 무한 체력(원래 3)
         public static int PlayerHitStunTicks = 0;   // 임시: 피격 경직 0(원래 30). 구조는 유지
 
-        // ── 타깃 런지 (우클릭): 제2의 평타(갭클로저 딜). 쿨 없음, 후딜로만 페이스 조절 ──
+        // ── 타깃 런지 (우클릭): 펜싱식 임펄스. 윈드업·후딜 0, Travel 중 완전 잠금+에임 타깃 고정 ──
         public const byte LgNone = 0, LgWindup = 1, LgTravel = 2, LgRecovery = 3;
-        public static int   LungeWindupTicks    = 3;
-        public static float LungeTravelSpeed    = 34f;   // m/s — Travel 틱 = 거리/속도 (거리 비례)
-        public static int   LungeTravelMinTicks = 4;     // 너무 순간이동 같지 않게 하한
-        public static int   LungeRecoveryTicks  = 10;    // 후딜(유일한 페이스 제약)
-        public static int   LungeCooldownTicks  = 0;     // 쿨 없음(패널에서 부활 가능)
+        public static int   LungeWindupTicks    = 0;     // 없음(즉시 발동). 슬라이더로 부활 가능
+        public static int   LungeTravelTicks    = 6;     // 고정 짧은 틱(거리 무관) — 직선 ease-out
+        public static int   LungeRecoveryTicks  = 0;     // 없음(도착 즉시 조작 복귀)
+        public static int   LungeCooldownTicks  = 0;     // 쿨 없음
         public static float LungeMinRange       = 1.2f;
         public static float LungeMaxRange       = 12f;
-        public static float LungeHalfAngle      = 30f;   // 정면 반각
-        public static float LungeStopDistance   = 0.9f;  // 적 앞 이 거리 지점으로 이동
-        public static float LungeHeightTolerance = 0.8f; // 플레이어와 높이차 허용
-        public static int   LungeBindExtraTicks = 8;     // 바인드 = 윈드업+Travel+이 여유
+        public static float LungeAimRadius      = 2.0f;  // 조준 레이 수직 보정 반경(판정 핵심)
+        public static float LungeStopDistance   = 0.9f;  // 적 옆 이 거리 지점으로 이동(수평)
+        public static float LungeHeightTolerance = 6f;   // 위/아래 찌르기 허용 높이차(공중 대상 포함)
+        public static float LungeAimUp          = 0.4f;  // 도착점을 적보다 살짝 위로(딱 붙는 느낌)
+        public static int   LungeBindExtraTicks = 8;     // 바인드 = Travel+이 여유
+        // 임팩트 쫀득함 (View 전용 — 예측 무해)
+        public static int   LungeHitStopTicks   = 7;     // 접촉 순간 프리즈(글로리킬 느낌)
+        public static float LungeFovKick        = 12f;   // 접촉 순간 FOV 킥(도)
 
         // ── 대형몹 글로리킬 처형 (막타 → 컷신). 진행 중 플레이어 무적·조작잠금 ──
         public const byte  GlNone = 0, GlSlash1 = 1, GlSlash2 = 2, GlDash = 3;

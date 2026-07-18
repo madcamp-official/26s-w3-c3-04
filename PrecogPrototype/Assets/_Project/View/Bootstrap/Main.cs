@@ -22,6 +22,7 @@ namespace Game.View
         // 화면연출(칼등치기 카메라 고정)이 끝날 때 최종 시선을 되돌려 써서 원복 방지.
         // yaw는 sim 입력(cmd.yaw)에도 쓰이므로 여기 하나로 시점·조준이 동기화된다.
         public void SetLookYaw(float yaw) => input.Yaw = yaw;
+        public void SetLookPitch(float pitch) => input.Pitch = pitch;
         public float LookYaw   => input.Yaw;
         public float LookPitch => input.Pitch;
 

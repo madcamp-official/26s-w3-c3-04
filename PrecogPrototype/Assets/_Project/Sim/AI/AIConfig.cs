@@ -16,6 +16,17 @@ namespace Game.Sim
         /// <summary>개별 반경 기반 근접 사거리(대형몹 자동 반영).</summary>
         public static float MeleeRangeFor(float enemyRadius) => enemyRadius + SimConfig.PlayerRadius + MeleeReach;
 
+        // ── 돌진 (핑키형) — 근접 × Charge. 완주(피격으로 안 끊김) ──
+        public const float ChargeRadiusMul    = 1.5f;  // 반경 1.5배
+        public const float ChargeMinRange     = 6f;    // 이 안 + 시야면 돌진 개시
+        public const int   ChargeWindupTicks  = 30;    // 0.5s 텔레그래프(committed)
+        public const float ChargeSpeed        = 14f;   // 적당한 속도로 쭉
+        public const float ChargeMaxDist      = 20f;   // 매우 긴 사거리
+        public const int   ChargeDamage       = 1;     // 접촉 피해
+        public const int   ChargeHitRecovery  = 24;    // 성공 후딜(짧음)
+        public const int   ChargeMissRecovery = 40;    // 실패 후딜(김)
+        public const float ChargeWallStopFrac = 0.4f;  // 이번 틱 이동이 의도의 이 비율 미만 = 벽 정지
+
         // ── 지각(perception) ──
         public const float EnemyEyeHeight = 0.8f;   // LOS 레이 원점(적)·발사 원점
         public const float PlayerTorso    = 0.7f;   // LOS 겨냥점(플레이어 몸통)
