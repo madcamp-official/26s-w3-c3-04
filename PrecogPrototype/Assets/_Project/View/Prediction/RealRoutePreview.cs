@@ -33,9 +33,18 @@ namespace Game.View
                 {
                     color = colors[i % colors.Length],
                     seconds = plan.durationTicks / (float)SimConfig.TickRate,
+                    controls = plan.controls,   // 확정 시 실제 플레이어 자동 재생용(계약 11장 controls)
                 };
                 for (int f = 0; f < plan.predictedFrames.Length; f++)
                     route.path.Add(plan.predictedFrames[f].playerPosition);
+
+                // 계약 3.1.1절: 0.5초(30틱) 간격 정지 잔상, 시작·종료 포함.
+                const int ghostIntervalTicks = 30;
+                for (int f = 0; f < plan.predictedFrames.Length; f += ghostIntervalTicks)
+                    route.ghostFrames.Add(plan.predictedFrames[f]);
+                PredictedFrame last = plan.predictedFrames[plan.predictedFrames.Length - 1];
+                if (route.ghostFrames.Count == 0 || route.ghostFrames[route.ghostFrames.Count - 1].tick != last.tick)
+                    route.ghostFrames.Add(last);
 
                 CollectKillPositions(in w, in services, plan, settings.macroTicks, route.kills);
                 routes.Add(route);

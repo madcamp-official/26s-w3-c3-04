@@ -96,14 +96,28 @@ namespace Game.View
 
         void FixedUpdate()
         {
-            if (prediction.Frozen) return;   // 예측 정지 중엔 sim·소환 멈춤
+            if (prediction.state == PredictionController.State.Preview) return;   // 미리보기 중엔 정지
+
+            InputCmd cmd;
+            if (prediction.state == PredictionController.State.Following)
+            {
+                // 확정된 예측 경로를 실제로 재생 — 기록된 입력을 그대로 넣는다. 재생이 끝나면
+                // TryConsumeFollowingInput이 false를 주면서 자동으로 Idle로 돌아간다.
+                if (!prediction.TryConsumeFollowingInput(out cmd)) return;
+            }
+            else
+            {
+                cmd = input.Consume();
+            }
 
             prevWorld = Snapshot.Clone(in world);
-            InputCmd cmd = input.Consume();
             SimStep.Run(ref world, in cmd, in services);
             fixedAccum = 0f;
 
-            SpawnTick();
+            // 확정 경로 재생 중엔 예측이 가정한 대로(spawnLocked) 새 적 소환을 잠근다 —
+            // 아니면 예측이 못 본 적이 재생 중에 끼어들어 결과가 어긋난다.
+            if (prediction.state != PredictionController.State.Following)
+                SpawnTick();
 
             // 하강 결정 감지
             for (int i = 0; i < world.enemyCount; i++)

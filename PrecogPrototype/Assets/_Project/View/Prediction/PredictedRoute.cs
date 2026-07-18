@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Game.Sim;
+using Game.Prediction;
 
 namespace Game.View
 {
@@ -13,5 +15,13 @@ namespace Game.View
         public List<Vector3> kills = new List<Vector3>();   // 처치 위치 마커
         public float seconds;                               // 예상 소요 시간(초)
         public Color color = Color.white;
+
+        /// <summary>계약 3.1.1절 "0.5초(30틱) 간격 정지 잔상"용 샘플 프레임(시작·종료 포함).
+        /// RoutePreviewStub은 못 채운다(실제 재시뮬레이션이 있어야 함) — 그때는 비어있다.</summary>
+        public List<PredictedFrame> ghostFrames = new List<PredictedFrame>();
+
+        /// <summary>확정 시 실제 플레이어를 자동 재생하기 위한 매 틱 기록 입력. RoutePreviewStub은
+        /// 못 채운다 — 그때는 null이고, PredictionController가 자동실행을 건너뛴다.</summary>
+        public InputCmd[] controls;
     }
 }

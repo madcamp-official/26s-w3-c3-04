@@ -20,7 +20,7 @@ namespace Game.View
         public const float OrbitPitchMin  = -10f;
         public const float OrbitPitchMax  = 80f;
 
-        // 루트 색 (순서: 근접순 / 원거리순 / 스윕)
+        // 루트 색 (순서: 실제 예측 점수 랭킹 — 최상위/2순위/3순위)
         public static readonly Color[] RouteColors =
         {
             new Color(0.2f, 1f, 0.9f),   // 청록
@@ -36,9 +36,8 @@ namespace Game.View
         public const float RouteAlphaDim = 0.4f;    // 비선택 루트 반투명도(더 흐리게)
         public const float DomeWidth     = 0.18f;
         public static readonly Color DomeColor  = new Color(0.3f, 0.9f, 1f, 0.9f);
-        public static readonly Color GhostColor = new Color(0.5f, 0.9f, 1f, 0.5f);
+        public static readonly Color GhostColor = new Color(0.5f, 0.9f, 1f, 0.5f);   // 정지 잔상(반투명)
         public static readonly Color StartMarkerColor = new Color(0.85f, 1f, 0.75f);  // 시작점(=나), 불투명 밝은 연두
-        public const float GhostLoopPause = 1.2f;   // 경로 끝에서 반복 전 여유 거리
         public const float KillMarkY      = 1.3f;   // 처치 마커 높이
 
         // 정지 포스트fx (흑백 + 청록 틴트 + 비네트)

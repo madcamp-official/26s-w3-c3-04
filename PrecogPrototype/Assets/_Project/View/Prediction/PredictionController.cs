@@ -2,15 +2,17 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Game.Sim;
+using Game.Prediction;
 
 namespace Game.View
 {
     /// <summary>
     /// 예측(예지) 연출 컨트롤러 — View 전용, 예측 봇과 독립.
     /// F: 정지 진입(시간 멈춤+흑백+3인칭) / 진입 중 F: 루트 순환 / 마우스: 궤도 회전 / 좌클릭: 확정 / Esc: 취소.
-    /// 확정하면 카메라만 1인칭으로 전환되고, 고스트가 확정된 경로를 1회 재생한다(Following).
-    /// 실제 플레이어 자동실행(입력 재생)은 아직 아님 — 그건 리듬 판정(Perfect/Good/Miss)까지
-    /// 엮인 더 큰 기능이라 KJH 조율 후 별도로 한다.
+    /// 확정하면 실제 플레이어가 기록된 입력(PredictedRoute.controls)으로 자동 실행되고
+    /// (Main.FixedUpdate가 TryConsumeFollowingInput을 통해 구동), 카메라는 1인칭으로 그
+    /// 실제 위치·시선을 따라간다(Following). 경로에는 계약 3.1.1절대로 0.5초 간격 정지
+    /// 잔상을 남긴다. 리듬 판정(Perfect/Good/Miss)은 아직 없음 — 그건 이후 Phase.
     /// </summary>
     public class PredictionController
     {
@@ -22,13 +24,15 @@ namespace Game.View
         readonly FreezeFx fx = new FreezeFx();
 
         List<PredictedRoute> routes = new List<PredictedRoute>();
-        int selected, prevSelected = -1;
-        float ghostDist;
+        int selected;
         float orbitYaw, orbitPitch;   // 미리보기 3인칭 궤도(마우스)
+
+        InputCmd[] followingControls;
+        int followingIndex;
 
         LineRenderer domeLr;
         readonly List<LineRenderer> lines = new List<LineRenderer>();
-        Transform ghost;
+        readonly List<Transform> ghostMarks = new List<Transform>();   // 0.5초 간격 정지 잔상(계약 3.1.1절)
         Transform startMarker;   // 시작 위치(=나) 표시 캡슐
         readonly List<Transform> killMarks = new List<Transform>();
 
@@ -38,7 +42,6 @@ namespace Game.View
             fx.Init();
             fx.EnableOnCamera(cam);
             domeLr = MakeDome();
-            ghost = MakeGhost();
             startMarker = MakeStartMarker();
             SetVisible(false);
         }
@@ -63,11 +66,12 @@ namespace Game.View
                 if (kb.escapeKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame))
                 { Exit(); return; }   // 건너뛰기
 
+                // 실제 이동·전투는 Main.FixedUpdate가 TryConsumeFollowingInput으로 구동한다.
+                // 여기서는 그 결과(실제로 움직인 w)를 카메라·잔상 표시에만 반영한다.
                 PredictedRoute r = routes.Count > 0 ? routes[selected] : null;
-                bool finished = AnimateGhost(r, loop: false);
+                UpdateGhostMarks(r);
                 UpdateKillMarks(r);
                 PlaceCameraFirstPerson(in w);
-                if (finished) Exit();
                 return;
             }
 
@@ -95,7 +99,7 @@ namespace Game.View
         void Enter(in SimWorld w)
         {
             routes = RealRoutePreview.Build(in w, Main.Instance.Services, PredictionConfig.RouteColors);
-            selected = 0; prevSelected = -1; ghostDist = 0f;
+            selected = 0;
             state = State.Preview;
             fx.SetActive(true);
             CombatAudio.Prediction();   // 예지 발동음 (combat 오디오 훅)
@@ -121,11 +125,35 @@ namespace Game.View
         {
             if (routes.Count == 0) { Exit(); return; }
             var r = routes[selected];
+            if (r.controls == null || r.controls.Length == 0)
+            {
+                Debug.LogWarning("[예측] 이 루트엔 재생할 입력이 없음(스텁 데이터?) — 자동실행 없이 닫음.");
+                Exit();
+                return;
+            }
             state = State.Following;
-            ghostDist = 0f;         // 확정된 경로를 처음부터 1회 재생
+            followingControls = r.controls;
+            followingIndex = 0;
             ToggleSword(true);      // 1인칭 복귀 — 칼도 다시 보이게
             Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
-            Debug.Log($"[예측] 루트 {selected} 확정 — 1인칭으로 결과 재생 ({r.seconds:0.0}초). Esc/좌클릭으로 건너뛰기.");
+            Debug.Log($"[예측] 루트 {selected} 확정 — 자동 실행 ({r.seconds:0.0}초). Esc/좌클릭으로 건너뛰기.");
+        }
+
+        /// <summary>
+        /// Main.FixedUpdate 전용. Following 중이면 이번 틱에 실제로 넣을 기록된 입력을 반환하고
+        /// true를 준다. 재생이 끝났으면(또는 Following이 아니면) false를 주고 — 재생이 끝나서
+        /// false가 된 경우엔 자동으로 Idle로 돌아간다(Exit 호출).
+        /// </summary>
+        public bool TryConsumeFollowingInput(out InputCmd cmd)
+        {
+            if (state != State.Following || followingControls == null || followingIndex >= followingControls.Length)
+            {
+                cmd = default;
+                if (state == State.Following) Exit();   // 재생 끝 — 정상 종료
+                return false;
+            }
+            cmd = followingControls[followingIndex++];
+            return true;
         }
 
         void LogSelected()
@@ -144,8 +172,6 @@ namespace Game.View
             for (int i = 0; i < lines.Count && i < routes.Count; i++)
                 StyleLine(lines[i], routes[i].color, i == selected);
 
-            if (selected != prevSelected) { ghostDist = 0f; prevSelected = selected; }
-
             if (startMarker != null)   // 정지된 플레이어 위치 = 루트 시작점
             {
                 startMarker.position = w.player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
@@ -153,7 +179,7 @@ namespace Game.View
             }
 
             var r = routes.Count > 0 ? routes[selected] : null;
-            AnimateGhost(r);
+            UpdateGhostMarks(r);
             UpdateKillMarks(r);
         }
 
@@ -166,7 +192,7 @@ namespace Game.View
             cam.transform.rotation = rot;
         }
 
-        /// <summary>Following 단계: 실제 플레이어 위치·시선에서 1인칭으로(고스트가 앞에서 경로를 걷는 걸 지켜본다).</summary>
+        /// <summary>Following 단계: 실제로 자동 실행 중인 플레이어의 위치·시선을 1인칭으로 따라간다.</summary>
         void PlaceCameraFirstPerson(in SimWorld w)
         {
             if (cam == null) return;
@@ -230,18 +256,6 @@ namespace Game.View
             lr.startColor = lr.endColor = col;
         }
 
-        Transform MakeGhost()
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            go.name = "PredictGhost";
-            Object.Destroy(go.GetComponent<Collider>());
-            go.transform.localScale = new Vector3(SimConfig.PlayerRadius * 2f,
-                                                  SimConfig.PlayerHeight * 0.5f,
-                                                  SimConfig.PlayerRadius * 2f);
-            go.GetComponent<Renderer>().material = GhostMat();
-            return go.transform;
-        }
-
         Transform MakeStartMarker()
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
@@ -254,27 +268,35 @@ namespace Game.View
             return go.transform;
         }
 
-        /// <summary>고스트를 경로 위로 이동시킨다. loop=false면 끝에 닿는 순간 true(1회 재생 완료)를
-        /// 반환한다 — Following 단계가 이걸 보고 자동으로 빠져나간다(Preview는 기본 loop=true).</summary>
-        bool AnimateGhost(PredictedRoute r, bool loop = true)
+        /// <summary>계약 3.1.1절: 0.5초(30틱) 간격 정지 잔상. route.ghostFrames(RealRoutePreview가
+        /// 샘플링)에서 위치·yaw를 그대로 가져와 풀링된 캡슐로 배치한다 — 움직이는 고스트 대신
+        /// 경로 위에 고정된 잔상들로 보여준다.</summary>
+        void UpdateGhostMarks(PredictedRoute r)
         {
-            if (r == null || r.path.Count < 2) { ghost.gameObject.SetActive(false); return false; }
-            ghost.gameObject.SetActive(true);
+            int need = r != null ? r.ghostFrames.Count : 0;
+            while (ghostMarks.Count < need) ghostMarks.Add(MakeGhostMark());
 
-            float total = PathLength(r.path);
-            ghostDist += Time.deltaTime * SimConfig.PlayerMoveSpeed;
-
-            bool finished = false;
-            if (ghostDist > total + PredictionConfig.GhostLoopPause)
+            for (int i = 0; i < ghostMarks.Count; i++)
             {
-                if (loop) ghostDist = 0f;   // 끝에서 잠깐 멈췄다 반복
-                else finished = true;
+                bool used = i < need && state != State.Idle;
+                ghostMarks[i].gameObject.SetActive(used);
+                if (!used) continue;
+                PredictedFrame f = r.ghostFrames[i];
+                ghostMarks[i].position = f.playerPosition + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
+                ghostMarks[i].rotation = Quaternion.Euler(0f, f.playerYaw, 0f);
             }
+        }
 
-            Vector3 pos = PointAtDist(r.path, Mathf.Min(ghostDist, total), out float yaw);
-            ghost.position = pos + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
-            ghost.rotation = Quaternion.Euler(0f, yaw, 0f);
-            return finished;
+        Transform MakeGhostMark()
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            go.name = "PredictGhostMark";
+            Object.Destroy(go.GetComponent<Collider>());
+            go.transform.localScale = new Vector3(SimConfig.PlayerRadius * 2f,
+                                                  SimConfig.PlayerHeight * 0.5f,
+                                                  SimConfig.PlayerRadius * 2f);
+            go.GetComponent<Renderer>().material = GhostMat();
+            return go.transform;
         }
 
         void UpdateKillMarks(PredictedRoute r)
@@ -301,7 +323,7 @@ namespace Game.View
         {
             if (domeLr != null) domeLr.gameObject.SetActive(on);
             for (int i = 0; i < lines.Count; i++) lines[i].gameObject.SetActive(on && i < routes.Count);
-            if (ghost != null) ghost.gameObject.SetActive(on);
+            for (int i = 0; i < ghostMarks.Count; i++) ghostMarks[i].gameObject.SetActive(on);
             if (startMarker != null) startMarker.gameObject.SetActive(on);
             for (int i = 0; i < killMarks.Count; i++) killMarks[i].gameObject.SetActive(on);
         }
@@ -312,35 +334,6 @@ namespace Game.View
             if (cam == null) return;
             var sp = cam.transform.Find("SwordPivot");
             if (sp != null) sp.gameObject.SetActive(show);
-        }
-
-        // ── 경로 유틸 ──
-        static float PathLength(List<Vector3> p)
-        {
-            float len = 0f;
-            for (int i = 1; i < p.Count; i++) len += Vector3.Distance(p[i - 1], p[i]);
-            return len;
-        }
-
-        static Vector3 PointAtDist(List<Vector3> p, float dist, out float yaw)
-        {
-            yaw = 0f;
-            if (p.Count == 0) return Vector3.zero;
-            if (p.Count == 1) return p[0];
-            float acc = 0f;
-            for (int i = 1; i < p.Count; i++)
-            {
-                float seg = Vector3.Distance(p[i - 1], p[i]);
-                if (acc + seg >= dist)
-                {
-                    float t = seg > 1e-4f ? (dist - acc) / seg : 0f;
-                    Vector3 dir = p[i] - p[i - 1];
-                    if (dir.sqrMagnitude > 1e-6f) yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
-                    return Vector3.Lerp(p[i - 1], p[i], t);
-                }
-                acc += seg;
-            }
-            return p[p.Count - 1];
         }
 
         // ── 머티리얼 ──
