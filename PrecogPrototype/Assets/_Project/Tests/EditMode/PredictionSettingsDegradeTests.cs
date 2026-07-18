@@ -85,6 +85,23 @@ namespace Game.Sim.Tests
             Assert.AreEqual(first.maxActionsPerNode, second.maxActionsPerNode);
         }
 
+        /// <summary>
+        /// 회귀 방지: ActionGenerator.Priority는 [이동4개, 대시4개, Attack, Lunge, Wait] 순서라서
+        /// maxActionsPerNode가 9 밑으로 내려가면 대시 충전이 남아있는 한(거의 항상) Attack 자체가
+        /// 후보 생성 단계에서 사라진다 — 실제로 이 버그가 있었다("공격이 안 들어간다"). 캡을
+        /// 안 건드리는 지금 구현이 안전한지 모든 구간에서 확인한다.
+        /// </summary>
+        [TestCase(1)]
+        [TestCase(20)]
+        [TestCase(40)]
+        [TestCase(64)]
+        public void Degrade_NeverReducesActionCapBelowNine_SoAttackStaysReachable(int enemyCount)
+        {
+            PredictionSettings degraded = PredictionSettings.Degrade(PredictionSettings.Full, enemyCount);
+            Assert.GreaterOrEqual(degraded.maxActionsPerNode, 9,
+                "이동4+대시4=8칸이 항상 먼저 채워지므로, 9 미만이면 Attack이 후보에서 구조적으로 사라진다");
+        }
+
         [Test]
         public void Degrade_NeverProducesZeroOrNegativeDepth()
         {
