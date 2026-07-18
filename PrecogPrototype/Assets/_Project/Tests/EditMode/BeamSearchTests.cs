@@ -36,6 +36,65 @@ namespace Game.Sim.Tests
             return world;
         }
 
+        /// <summary>플레이어를 원형으로 둘러싼 count마리. SimWorld.AddEnemy의 PickArchetype이
+        /// 5마다 1 대형·나머지 3마다 1 원거리로 결정론적 배분하므로 count≥5면 아키타입이 섞인다.</summary>
+        static SimWorld BuildRingWorld(int count, float radius)
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            for (int i = 0; i < count; i++)
+            {
+                float angle = (float)i / count * Mathf.PI * 2f;
+                world.AddEnemy(new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius));
+            }
+            return world;
+        }
+
+        /// <summary>
+        /// docs/shared/OPTIMIZATION.md가 목표로 잡은 규모(적 8~64마리)의 아래쪽 끝(4~8마리),
+        /// 근접·원거리·대형몹이 섞인 상황에서 본탐색(Full: Beam 12/3초)이 예외 없이 sane한
+        /// 결과를 내는지 확인한다. 성능(ms) 자체는 에디터 환경에 따라 들쭉날쭉해서 여기선
+        /// 안 재고, PredictionVisualizer의 스트레스 시나리오로 사용자가 직접 확인한다.
+        /// </summary>
+        [TestCase(4)]
+        [TestCase(6)]
+        [TestCase(8)]
+        public void FullSearch_HandlesMixedArchetypeEnemyCounts_WithoutBreaking(int enemyCount)
+        {
+            SimWorld world = BuildRingWorld(enemyCount, 8f);
+            SimServices services = StubServices.Create();
+
+            CandidatePath[] results = null;
+            Assert.DoesNotThrow(() =>
+                results = PredictionPlanner.Plan(in world, in services, PredictionSettings.Full));
+
+            Assert.GreaterOrEqual(results.Length, 1);
+            Assert.LessOrEqual(results.Length, 3, "계약 10장 \"반환 후보 최대 3\"");
+            foreach (CandidatePath result in results)
+            {
+                Assert.IsFalse(float.IsNaN(result.TotalScore));
+                Assert.GreaterOrEqual(result.killCount, 0);
+                Assert.LessOrEqual(result.killCount, enemyCount, "킬 수가 실제 적 수를 넘을 수 없음");
+            }
+        }
+
+        /// <summary>같은 다수 적 스냅샷 + 같은 입력이면 반복 실행해도 같은 결과가 나와야 한다 —
+        /// 적 수가 늘어난다고 StateDeduplicator/BeamSearch의 결정론이 깨지면 안 됨.</summary>
+        [Test]
+        public void FullSearch_IsDeterministic_WithEightMixedArchetypeEnemies()
+        {
+            SimWorld world = BuildRingWorld(8, 8f);
+            SimServices services = StubServices.Create();
+
+            CandidatePath first = PredictionPlanner.Plan(in world, in services, PredictionSettings.Full)[0];
+            CandidatePath repeat = PredictionPlanner.Plan(in world, in services, PredictionSettings.Full)[0];
+
+            Assert.AreEqual(first.actions.Length, repeat.actions.Length);
+            for (int i = 0; i < first.actions.Length; i++)
+                Assert.AreEqual(first.actions[i].type, repeat.actions[i].type, $"인덱스 {i}: 행동 종류 불일치");
+            Assert.AreEqual(first.TotalScore, repeat.TotalScore, 1e-6f);
+        }
+
         [Test]
         public void MiniSearch_SurvivesAndReturnsPlan_WhenNoImmediateThreat()
         {

@@ -34,6 +34,8 @@ namespace Game.Prediction.Editor
             RunScenario("9. 완전 원형 포위 (적 12마리)", BuildCircleWorld(12, 9f, 3f));
             Separator();
             RunScenario("10. 대규모 웨이브 (적 30마리, 스트레스 테스트)", BuildCircleWorld(30, 10f, 2f));
+            Separator();
+            RunScenario("11. OPTIMIZATION.md 벤치마크 기준점 (적 8마리, 목표 200ms 내외/하드리밋 300ms)", BuildCircleWorld(8, 8f, 2f));
         }
 
         static void Separator()
