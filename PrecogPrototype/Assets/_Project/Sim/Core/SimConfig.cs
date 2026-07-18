@@ -18,17 +18,18 @@ namespace Game.Sim
         public const float PlayerHeight    = 1.15f;
 
         // ── 이동·점프 (static = F1 튜닝 패널에서 실시간 조정. 예측 중 변경 금지) ──
-        public static float PlayerMoveSpeed = 7f;
-        public static float PlayerJumpSpeed = 9f;
-        public static int   JumpBufferTicks = 4;     // 착지 직전 점프 선입력 허용
-        public static float AirJumpBoost    = 5f;    // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
+        //    2026-07-18 F1 튜닝으로 확정한 기본값.
+        public static float PlayerMoveSpeed = 8.01f;
+        public static float PlayerJumpSpeed = 10.24f;
+        public static int   JumpBufferTicks = 12;    // 착지 직전 점프 선입력 허용
+        public static float AirJumpBoost    = 7.86f; // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
         public static int   AirJumpBoostTicks = 12;  // 임펄스 지속(감쇠)
 
         // ── 4방향 대시 (진짜 임펄스: 초기 속도 부여 → 매 틱 드래그로 감쇠. 이동 전용) ──
-        //    총 거리 = InitialSpeed·dt·(1-decay^N)/(1-decay) 로 자동 산출(F1 패널에 표시).
-        public static float DashInitialSpeed  = 55f;    // 튀어나가는 힘(m/s) — 첫 틱이 가장 강함
-        public static float DashDecay         = 0.78f;  // 틱별 속도 유지율(드래그). 낮을수록 빨리 멈춤
-        public static int   DashDurationTicks = 12;     // 최대 지속(속도가 죽어도 이 틱에 종료)
+        //    총 거리 = InitialSpeed·dt·(1-decay^N)/(1-decay) 로 자동 산출(F1 패널에 표시). ≈7.74m
+        public static float DashInitialSpeed  = 32.82f; // 튀어나가는 힘(m/s) — 첫 틱이 가장 강함
+        public static float DashDecay         = 0.95f;  // 틱별 속도 유지율(드래그). 낮을수록 빨리 멈춤
+        public static int   DashDurationTicks = 24;     // 최대 지속(속도가 죽어도 이 틱에 종료)
         public static int   DashMaxCharges    = 2;      // 둠식 2스택
         public static int   DashRechargeTicks = 60;     // 스택당 1초
 

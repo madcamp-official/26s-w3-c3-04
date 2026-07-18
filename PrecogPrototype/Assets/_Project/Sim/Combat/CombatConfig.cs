@@ -22,7 +22,7 @@ namespace Game.Sim
 
         // 플레이어 체력·피격
         public static int PlayerMaxHp        = 1000000;   // 임시: 테스트용 무한 체력(원래 3)
-        public static int PlayerHitStunTicks = 30;  // 피격 경직 0.5초 (잠정)
+        public static int PlayerHitStunTicks = 0;   // 임시: 피격 경직 0(원래 30). 구조는 유지
 
         // ── 타깃 런지 (우클릭): 제2의 평타(갭클로저 딜). 쿨 없음, 후딜로만 페이스 조절 ──
         public const byte LgNone = 0, LgWindup = 1, LgTravel = 2, LgRecovery = 3;
