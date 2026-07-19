@@ -23,7 +23,7 @@ namespace Game.View
         // 접근자다. 예측 쪽(PredictionPreview.cs, RealRoutePreview.cs)이 실제 SimServices와
         // 디버그용 적 스폰/제거가 필요해서 추가함 — 전부 읽기 전용이거나 디버그 전용이라
         // 기존 게임 루프 동작에는 영향 없음.
-        public SimServices Services => services;
+        public SimServices Services => graphServices;   // 예측/following = 그래프(포크·결정론)
 
         /// <summary>디버그용: 지정 위치 근처에 적 1마리 소환(예측 미리보기 시나리오 설정용).</summary>
         public void SpawnEnemyNear(Vector3 pos) => world.AddEnemy(pos);
@@ -43,7 +43,8 @@ namespace Game.View
         readonly InputReader input = new InputReader();
         readonly EntityViews views = new EntityViews();
         readonly PredictionController prediction = new PredictionController();
-        SimServices services;
+        SimServices services;        // 평상시 = 런타임 NavMesh
+        SimServices graphServices;   // 예측 검색·following 재생 = 고정 그래프
         Camera cam;
         DevConsole console;
         MapSpawnConfig spawnConfig;   // 씬에 있으면 그 맵의 스폰지점·종류 세팅을 사용
@@ -65,10 +66,11 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
-            // 런타임·예측 모두 같은 불변 유향 그래프를 사용한다. NavMesh는 MapBuilder의
-            // 제작/검증 단계에만 남기고 후보 확장 중 CalculatePath를 호출하지 않는다.
-            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers),
-                                       GraphPathfinder.CreateArena());
+            // 하이브리드: 평상시 = 런타임 NavMesh(연속 경로·나비 매끄러움).
+            // 예측 검색·following 재생 = 고정 그래프(포크·결정론). 둘 다 EnemyMovement가 그대로 씀.
+            var collision = new PhysicsCollision(Physics.DefaultRaycastLayers);
+            services      = new SimServices(collision, new NavMeshPathfinder());
+            graphServices = new SimServices(collision, GraphPathfinder.CreateArena());
 
             world = SimWorld.Create();
             world.player = PlayerSim.Spawn(map.playerSpawn);
@@ -144,7 +146,9 @@ namespace Game.View
             }
 
             prevWorld = Snapshot.Clone(in world);
-            SimStep.Run(ref world, in cmd, in services);
+            // following(확정 경로 재생)은 예측과 동일하게 그래프로 돌려야 예측 결과와 일치. 평소는 NavMesh.
+            SimServices step = prediction.state == PredictionController.State.Following ? graphServices : services;
+            SimStep.Run(ref world, in cmd, in step);
             fixedAccum = 0f;
 
             // 확정 경로 재생 중엔 예측이 가정한 대로(spawnLocked) 새 적 소환을 잠근다 —
