@@ -61,6 +61,7 @@ namespace Game.Bridge
             for (int i = 0; i < n; i++)
             for (int j = 0; j < n; j++)
             {
+                if (k == i || k == j) continue;   // 자기 경유 배제 — first[i,i]=i 자기참조가 최소 nodeId로 next를 오염시킴(층이동 정지 버그)
                 if (dist[i, k] >= Infinity || dist[k, j] >= Infinity) continue;
                 int candidate = dist[i, k] + dist[k, j];
                 int hop = first[i, k];
