@@ -19,6 +19,7 @@ namespace Game.View
         public static Main Instance { get; private set; }
         public ref readonly SimWorld World => ref world;
         public Camera Cam => cam;
+        public CinemachineCamera GameplayVcam => gameplayVcam;   // 연출(FOV킥·Impulse)이 vcam을 건드리게
 
         // >>> [예측 세션 추가, 2026-07-18] Services/SpawnEnemyNear/ClearAllEnemies는 원래 없던
         // 접근자다. 예측 쪽(PredictionPreview.cs, RealRoutePreview.cs)이 실제 SimServices와
