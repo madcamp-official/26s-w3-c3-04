@@ -132,6 +132,10 @@ namespace Game.View
             // 되돌리려면: 아래 if/else 블록을 지우고 위 두 줄로 교체 + SpawnTick() 조건도 제거.
             if (prediction.state == PredictionController.State.Preview) return;   // 미리보기 중엔 정지
 
+            // 히트스톱(A안): 얼린 틱만큼 sim 전진을 건너뛴다(입력 소비 전에 return → 기록 입력 보존).
+            // timeScale은 건드리지 않으므로 뷰 연출(파티클·셰이크·화면효과)은 계속 재생된다.
+            if (HitStop.FrozenTicks > 0) { HitStop.FrozenTicks--; return; }
+
             InputCmd cmd;
             if (prediction.state == PredictionController.State.Following)
             {

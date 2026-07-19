@@ -8,7 +8,7 @@ namespace Game.View
     /// 전투 손맛(juice). ★ combat 소유·독립. 읽기 전용(SimWorld 안 씀).
     /// 적 피격/처치를 프레임 간 상태 비교로 감지 → 카메라 셰이크 + 스파크 + 타격음.
     /// 플레이어 대시/런지 시작에도 셰이크.
-    /// ※ 히트스톱은 HitStop.cs 담당(중복 timeScale 조작 방지). 카메라 고정·HUD도 SIM 세션 몫.
+    /// ※ 히트스톱은 HitStop.cs 담당(A안=sim 틱 스킵, timeScale 안 건드림). 카메라 고정·HUD도 SIM 세션 몫.
     /// </summary>
     public class CombatFeedback : MonoBehaviour
     {
