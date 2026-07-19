@@ -34,7 +34,8 @@ namespace Game.Sim
             // 피격 경직: 수평 조작 제한(중력·착지만)
             if (p.combat.hitStunTicks > 0)
             {
-                CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out p.grounded);
+                CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out p.grounded,
+                                               SimConfig.PlayerRadius, SimConfig.PlayerHeight);
                 if (p.grounded) p.jumpCount = 0;
                 return;
             }
@@ -100,7 +101,8 @@ namespace Game.Sim
             // 수평(벽 슬라이드) → 수직(중력·착지)
             p.pos = CharacterMotor.MoveHorizontal(svc.Collision, p.pos, horiz,
                                                   SimConfig.PlayerRadius, SimConfig.PlayerHeight);
-            CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out bool grounded);
+            CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out bool grounded,
+                                           SimConfig.PlayerRadius, SimConfig.PlayerHeight);
             p.grounded = grounded;
             if (grounded) p.jumpCount = 0;
         }

@@ -82,7 +82,7 @@ namespace Game.View
             switch (p[0].ToLowerInvariant())
             {
                 case "help":
-                    Print("spawn <종류> · solo <종류> · clear · autospawn on|off · count");
+                    Print("spawn <종류> · solo <종류> · clear · autospawn on|off|reload · count");
                     Print("종류: grunt pinky soldier caco large");
                     break;
 
@@ -113,7 +113,8 @@ namespace Game.View
                 case "autospawn":
                     if (p.Length >= 2 && p[1] == "on")  { main.AutoSpawn = true;  Print("자동소환 on"); }
                     else if (p.Length >= 2 && p[1] == "off") { main.AutoSpawn = false; Print("자동소환 off"); }
-                    else Print("사용: autospawn on|off");
+                    else if (p.Length >= 2 && p[1] == "reload") { main.ReloadSpawnConfig(); Print("씬 스폰 세팅 다시 읽음"); }
+                    else Print("사용: autospawn on|off|reload");
                     break;
 
                 case "count":
@@ -129,15 +130,9 @@ namespace Game.View
         static bool TryType(string alias, out CombatType c, out MobilityType m, out SizeClass s)
         {
             c = CombatType.Melee; m = MobilityType.Ground; s = SizeClass.Normal;
-            switch (alias.ToLowerInvariant())
-            {
-                case "grunt":   c = CombatType.Melee;  m = MobilityType.Ground; s = SizeClass.Normal; return true;
-                case "pinky":   c = CombatType.Melee;  m = MobilityType.Charge; s = SizeClass.Normal; return true;
-                case "soldier": c = CombatType.Ranged; m = MobilityType.Ground; s = SizeClass.Normal; return true;
-                case "caco":    c = CombatType.Ranged; m = MobilityType.Flying; s = SizeClass.Normal; return true;
-                case "large":   c = CombatType.Melee;  m = MobilityType.Ground; s = SizeClass.Large;  return true;
-                default: return false;
-            }
+            if (!MapSpawnConfig.TryParse(alias, out var k)) return false;
+            (c, m, s) = MapSpawnConfig.Axes(k);   // 종류 매핑은 MapSpawnConfig 한 곳에서
+            return true;
         }
 
         void Print(string msg)

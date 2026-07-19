@@ -28,6 +28,7 @@ namespace Game.View
             var gMid  = Mat(new Color(0.50f, 0.50f, 0.46f));   // 반층(3.0)
             var gRamp = Mat(new Color(0.34f, 0.50f, 0.42f));   // 경사로(초록기)
             var gLedge= Mat(new Color(0.60f, 0.52f, 0.40f));   // mantle 계단·엄폐(갈색기)
+            var gCont = Mat(new Color(0.16f, 0.38f, 0.68f));   // 컨테이너(파랑)
             var r = new MapResult();
 
             // 높이: 1F 0 · 반층 3.0 · 2F 4.5 · 3F 9 (단차 1.5배). mantle 1.5(3단=한 층).
@@ -71,6 +72,9 @@ namespace Game.View
             Ledge("Cover2", 16f, 0f, 14f, 0.8f, 3f, gLedge);
             Ledge("Step1", 0f, 0f, 14f, 0.3f, 6f, gLedge);
             Ledge("Step2", 0f, 0f, -14f, 0.3f, 6f, gLedge);
+
+            // ── 앞뒤 개방 컨테이너(부속품 예시): 스폰 정면 채널에 1개. 관통·위 발판·엄폐 ──
+            Container("Container1", new Vector3(0f, 0f, 6f), 6f, 2.6f, 2.8f, true, gCont);
 
             Physics.SyncTransforms();
 
@@ -140,6 +144,10 @@ namespace Game.View
         /// </summary>
         static void DropLink(Vector3 from, Vector3 to)
         {
+            // 테두리 침식으로 링크 끝점이 navmesh에서 떠 등록 안 되는 것 방지 — 양 끝을 navmesh 위로 스냅
+            if (NavMesh.SamplePosition(from, out var fHit, 3f, NavMesh.AllAreas)) from = fHit.position;
+            if (NavMesh.SamplePosition(to,   out var tHit, 3f, NavMesh.AllAreas)) to   = tHit.position;
+
             var link = new GameObject("DropLink").AddComponent<NavMeshLink>();
             link.startPoint = from;      // 로컬=월드(트랜스폼 원점·단위)
             link.endPoint = to;
@@ -164,6 +172,41 @@ namespace Game.View
         {
             Cube(name, new Vector3((minX + maxX) / 2f, topY / 2f, (minZ + maxZ) / 2f),
                  new Vector3(maxX - minX, topY, maxZ - minZ), m);
+        }
+
+        /// <summary>
+        /// 앞뒤 개방 컨테이너(속 빈 통): 바닥·천장·좌우 벽. 양 끝(뚫린 축)은 개방 → 관통.
+        /// 바닥 윗면이 floorCenter.y와 flush(턱 없음). 천장 위는 발판. floorCenter.y를 height씩
+        /// 올려 다시 호출하면 위에 적재된다. lengthwiseZ=true면 뚫린 축이 ±Z(벽은 ±X).
+        /// 정적 콜라이더라 NavMesh에 자동 반영(몹이 통과·위로 다님). 주름 등 디테일은 아트 단계.
+        /// </summary>
+        static void Container(string name, Vector3 floorCenter,
+                              float length, float width, float height, bool lengthwiseZ, Material m)
+        {
+            const float thk = 0.2f;                          // 판·벽 두께
+            float xSpan = lengthwiseZ ? width  : length;     // 벽이 막는 폭 / 뚫린 길이 정리
+            float zSpan = lengthwiseZ ? length : width;
+            Vector3 c = floorCenter;
+
+            // 바닥(윗면 flush) · 천장(윗면 = 발판)
+            Cube($"{name}_Floor", new Vector3(c.x, c.y - thk * 0.5f, c.z),          new Vector3(xSpan, thk, zSpan), m);
+            Cube($"{name}_Roof",  new Vector3(c.x, c.y + height - thk * 0.5f, c.z),  new Vector3(xSpan, thk, zSpan), m);
+
+            // 좌우 벽(뚫린 축과 나란히). 내부 높이 = height - thk(천장 아래까지)
+            float wallH = height - thk;
+            float wallCy = c.y + wallH * 0.5f;
+            if (lengthwiseZ)   // 벽은 ±X, 뚫린 축은 Z
+            {
+                float wx = xSpan * 0.5f - thk * 0.5f;
+                Cube($"{name}_WallL", new Vector3(c.x - wx, wallCy, c.z), new Vector3(thk, wallH, zSpan), m);
+                Cube($"{name}_WallR", new Vector3(c.x + wx, wallCy, c.z), new Vector3(thk, wallH, zSpan), m);
+            }
+            else               // 벽은 ±Z, 뚫린 축은 X
+            {
+                float wz = zSpan * 0.5f - thk * 0.5f;
+                Cube($"{name}_WallB", new Vector3(c.x, wallCy, c.z - wz), new Vector3(xSpan, wallH, thk), m);
+                Cube($"{name}_WallF", new Vector3(c.x, wallCy, c.z + wz), new Vector3(xSpan, wallH, thk), m);
+            }
         }
 
         /// <summary>

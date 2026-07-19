@@ -54,35 +54,74 @@ namespace Game.Sim
             // 다리 낙하 방지는 SimStep 틱 끝의 ClampToNavMesh가 담당(navmesh 되당김).
         }
 
-        /// <summary>절벽 낙하 시작: 착지점을 향해 걸어 나가며 중력으로 떨어진다(순간이동 아님).
-        /// ClampToNavMesh는 descentPhase != None을 제외하므로, 낙하 중엔 navmesh 밖으로 나가도 안 당겨진다.</summary>
+        /// <summary>절벽 도약 시작: 가장자리(현재 위치)에서 착지점까지 스크립트 포물선으로 뛰어내린다.
+        /// ClampToNavMesh는 descentPhase != None을 제외하므로, 도약 중엔 navmesh 밖으로 나가도 안 당겨진다.</summary>
         static void StartDescent(ref EnemySim e, Vector3 landing)
         {
-            e.descentPhase = DescentPhase.Falling;
+            e.descentPhase = DescentPhase.Leaping;
             e.descentTicks = 0;
+            e.descentStart = e.pos;
             e.descentLanding = landing;
+            e.vel = Vector3.zero;
             Vector3 face = landing - e.pos; face.y = 0f;
             if (face.sqrMagnitude > 1e-4f) e.yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
         }
 
-        /// <summary>낙하 중: 착지점 XZ로 이동 + 중력. 착지점 높이에 닿아 지면에 서면 종료.</summary>
+        /// <summary>
+        /// 절벽 도약 상태머신(전부 descentTicks 기준):
+        ///  [0~Windup)          주저 — 가장자리서 착지점 응시하며 멈칫(텔레그래프)
+        ///  [Windup~+Duration)  도약 — 솟구침(ease-out) → 가속 하강(ease-in) + 런치 수평(ease-out)
+        ///  [+Duration~+Hold)   착지 — "쿵" 그 자리 경직 뒤 추격 재개
+        /// </summary>
         static void StepDescent(ref EnemySim e, in SimServices svc, float dt)
         {
             e.descentTicks++;
+            int t = e.descentTicks;
+            int W = SimConfig.DropWindupTicks;
+            int T = SimConfig.DropDurationTicks;
 
-            Vector3 to = e.descentLanding - e.pos; to.y = 0f;
-            float d = to.magnitude;
-            Vector3 horiz = d > 1e-4f ? (to / d) * SimConfig.EnemyMoveSpeed * dt : Vector3.zero;
-            Move(ref e, horiz, svc, dt);   // 수평 이동 + 중력(테두리 벗어나면 자연 낙하)
-
-            // 착지 판정: 지면에 서 있고 착지점 높이 근처 → 종료. 안전장치로 최대 틱도 둠.
-            bool landed = e.grounded && e.pos.y <= e.descentLanding.y + SimConfig.DescentLandEpsilon;
-            if (landed || e.descentTicks >= SimConfig.DescentMaxTicks)
+            if (t <= W)   // 주저(윈드업)
             {
-                e.descentPhase = DescentPhase.None;
-                e.descentTicks = 0;
-                e.repathTicks = 0;
-                e.hasWaypoint = false;
+                e.pos = e.descentStart;
+                e.vel = Vector3.zero;
+                e.grounded = true;
+            }
+            else if (t <= W + T)   // 도약
+            {
+                float u = (t - W) / (float)T;                 // 0→1
+                float apex = e.descentStart.y + SimConfig.DropArcHeight;
+                float lf = SimConfig.DropLaunchFrac;
+                float y;
+                if (u < lf)   // 상승: ease-out(감속하며 솟음)
+                {
+                    float w = u / lf;
+                    y = Mathf.Lerp(e.descentStart.y, apex, 1f - (1f - w) * (1f - w));
+                }
+                else          // 하강: ease-in(가속 — 중력 느낌)
+                {
+                    float w = (u - lf) / (1f - lf);
+                    y = Mathf.Lerp(apex, e.descentLanding.y, w * w);
+                }
+                float he = 1f - (1f - u) * (1f - u);          // 수평: ease-out(런치)
+                e.pos = new Vector3(
+                    Mathf.Lerp(e.descentStart.x, e.descentLanding.x, he),
+                    y,
+                    Mathf.Lerp(e.descentStart.z, e.descentLanding.z, he));
+                e.vel = Vector3.zero;
+                e.grounded = false;
+            }
+            else   // 착지 "쿵" + 경직
+            {
+                e.pos = e.descentLanding;
+                e.vel = Vector3.zero;
+                e.grounded = true;
+                if (t >= W + T + SimConfig.DropLandHoldTicks)
+                {
+                    e.descentPhase = DescentPhase.None;
+                    e.descentTicks = 0;
+                    e.repathTicks = 0;
+                    e.hasWaypoint = false;
+                }
             }
         }
 

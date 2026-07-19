@@ -19,7 +19,7 @@ namespace Game.View
         float dMove, dJump, dAirBoost, dDashInit, dDashDecay, dAtkRange, dAtkAngle, dAtkHeight;
         float dLgMin, dLgMax, dLgAim, dLgStop, dLgHeight, dLgFov, dLgUp;
         int dJumpBuf, dAirBoostT, dDashTicks, dDashCharges, dDashRecharge, dDashReserve;
-        int dAtkW, dAtkA, dAtkR, dLgW, dLgTravel, dLgR, dLgCool, dLgBind, dLgHitStop, dHp, dHitStun;
+        int dAtkW, dAtkA, dAtkR, dLgW, dLgTravel, dLgR, dLgCool, dLgBind, dLgHitStop, dLgStacks, dLgReserve, dHp, dHitStun;
 
         void Capture()
         {
@@ -34,7 +34,7 @@ namespace Game.View
             dLgMin = CombatConfig.LungeMinRange; dLgMax = CombatConfig.LungeMaxRange; dLgAim = CombatConfig.LungeAimRadius;
             dLgStop = CombatConfig.LungeStopDistance; dLgHeight = CombatConfig.LungeHeightTolerance; dLgBind = CombatConfig.LungeBindExtraTicks;
             dLgHitStop = CombatConfig.LungeHitStopTicks; dLgFov = CombatConfig.LungeFovKick;
-            dLgUp = CombatConfig.LungeAimUp;
+            dLgUp = CombatConfig.LungeAimUp; dLgStacks = CombatConfig.LungeMaxStacks; dLgReserve = CombatConfig.LungeReserveWindow;
             dHp = CombatConfig.PlayerMaxHp; dHitStun = CombatConfig.PlayerHitStunTicks;
             captured = true;
         }
@@ -52,7 +52,7 @@ namespace Game.View
             CombatConfig.LungeMinRange = dLgMin; CombatConfig.LungeMaxRange = dLgMax; CombatConfig.LungeAimRadius = dLgAim;
             CombatConfig.LungeStopDistance = dLgStop; CombatConfig.LungeHeightTolerance = dLgHeight; CombatConfig.LungeBindExtraTicks = dLgBind;
             CombatConfig.LungeHitStopTicks = dLgHitStop; CombatConfig.LungeFovKick = dLgFov;
-            CombatConfig.LungeAimUp = dLgUp;
+            CombatConfig.LungeAimUp = dLgUp; CombatConfig.LungeMaxStacks = dLgStacks; CombatConfig.LungeReserveWindow = dLgReserve;
             CombatConfig.PlayerMaxHp = dHp; CombatConfig.PlayerHitStunTicks = dHitStun;
         }
 
@@ -109,6 +109,8 @@ namespace Game.View
             CombatConfig.LungeWindupTicks = ISlider("선딜(틱)", CombatConfig.LungeWindupTicks, 0, 12);
             CombatConfig.LungeRecoveryTicks = ISlider("후딜(틱)", CombatConfig.LungeRecoveryTicks, 2, 40);
             CombatConfig.LungeCooldownTicks = ISlider("쿨타임(틱, 0=없음)", CombatConfig.LungeCooldownTicks, 0, 180);
+            CombatConfig.LungeMaxStacks = ISlider("최대 스택(처치 충전)", CombatConfig.LungeMaxStacks, 1, 5);
+            CombatConfig.LungeReserveWindow = ISlider("예약 구간(쿨 막판 틱)", CombatConfig.LungeReserveWindow, 0, 30);
             CombatConfig.LungeStopDistance = FSlider("정지 간격(m)", CombatConfig.LungeStopDistance, 0.4f, 2f);
             CombatConfig.LungeAimUp = FSlider("살짝 위(m)", CombatConfig.LungeAimUp, 0f, 2f);
             CombatConfig.LungeHeightTolerance = FSlider("높이 허용(m, 위/아래)", CombatConfig.LungeHeightTolerance, 0.3f, 12f);

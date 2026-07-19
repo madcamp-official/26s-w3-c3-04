@@ -11,6 +11,7 @@ Shader "Game/WorldGrid"
         _GridSize  ("Grid Size (m)", Float) = 1.0
         _LineWidth ("Grid Line Width (m)", Float) = 0.025
         _EdgePixels("Edge Width (px)", Float) = 3.0
+        [Toggle(_EDGE_FROM_UV)] _EdgeFromUV ("모서리 외곽선: UV2 사용(결합 메시)", Float) = 0
     }
     SubShader
     {
@@ -22,15 +23,18 @@ Shader "Game/WorldGrid"
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 3.0
+            #pragma shader_feature_local _EDGE_FROM_UV
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; };
+            // edgeUV(TEXCOORD2): 결합 메시가 박스별 단위좌표(±0.5)를 넣어줌. 프리미티브는 미사용.
+            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float3 edgeUV : TEXCOORD2; };
             struct Varyings
             {
                 float4 positionHCS : SV_POSITION;
                 float3 positionWS  : TEXCOORD0;
                 float3 normalWS    : TEXCOORD1;
                 float3 positionOS  : TEXCOORD2;   // 모서리 외곽선용(단위큐브 면이 ±0.5)
+                float3 edgeUV      : TEXCOORD3;   // 결합 메시 외곽선용(박스별 ±0.5)
             };
 
             float4 _BaseColor;
@@ -47,6 +51,7 @@ Shader "Game/WorldGrid"
                 OUT.positionHCS = TransformWorldToHClip(OUT.positionWS);
                 OUT.normalWS    = TransformObjectToWorldNormal(IN.normalOS);
                 OUT.positionOS  = IN.positionOS.xyz;
+                OUT.edgeUV      = IN.edgeUV;
                 return OUT;
             }
 
@@ -75,7 +80,14 @@ Shader "Game/WorldGrid"
                 // ── 오브젝트 모서리 외곽선 ──
                 // 단위큐브 면은 |os|=0.5. 각 축의 0.5까지 거리 중 "두 번째로 작은 값"이 0에 가까우면
                 // = 두 면이 만나는 모서리. fwidth로 화면 일정 두께.
-                float3 dE = 0.5 - abs(IN.positionOS);
+                // 결합 메시는 positionOS가 ±0.5 밖(스케일 구움)이라 그대로 쓰면 표면 전체를 모서리로
+                // 오판 → _EDGE_FROM_UV면 박스별 단위좌표(edgeUV)를 대신 써서 판마다 외곽선을 낸다.
+                #ifdef _EDGE_FROM_UV
+                float3 eos = IN.edgeUV;
+                #else
+                float3 eos = IN.positionOS;
+                #endif
+                float3 dE = 0.5 - abs(eos);
                 float mn  = min(dE.x, min(dE.y, dE.z));
                 float mx  = max(dE.x, max(dE.y, dE.z));
                 float mid = dE.x + dE.y + dE.z - mn - mx;   // 두 번째로 작은 값 = 모서리 근접도

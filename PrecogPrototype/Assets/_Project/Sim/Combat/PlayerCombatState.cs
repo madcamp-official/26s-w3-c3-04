@@ -25,7 +25,9 @@ namespace Game.Sim
         public Vector3 lungeDest;       // 적 앞 지점(고정)
         public int     lungeTravelTicks; // 거리 비례 Travel 틱(시작 시 계산·고정)
         public bool    lungeHitDone;    // 임팩트 1회 처리 플래그
-        public int     lungeCooldown;   // 남은 쿨타임 틱(기본 0 = 쿨 없음)
+        public int     lungeCooldown;   // 남은 쿨타임 틱(0.25초 연발 제한)
+        public int     lungeStacks;     // 런지 자원(처치로 충전, 발동 1 소모). 시작 2
+        public int     lungeBufferTicks; // 쿨 막판 예약(>0이면 쿨 끝나는 즉시 발동)
 
         // 대형몹 글로리킬 처형 (컷신). 진행 중 무적·조작잠금.
         public byte    gloryPhase;      // GlNone/GlSlash1/GlSlash2/GlDash
@@ -37,6 +39,7 @@ namespace Game.Sim
         {
             hp = CombatConfig.PlayerMaxHp,
             lungeTargetId = -1,
+            lungeStacks = 2,     // 시작 시 스택 꽉 채움
         };
     }
 }

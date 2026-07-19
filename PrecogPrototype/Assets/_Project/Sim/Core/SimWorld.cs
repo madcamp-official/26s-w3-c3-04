@@ -9,6 +9,7 @@ namespace Game.Sim
         public PlayerSim player;
         public EnemySim[] enemies;   // 용량 MaxEnemies 고정
         public int       enemyCount;
+        public int       nextEnemyId;   // 재사용되지 않는 단조 고유 id 발급기(슬롯 재사용과 무관)
         public uint      rngState;   // 시드 고정 결정론 RNG 상태 (DetRng)
 
         // ── 적→플레이어 히트 큐 (AI 세션). AI가 큐잉 → CombatResolve가 방어판정 후 적용.
@@ -31,6 +32,7 @@ namespace Game.Sim
                 player = PlayerSim.Spawn(Vector3.zero),
                 enemies = new EnemySim[SimConfig.MaxEnemies],
                 enemyCount = 0,
+                nextEnemyId = 0,
                 rngState = 0x1234_5678u,   // 고정 시드
                 pendingHits = new PlayerHit[SimConfig.MaxEnemies],
                 pendingHitCount = 0,
@@ -44,11 +46,11 @@ namespace Game.Sim
         {
             // 3축 배분: 슬롯 인덱스로 결정론(5마다 1 대형근접, 나머지 중 3마다 1 원거리, 그 외 근접).
             for (int i = 0; i < enemyCount; i++)
-                if (!enemies[i].alive) { var (c, m, s) = PickSpawn(i); enemies[i] = EnemySim.Spawn(i, at, c, m, s); return true; }
+                if (!enemies[i].alive) { var (c, m, s) = PickSpawn(i); enemies[i] = EnemySim.Spawn(nextEnemyId++, at, c, m, s); return true; }
 
             if (enemyCount >= SimConfig.MaxEnemies) return false;
             var (c2, m2, s2) = PickSpawn(enemyCount);
-            enemies[enemyCount] = EnemySim.Spawn(enemyCount, at, c2, m2, s2);
+            enemies[enemyCount] = EnemySim.Spawn(nextEnemyId++, at, c2, m2, s2);
             enemyCount++;
             return true;
         }
@@ -57,10 +59,10 @@ namespace Game.Sim
         public bool AddEnemy(Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
         {
             for (int i = 0; i < enemyCount; i++)
-                if (!enemies[i].alive) { enemies[i] = EnemySim.Spawn(i, at, combat, mobility, size); return true; }
+                if (!enemies[i].alive) { enemies[i] = EnemySim.Spawn(nextEnemyId++, at, combat, mobility, size); return true; }
 
             if (enemyCount >= SimConfig.MaxEnemies) return false;
-            enemies[enemyCount] = EnemySim.Spawn(enemyCount, at, combat, mobility, size);
+            enemies[enemyCount] = EnemySim.Spawn(nextEnemyId++, at, combat, mobility, size);
             enemyCount++;
             return true;
         }

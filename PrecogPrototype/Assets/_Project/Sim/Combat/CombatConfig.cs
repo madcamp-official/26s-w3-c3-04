@@ -29,7 +29,9 @@ namespace Game.Sim
         public static int   LungeWindupTicks    = 0;     // 없음(즉시 발동)
         public static int   LungeTravelTicks    = 3;     // 블링크(순간이동급). 이 틱만 이동·에임 잠금
         public static int   LungeRecoveryTicks  = 0;     // 없음(도착 즉시 조작 복귀)
-        public static int   LungeCooldownTicks  = 0;     // 쿨 없음(무제한)
+        public static int   LungeCooldownTicks  = 15;    // 0.25초 연발 제한
+        public static int   LungeMaxStacks      = 2;     // 스택 상한(2). 처치로 +1 충전, 발동 1 소모
+        public static int   LungeReserveWindow  = 10;    // 쿨 막판 이 틱 이내(≈0.17초) 클릭 → 예약
         public static float LungeMinRange       = 1.2f;
         public static float LungeMaxRange       = 12f;
         public static float LungeAimRadius      = 2.0f;  // 조준 레이 수직 보정 반경(판정 핵심)

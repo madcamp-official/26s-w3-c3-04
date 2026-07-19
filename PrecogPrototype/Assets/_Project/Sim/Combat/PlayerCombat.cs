@@ -19,12 +19,16 @@ namespace Game.Sim
 
             if (c.hitStunTicks > 0) c.hitStunTicks--;
             if (c.lungeCooldown > 0) c.lungeCooldown--;
+            if (c.lungeBufferTicks > 0) c.lungeBufferTicks--;
+            // 쿨 막판(남은 쿨 ≤ 예약구간)에 우클 → 예약(쿨 끝나는 즉시 발동)
+            if (c.lungeCooldown > 0 && cmd.lunge && c.lungeCooldown <= CombatConfig.LungeReserveWindow)
+                c.lungeBufferTicks = CombatConfig.LungeReserveWindow + 2;
 
             // ── 런지 진행 중이면 그것만 (Travel 이동·에임 고정) ──
             if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref w, in svc, dt); return; }
 
-            // ── 런지 시작: 우클릭 + 쿨0 + 유효 대상 (스택·제한 없음, 무제한) ──
-            if (cmd.lunge && c.lungeCooldown == 0 && c.hitStunTicks == 0)
+            // ── 런지 시작: (우클 or 예약) + 스택>0 + 쿨0 + 유효 대상 ──
+            if ((cmd.lunge || c.lungeBufferTicks > 0) && c.lungeStacks > 0 && c.lungeCooldown == 0 && c.hitStunTicks == 0)
             {
                 int targetId = cmd.lungeTargetId >= 0
                     ? cmd.lungeTargetId
@@ -41,7 +45,9 @@ namespace Game.Sim
                     c.lungeTravelTicks = travel;
                     c.lungeHitDone = false;
                     c.lungeCooldown = CombatConfig.LungeCooldownTicks;
-                    p.jumpCount = 0;            // 우클 직후 더블점프 리필
+                    c.lungeStacks--;           // 스택 1 소모
+                    c.lungeBufferTicks = 0;    // 예약 소비
+                    p.jumpCount = 0;           // 우클 직후 더블점프 리필
 
                     // 표적 이동봉쇄(bind): 블링크 동안만 위치·중력 동결(공중이면 공중에). 공격은 계속.
                     int ti = FindEnemyIndex(in w, targetId);
@@ -197,6 +203,7 @@ namespace Game.Sim
                         c.gloryPhase = CombatConfig.GlNone; c.gloryTicks = 0;
                         target.alive = false;             // 실제 사망(뷰 폭발은 gloryStage=3로 이미 처리)
                         target.combat.deathTick = w.tick;
+                        c.lungeStacks = Mathf.Min(CombatConfig.LungeMaxStacks, c.lungeStacks + 1);   // 처형 = 스택 +1
                     }
                     break;
             }

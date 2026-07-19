@@ -2,11 +2,11 @@ using UnityEngine;
 
 namespace Game.Sim
 {
-    /// <summary>절벽 낙하: off-mesh link를 태우면 착지점을 향해 걸어 나가 중력으로 떨어진다(순간이동 아님).</summary>
+    /// <summary>절벽 도약: off-mesh link를 태우면 가장자리에서 착지점까지 스크립트 포물선으로 뛰어내린다(둠식 "쿵").</summary>
     public enum DescentPhase : byte
     {
         None = 0,
-        Falling = 1,   // 착지점 XZ로 이동 + 중력 낙하 중 (착지하면 종료)
+        Leaping = 1,   // 포물선 도약 중(시작→착지 보간 + apex). 완료 후 짧은 착지 홀드 뒤 종료
     }
 
     /// <summary>
@@ -34,10 +34,11 @@ namespace Game.Sim
         public EnemyCombatState combat;   // ← combat 세션 소유 (health/stun/처치)
         public EnemyAI          ai;       // ← AI 세션 소유 (상태머신/아키타입)
 
-        // 절벽 낙하 (자연 낙하)
+        // 절벽 도약 (스크립트 포물선)
         public DescentPhase descentPhase;
-        public int          descentTicks;    // 낙하 안전장치(무한 방지)
-        public Vector3      descentLanding;   // off-mesh link 착지점(향해 걸어 나가며 떨어짐)
+        public int          descentTicks;    // 도약 진행 틱(0→Duration→+Hold)
+        public Vector3      descentStart;     // 도약 시작점(가장자리)
+        public Vector3      descentLanding;   // off-mesh link 착지점
 
         public static EnemySim Spawn(int id, Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
         {

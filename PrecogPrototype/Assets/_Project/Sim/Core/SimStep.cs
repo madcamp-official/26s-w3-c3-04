@@ -80,7 +80,8 @@ namespace Game.Sim
                 for (int j = i + 1; j < w.enemyCount; j++)
                 {
                     if (!w.enemies[j].alive || w.enemies[j].descentPhase != DescentPhase.None || w.enemies[j].combat.gloryStage > 0) continue;
-                    Vector3 p = Push(w.enemies[i].pos, w.enemies[j].pos,
+                    Vector3 p = Push(w.enemies[i].pos, w.enemies[i].height,
+                                     w.enemies[j].pos, w.enemies[j].height,
                                      w.enemies[i].radius + w.enemies[j].radius,
                                      w.enemies[i].id, w.enemies[j].id);
                     pushScratch[i] += p;
@@ -92,7 +93,9 @@ namespace Game.Sim
             for (int i = 0; i < w.enemyCount; i++)
             {
                 if (!w.enemies[i].alive || w.enemies[i].descentPhase != DescentPhase.None || w.enemies[i].combat.gloryStage > 0) continue;
-                Vector3 p = Push(w.player.pos, w.enemies[i].pos, pr + w.enemies[i].radius, -1, w.enemies[i].id);
+                Vector3 p = Push(w.player.pos, SimConfig.PlayerHeight,
+                                 w.enemies[i].pos, w.enemies[i].height,
+                                 pr + w.enemies[i].radius, -1, w.enemies[i].id);
                 playerPush += p;
                 pushScratch[i] -= p;
             }
@@ -107,9 +110,15 @@ namespace Game.Sim
             }
         }
 
-        /// <summary>a를 b에서 밀어낼 밀침 벡터(대칭이라 절반). 정확히 겹치면 id로 방향.</summary>
-        static Vector3 Push(Vector3 a, Vector3 b, float minDist, int idA, int idB)
+        /// <summary>
+        /// a를 b에서 밀어낼 밀침 벡터(대칭이라 절반). 정확히 겹치면 id로 방향.
+        /// 3D 판정: 세로 범위([발끝, 발끝+height])가 겹칠 때만 수평 밀침(다른 층 무간섭).
+        /// </summary>
+        static Vector3 Push(Vector3 a, float aH, Vector3 b, float bH, float minDist, int idA, int idB)
         {
+            // 수직 구간 미겹침 → 3D 상 안 닿음 → 밀침 없음
+            if (a.y >= b.y + bH || b.y >= a.y + aH) return Vector3.zero;
+
             Vector3 d = a - b; d.y = 0f;
             float sq = d.sqrMagnitude;
             if (sq >= minDist * minDist) return Vector3.zero;

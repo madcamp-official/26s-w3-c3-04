@@ -13,6 +13,11 @@ namespace Game.Sim
 
         public const float Gravity = -25f;
 
+        // 이동 시 넘을 수 있는 수직 턱 높이(step-up). 이 이하 턱은 올라타고, 초과면 벽으로 막힘.
+        // NavMesh가 잇는 작은 턱(잔단차 0.3 등)을 모터도 넘게 해 "경로는 있는데 몸이 낌"을 방지.
+        // Cover(0.8)·mantle(1.5)는 초과라 여전히 못 넘음(의도대로).
+        public const float StepHeight = 0.4f;
+
         // 플레이어 (캡슐: 발밑 pos 기준, 위로 Height). 크기는 구조 상수(런타임 변경 금지).
         public const float PlayerRadius    = 0.28f;
         public const float PlayerHeight    = 1.15f;
@@ -56,8 +61,12 @@ namespace Game.Sim
         // 절벽 낙하 (자연 낙하). off-mesh link를 큰 낙차로 감지 → 착지점으로 걸어 나가 떨어짐.
         public const float DropDetectMinHeight = 2f;    // 다음 코너가 이만큼 아래면 낙하 후보
         public const float DropDetectRatio     = 1.5f;  // 낙차 > 수평거리 * 이 값 이면 절벽(경사로와 구분)
-        public const float DescentLandEpsilon  = 0.3f;  // 착지점 높이 이 오차 안이고 지면이면 착지 완료
-        public const int   DescentMaxTicks     = 120;   // 낙하 안전장치(2초). 어디도 못 닿으면 강제 종료
+        public const float DropCommitDist      = 2f;    // 링크 입구에 이만큼 근접하면 낙하 커밋(문턱 낑김 방지)
+        public const int   DropWindupTicks    = 10;    // 도약 전 주저(윈드업, ~0.17초) — 가장자리서 응시
+        public const float DropArcHeight      = 3f;    // 도약 apex 높이(시작점 위로 솟구침) — 클수록 크게 뜀
+        public const float DropLaunchFrac     = 0.35f; // 상승 시간 비율(나머지는 가속 하강=중력 느낌)
+        public const int   DropDurationTicks  = 16;    // 도약(상승+하강) 시간(~0.27초)
+        public const int   DropLandHoldTicks  = 10;    // 착지 "쿵" + 경직(~0.17초) 뒤 추격 재개
 
         // 소환 (지정 지점 + 일정 간격)
         public const int SpawnIntervalTicks = 45;   // 0.75초마다 한 마리

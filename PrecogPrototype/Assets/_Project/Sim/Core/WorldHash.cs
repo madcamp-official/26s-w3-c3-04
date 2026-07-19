@@ -17,6 +17,7 @@ namespace Game.Sim
             ulong h = Offset;
             h = Mix(h, (ulong)w.tick);
             h = Mix(h, w.rngState);
+            h = Mix(h, (ulong)w.nextEnemyId);   // id 발급기(재사용 방지) — 데싱크 감지용
 
             h = MixV(h, w.player.pos);
             h = MixV(h, w.player.vel);
@@ -49,6 +50,7 @@ namespace Game.Sim
                 h = Mix(h, (ulong)e.repathTicks);
                 h = Mix(h, (ulong)e.descentPhase);
                 h = Mix(h, (ulong)e.descentTicks);
+                h = MixV(h, e.descentStart);
                 h = MixV(h, e.descentLanding);
                 h = CombatHash.MixEnemy(h, in e.combat);   // combat 소유 해시
                 h = AIHash.MixAI(h, in e.ai);              // AI 소유 해시

@@ -14,7 +14,7 @@ namespace Game.View
         readonly List<Transform> enemyViews = new List<Transform>();
 
         static readonly Color ChaseColor     = new Color(1f, 0.4f, 0.3f);   // 추격 (빨강)
-        static readonly Color FallingColor   = new Color(1f, 0.9f, 0.2f);   // 절벽 낙하 중 (노랑)
+        static readonly Color LeapColor      = new Color(1f, 0.9f, 0.2f);   // 절벽 도약 중 (노랑)
         static readonly Color HitColor       = new Color(0.5f, 0.05f, 0.05f); // 피격/스턴 (검붉은)
         static readonly Color WindupColor    = new Color(1f, 0.95f, 0.4f);    // 공격 선딜 텔레그래프 (밝은 노랑)
         static readonly Color AttackColor    = new Color(1f, 0.15f, 0.05f);   // 타격 순간 (강렬 빨강)
@@ -60,7 +60,7 @@ namespace Game.View
         }
 
         static Color PhaseColor(DescentPhase p)
-            => p == DescentPhase.Falling ? FallingColor : ChaseColor;
+            => p == DescentPhase.Leaping ? LeapColor : ChaseColor;
 
         Transform MakeCapsule(string name)
         {

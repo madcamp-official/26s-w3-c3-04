@@ -19,20 +19,33 @@ namespace Game.Bridge
             var step = new PathStep { kind = MoveKind.None, next = to };
             if (!Calc(from, to)) return step;
             var c = path.corners;
-            Vector3 nc;
-            if (c.Length >= 2) nc = c[1];
-            else if (c.Length == 1) nc = c[0];
-            else return step;
+            if (c.Length < 2)
+            {
+                if (c.Length == 1) { step.kind = MoveKind.Walk; step.next = c[0]; }
+                return step;
+            }
 
-            step.next = nc;
-            float drop = from.y - nc.y;                       // 아래로 얼마나
-            float dx = nc.x - from.x, dz = nc.z - from.z;
-            float horiz = Mathf.Sqrt(dx * dx + dz * dz);      // 수평 거리
-            step.kind = (drop > SimConfig.DropDetectMinHeight && drop > horiz * SimConfig.DropDetectRatio)
-                ? MoveKind.Jump    // 가파른 낙차 = 절벽(off-mesh link)
-                : MoveKind.Walk;   // 완만 = 경사로/평지
+            // 다음 코너가 이미 급낙차 = 링크 위 → 즉시 낙하
+            if (IsDrop(from, c[1])) { step.kind = MoveKind.Jump; step.next = c[1]; return step; }
+
+            // 다음 코너는 완만(=off-mesh link 입구)인데 '그 다음'이 급낙차이고 입구에 근접했으면
+            // 낙하 커밋(문턱에서 오락가락 낑김 방지 — 착지점으로 바로 떨어짐).
+            if (c.Length >= 3 && HorizDist(from, c[1]) < SimConfig.DropCommitDist && IsDrop(c[1], c[2]))
+            { step.kind = MoveKind.Jump; step.next = c[2]; return step; }
+
+            step.kind = MoveKind.Walk; step.next = c[1];
             return step;
         }
+
+        /// <summary>a→b가 절벽 낙차인가(가파른 아래). 경사로는 완만해서 false.</summary>
+        static bool IsDrop(Vector3 a, Vector3 b)
+        {
+            float drop = a.y - b.y;
+            return drop > SimConfig.DropDetectMinHeight && drop > HorizDist(a, b) * SimConfig.DropDetectRatio;
+        }
+
+        static float HorizDist(Vector3 a, Vector3 b)
+        { float dx = b.x - a.x, dz = b.z - a.z; return Mathf.Sqrt(dx * dx + dz * dz); }
 
         bool Calc(Vector3 from, Vector3 to)
         {

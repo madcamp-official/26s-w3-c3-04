@@ -5,7 +5,7 @@ namespace Game.View
 {
     /// <summary>
     /// 전투 HUD. ★ combat 소유·독립(Main 안 건드림). Main.Instance.World만 읽음.
-    /// 세로 막대: 대시 충전(빨강). 위에 HP 바. (런지는 무제한이라 표시 없음)
+    /// 세로 막대: 런지 스택(노랑, 처치 충전) + 대시 충전(빨강). 위에 HP 바.
     /// IMGUI(OnGUI) — 캔버스/프리팹 없이 자기완결. 순수 연출.
     /// </summary>
     public class CombatHud : MonoBehaviour
@@ -38,7 +38,8 @@ namespace Game.View
             float y = Screen.height - Pad - BarH;
 
             DrawHp(x, y - 24f, in c);
-            DrawDash(x, y, in p);   // 런지 무제한(스택·쿨 없음) → 막대 제거
+            DrawLunge(x, y, in c);
+            DrawDash(x + BarW + Gap, y, in p);
         }
 
         void DrawHp(float x, float y, in PlayerCombatState c)
@@ -49,6 +50,36 @@ namespace Game.View
             var col = f > 0.3f ? new Color(0.85f, 0.2f, 0.2f) : new Color(1f, 0.5f, 0.1f);  // 낮으면 주황 경고
             Fill(x, y, w * f, h, col);
             Frame(x, y, w, h, new Color(0f, 0f, 0f, 0.6f));
+        }
+
+        void DrawLunge(float x, float y, in PlayerCombatState c)
+        {
+            // 런지 스택(처치로 충전). 채워진 칸 = 노랑, 빈 칸 = 어둡게. 쿨 중엔 맨 위 칸이 차오름.
+            var bg = new Color(0.10f, 0.10f, 0.06f, 0.85f);
+            Fill(x - 2, y - 2, BarW + 4, BarH + 4, bg);
+
+            int max = Mathf.Max(1, CombatConfig.LungeMaxStacks);
+            float segH = (BarH - (max - 1) * 3f) / max;
+            var lit = new Color(0.95f, 0.85f, 0.25f);
+            var dim = new Color(0.28f, 0.26f, 0.10f);
+
+            // 쿨 진행분(0=방금 씀, 1=곧 발동 가능) — 다음 칸에 시각화
+            float cool = CombatConfig.LungeCooldownTicks > 0
+                ? 1f - Mathf.Clamp01(c.lungeCooldown / (float)CombatConfig.LungeCooldownTicks) : 1f;
+
+            for (int i = 0; i < max; i++)
+            {
+                float sy = y + BarH - segH - i * (segH + 3f);
+                if (i < c.lungeStacks) Fill(x, sy, BarW, segH, lit);
+                else
+                {
+                    Fill(x, sy, BarW, segH, dim);
+                    // 스택 있고 쿨 도는 중이면, 다음 사용 가능까지 진행분 표시(맨 아래 빈 칸)
+                    if (i == c.lungeStacks && c.lungeStacks > 0 && c.lungeCooldown > 0)
+                        Fill(x, sy + segH * (1f - cool), BarW, segH * cool, lit);
+                }
+            }
+            Frame(x, y, BarW, BarH, new Color(0f, 0f, 0f, 0.6f));
         }
 
         void DrawDash(float x, float y, in PlayerSim p)

@@ -33,13 +33,14 @@ namespace Game.View
         SimServices services;
         Camera cam;
         DevConsole console;
+        MapSpawnConfig spawnConfig;   // 씬에 있으면 그 맵의 스폰지점·종류 세팅을 사용
         float fixedAccum;
 
         System.Collections.Generic.List<Vector3> spawnPoints;
         int spawnTimer, nextSpawn;
 
         // 개발 콘솔 훅
-        public bool AutoSpawn = true;                 // false면 주기 자동소환 멈춤(패턴 관찰용)
+        public bool AutoSpawn = true;                 // 기본 on. 씬 세팅 있으면 그 값으로 덮음
         const float DevSpawnDistance = 6f;            // 콘솔 소환 위치 = 플레이어 정면 이 거리
         bool ConsoleOpen => console != null && console.IsOpen;
 
@@ -67,6 +68,7 @@ namespace Game.View
             SetupCamera();
             prediction.Init(cam);
             console = gameObject.AddComponent<DevConsole>();   // ` 개발 콘솔(몹 소환 등)
+            ReloadSpawnConfig();   // 씬에 MapSpawnConfig 있으면 그 맵의 스폰 세팅 채택
             input.Yaw = 180f;   // 남쪽(아레나) 바라봄
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
@@ -112,27 +114,52 @@ namespace Game.View
 
             SpawnTick();
 
-            // 절벽 낙하 시작 감지 (off-mesh link 큰 낙차 → Falling 진입)
+            // 절벽 도약 시작 감지 (off-mesh link 큰 낙차 → Leaping 진입)
             for (int i = 0; i < world.enemyCount; i++)
             {
                 if (prevWorld.enemyCount > i &&
                     prevWorld.enemies[i].descentPhase == DescentPhase.None &&
-                    world.enemies[i].descentPhase == DescentPhase.Falling)
-                    Debug.Log($"[낙하] 적 {i} 절벽 낙하 시작 (tick {world.tick})");
+                    world.enemies[i].descentPhase == DescentPhase.Leaping)
+                    Debug.Log($"[도약] 적 {i} 절벽 도약 (tick {world.tick})");
             }
         }
 
-        /// <summary>일정 간격으로 지정 스폰 지점에서 순번대로 한 마리씩 (최대치까지).</summary>
+        /// <summary>
+        /// 일정 간격으로 스폰. 씬 세팅(MapSpawnConfig)이 있으면 지점별 지정 종류로,
+        /// 없으면 맵 기본 스폰지점 + 3축 분포(폴백)로 순번대로 한 마리씩(최대치까지).
+        /// </summary>
         void SpawnTick()
         {
             if (!AutoSpawn) return;   // 콘솔에서 autospawn off 하면 멈춤
-            if (spawnPoints == null || spawnPoints.Count == 0) return;
+
+            int interval = spawnConfig != null ? spawnConfig.intervalTicks : SimConfig.SpawnIntervalTicks;
+            int cap      = spawnConfig != null ? spawnConfig.cap           : SimConfig.SpawnCap;
+
             spawnTimer++;
-            if (spawnTimer < SimConfig.SpawnIntervalTicks) return;
-            if (world.AliveCount() >= SimConfig.SpawnCap) return;   // 죽은 적 제외 → 처치하면 재스폰
+            if (spawnTimer < interval) return;
+            if (world.AliveCount() >= cap) return;   // 죽은 적 제외 → 처치하면 재스폰
             spawnTimer = 0;
-            world.AddEnemy(spawnPoints[nextSpawn % spawnPoints.Count]);
-            nextSpawn++;
+
+            if (spawnConfig != null && spawnConfig.entries != null && spawnConfig.entries.Length > 0)
+            {
+                SpawnEntry e = spawnConfig.entries[nextSpawn % spawnConfig.entries.Length];
+                nextSpawn++;
+                if (e.point == null) return;
+                var (c, m, s) = MapSpawnConfig.Axes(e.kind);
+                world.AddEnemy(e.point.position, c, m, s);   // 지점별 지정 종류
+            }
+            else if (spawnPoints != null && spawnPoints.Count > 0)
+            {
+                world.AddEnemy(spawnPoints[nextSpawn % spawnPoints.Count]);   // 폴백: 3축 분포
+                nextSpawn++;
+            }
+        }
+
+        /// <summary>씬의 MapSpawnConfig를 다시 찾아 채택(Inspector 수정 후 콘솔 reload용).</summary>
+        public void ReloadSpawnConfig()
+        {
+            spawnConfig = FindFirstObjectByType<MapSpawnConfig>();
+            if (spawnConfig != null) AutoSpawn = spawnConfig.autoSpawnOnStart;
         }
 
         // ── 개발 콘솔 훅 ──
@@ -157,6 +184,7 @@ namespace Game.View
                 go.tag = "MainCamera";
                 cam = go.AddComponent<Camera>();
             }
+            cam.nearClipPlane = 0.1f;   // 벽면 최소거리(≈0.25) 안쪽 → 벽에 붙어도 뒤가 안 잘림
         }
 
         void OnDrawGizmos()
