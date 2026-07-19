@@ -13,6 +13,7 @@ namespace Game.View
     public class Main : MonoBehaviour
     {
         [SerializeField] float eyeHeight = 1.0f;   // 줄인 키(1.15)에 맞춤
+        [SerializeField] float gameplayFov = 0f;   // 0=씬 카메라 FOV 상속, >0=강제(둠식 넓은 시야는 90~100)
         public bool useSceneGeometry;   // true=씬 지형(Synty) 사용, false=코드 큐브맵
 
         // 전투 뷰(HUD·카메라고정·히트스톱)가 sim 상태를 읽는 최소 접근자 (읽기 전용)
@@ -234,9 +235,15 @@ namespace Game.View
             cam.nearClipPlane = 0.1f;   // 벽면 최소거리(≈0.25) 안쪽 → 벽에 붙어도 뒤가 안 잘림
 
             // Cinemachine: Brain이 vcam pose를 따라 실제 카메라를 움직인다. 1인칭·예측·컷신을 vcam으로 통일.
-            if (cam.GetComponent<CinemachineBrain>() == null) cam.gameObject.AddComponent<CinemachineBrain>();
+            var brain = cam.GetComponent<CinemachineBrain>() ?? cam.gameObject.AddComponent<CinemachineBrain>();
+            // FPS 게임플레이 카메라는 블렌드 금지 → 진입/전환 시 즉시 컷(잠깐 확대돼 보이는 블렌드 인 제거).
+            brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f);
+
             var vgo = new GameObject("GameplayVCam");
             gameplayVcam = vgo.AddComponent<CinemachineCamera>();
+            var lens = LensSettings.FromCamera(cam);            // 원래 카메라 렌즈(FOV·클립) 상속 → 이관 후 화면 변화 방지
+            if (gameplayFov > 0f) lens.FieldOfView = gameplayFov;
+            gameplayVcam.Lens = lens;
             vgo.AddComponent<CinemachineImpulseListener>();   // 타격 쉐이킹(Impulse) 수신 — 발생은 Phase 3
         }
 
