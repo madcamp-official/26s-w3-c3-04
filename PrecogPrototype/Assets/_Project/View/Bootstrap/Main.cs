@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Cinemachine;
 using Game.Sim;
 using Game.Bridge;
 
@@ -46,6 +47,7 @@ namespace Game.View
         SimServices services;        // 평상시 = 런타임 NavMesh
         SimServices graphServices;   // 예측 검색·following 재생 = 고정 그래프
         Camera cam;
+        CinemachineCamera gameplayVcam;   // 1인칭·예측·컷신 모두 이 vcam pose에 씀 → Brain이 실제 카메라 구동(+Impulse)
         DevConsole console;
         MapSpawnConfig spawnConfig;   // 씬에 있으면 그 맵의 스폰지점·종류 세팅을 사용
         float fixedAccum;
@@ -81,7 +83,7 @@ namespace Game.View
 
             views.Init();
             SetupCamera();
-            prediction.Init(cam);
+            prediction.Init(cam, gameplayVcam.transform);
             console = gameObject.AddComponent<DevConsole>();   // ` 개발 콘솔(몹 소환 등)
             ReloadSpawnConfig();   // 씬에 MapSpawnConfig 있으면 그 맵의 스폰 세팅 채택
             input.Yaw = 180f;   // 남쪽(아레나) 바라봄
@@ -106,10 +108,11 @@ namespace Game.View
             // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔 중엔 시점 고정.
             if (!prediction.Frozen && !ConsoleOpen)
             {
-                if (cam != null && views.PlayerAnchor != null)
+                if (gameplayVcam != null && views.PlayerAnchor != null)
                 {
-                    cam.transform.position = views.PlayerAnchor.position + Vector3.up * eyeHeight;
-                    cam.transform.rotation = Quaternion.Euler(input.Pitch, input.Yaw, 0f);
+                    // 실제 카메라가 아니라 vcam pose에 쓴다 — Brain이 이걸 따라가며 Impulse(쉐이킹)를 얹는다.
+                    gameplayVcam.transform.position = views.PlayerAnchor.position + Vector3.up * eyeHeight;
+                    gameplayVcam.transform.rotation = Quaternion.Euler(input.Pitch, input.Yaw, 0f);
                 }
                 if (input.EscapePressed()) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
             }
@@ -228,6 +231,12 @@ namespace Game.View
                 cam = go.AddComponent<Camera>();
             }
             cam.nearClipPlane = 0.1f;   // 벽면 최소거리(≈0.25) 안쪽 → 벽에 붙어도 뒤가 안 잘림
+
+            // Cinemachine: Brain이 vcam pose를 따라 실제 카메라를 움직인다. 1인칭·예측·컷신을 vcam으로 통일.
+            if (cam.GetComponent<CinemachineBrain>() == null) cam.gameObject.AddComponent<CinemachineBrain>();
+            var vgo = new GameObject("GameplayVCam");
+            gameplayVcam = vgo.AddComponent<CinemachineCamera>();
+            vgo.AddComponent<CinemachineImpulseListener>();   // 타격 쉐이킹(Impulse) 수신 — 발생은 Phase 3
         }
 
         void OnDrawGizmos()

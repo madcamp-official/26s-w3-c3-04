@@ -28,6 +28,7 @@ namespace Game.View
         public bool Frozen => state != State.Idle;
 
         Camera cam;
+        Transform camPose;   // Cinemachine vcam pose(여기 쓰면 Brain이 실제 카메라를 따라감). fx·칼 토글엔 cam 사용.
         readonly FreezeFx fx = new FreezeFx();
 
         List<PredictedRoute> routes = new List<PredictedRoute>();
@@ -44,9 +45,10 @@ namespace Game.View
         Transform startMarker;   // 시작 위치(=나) 표시 캡슐
         readonly List<Transform> killMarks = new List<Transform>();
 
-        public void Init(Camera camera)
+        public void Init(Camera camera, Transform pose)
         {
             cam = camera;
+            camPose = pose;
             fx.Init();
             fx.EnableOnCamera(cam);
             domeLr = MakeDome();
@@ -195,19 +197,19 @@ namespace Game.View
 
         void PlaceCamera(in SimWorld w)
         {
-            if (cam == null) return;
+            if (camPose == null) return;
             Vector3 pivot = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
             Quaternion rot = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
-            cam.transform.position = pivot - (rot * Vector3.forward) * PredictionConfig.CamDist;
-            cam.transform.rotation = rot;
+            camPose.position = pivot - (rot * Vector3.forward) * PredictionConfig.CamDist;
+            camPose.rotation = rot;
         }
 
         /// <summary>Following 단계: 실제로 자동 실행 중인 플레이어의 위치·시선을 1인칭으로 따라간다.</summary>
         void PlaceCameraFirstPerson(in SimWorld w)
         {
-            if (cam == null) return;
-            cam.transform.position = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
-            cam.transform.rotation = Quaternion.Euler(0f, w.player.yaw, 0f);
+            if (camPose == null) return;
+            camPose.position = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
+            camPose.rotation = Quaternion.Euler(0f, w.player.yaw, 0f);
         }
 
         // ── 비주얼 요소 ──
