@@ -28,10 +28,13 @@ namespace Game.View
         /// <summary>다른 연출(플레이어 피격 등)이 같은 셰이크 시스템을 쓰게 하는 정적 진입점.</summary>
         public static void Shake(float amp) { if (inst != null) inst.AddShake(amp); }
 
-        // 적 상태 추적 (인덱스 안정: append-only, 처치해도 배열 유지)
-        readonly int[]  prevHp    = new int[SimConfig.MaxEnemies];
-        readonly bool[] prevAlive = new bool[SimConfig.MaxEnemies];
-        readonly bool[] seen      = new bool[SimConfig.MaxEnemies];
+        // 적 상태 추적. ★ sim이 죽은 슬롯을 재사용하므로 인덱스가 아니라 id로 점유자를 식별한다
+        //   (슬롯 재사용 시 사망 셰이크·음 누락, HP 비교 오작동 방지).
+        readonly int[]     prevHp    = new int[SimConfig.MaxEnemies];
+        readonly bool[]    prevAlive = new bool[SimConfig.MaxEnemies];
+        readonly bool[]    seen      = new bool[SimConfig.MaxEnemies];
+        readonly int[]     prevId    = new int[SimConfig.MaxEnemies];
+        readonly Vector3[] prevPos   = new Vector3[SimConfig.MaxEnemies];   // 떠난 적의 마지막 자리
 
         // 플레이어 상태 추적
         bool prevDash;
@@ -62,16 +65,20 @@ namespace Game.View
             for (int i = 0; i < w.enemyCount; i++)
             {
                 ref readonly EnemySim e = ref w.enemies[i];
+                bool sameId = seen[i] && e.id == prevId[i];
                 if (seen[i])
                 {
-                    if (e.alive && e.combat.health < prevHp[i])      // HP 감소 = 새 타격
+                    if (sameId && e.alive && e.combat.health < prevHp[i])   // HP 감소 = 새 타격(동일 적일 때만)
                         OnHit(e.pos);
-                    if (prevAlive[i] && !e.alive)                    // 처치
-                        OnDeath(e.pos);
+                    // 처치 = 죽어서 남았거나 슬롯이 재사용됨(id 변경). 재사용이면 떠난 적의 마지막 자리.
+                    if (prevAlive[i] && (!e.alive || !sameId))
+                        OnDeath(sameId ? e.pos : prevPos[i]);
                 }
                 seen[i]      = true;
                 prevHp[i]    = e.combat.health;
                 prevAlive[i] = e.alive;
+                prevId[i]    = e.id;
+                prevPos[i]   = e.pos;
             }
 
             // ── 플레이어 액션 셰이크(방향성) + 대시 FOV 킥 ──

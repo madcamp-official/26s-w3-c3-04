@@ -20,6 +20,13 @@ namespace Game.View
         readonly bool[] seen      = new bool[SimConfig.MaxEnemies];
         readonly byte[] prevGlory = new byte[SimConfig.MaxEnemies];
         readonly GloryVictim[] victims = new GloryVictim[SimConfig.MaxEnemies];
+        // ★ sim이 죽은 슬롯을 재사용하므로(SimWorld.AddEnemy) 인덱스가 아니라 id로 점유자를 추적한다.
+        //   슬롯 재사용이 View 1프레임 내에 일어나면 alive true→false 전이가 안 보여 시체를 놓치던 버그 수정.
+        readonly int[]     prevId     = new int[SimConfig.MaxEnemies];
+        readonly Vector3[] prevPos    = new Vector3[SimConfig.MaxEnemies];   // 떠난 적의 마지막 자리
+        readonly float[]   prevYaw    = new float[SimConfig.MaxEnemies];
+        readonly float[]   prevHeight = new float[SimConfig.MaxEnemies];
+        readonly float[]   prevScale  = new float[SimConfig.MaxEnemies];
         int slashParity;
 
         Mesh capsuleSrc;                 // 그런트 기준 캡슐(슬라이스 원본). 대형은 transform 스케일로 확대.
@@ -56,17 +63,31 @@ namespace Game.View
             {
                 ref readonly EnemySim e = ref w.enemies[i];
                 byte gs = e.combat.gloryStage;
+                bool sameId = seen[i] && e.id == prevId[i];
 
                 if (seen[i])
                 {
-                    if (gs != prevGlory[i]) GloryTransition(i, gs, in e);
-                    // 일반 처치(글로리킬 아닌 죽음)만 즉시 2조각 슬라이스
-                    if (prevAlive[i] && !e.alive && gs == 0 && prevGlory[i] == 0)
-                        SliceCorpse(e.pos, e.yaw, e.height, e.radius / SimConfig.EnemyRadius);
+                    // 이전 점유자가 떠남 = 죽어서 슬롯에 남았거나(dead), 슬롯이 재사용됨(id 변경).
+                    // 글로리킬이 아니었으면(prevGlory==0) 마지막 자리에 2조각 슬라이스.
+                    bool departed = prevAlive[i] && (!e.alive || !sameId);
+                    if (departed && prevGlory[i] == 0)
+                    {
+                        if (sameId) SliceCorpse(e.pos, e.yaw, e.height, e.radius / SimConfig.EnemyRadius);
+                        else        SliceCorpse(prevPos[i], prevYaw[i], prevHeight[i], prevScale[i]);
+                    }
+
+                    // 글로리 단계 전이는 동일 적일 때만. 재사용이면 이전 글로리 잔여 정리.
+                    if (sameId) { if (gs != prevGlory[i]) GloryTransition(i, gs, in e); }
+                    else if (prevGlory[i] != 0) GloryCleanup(i);
                 }
-                seen[i] = true;
+                seen[i]      = true;
                 prevAlive[i] = e.alive;
                 prevGlory[i] = gs;
+                prevId[i]    = e.id;
+                prevPos[i]   = e.pos;
+                prevYaw[i]   = e.yaw;
+                prevHeight[i] = e.height;
+                prevScale[i] = e.radius / SimConfig.EnemyRadius;
             }
         }
 
