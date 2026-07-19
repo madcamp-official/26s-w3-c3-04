@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Cinemachine;
 using Game.Sim;
 
 namespace Game.View
@@ -11,9 +12,9 @@ namespace Game.View
     /// </summary>
     public class CombatFeedback : MonoBehaviour
     {
-        // 셰이크
-        const float ShakeDecay = 6f;
-        float shakeAmp;
+        // 셰이크 = Cinemachine Impulse (방향·세기 파라미터). vcam의 ImpulseListener가 수신.
+        const float ShakeForce = 6f;   // amp(0~) → 임펄스 힘 배율 (전체 쉐이크 세기 튜닝)
+        CinemachineImpulseSource impulseSource;
 
         static CombatFeedback inst;
         /// <summary>다른 연출(플레이어 피격 등)이 같은 셰이크 시스템을 쓰게 하는 정적 진입점.</summary>
@@ -35,14 +36,16 @@ namespace Game.View
 
         ParticleSystem sparks;
 
-        void Awake() { inst = this; BuildSparks(); }
+        void Awake()
+        {
+            inst = this;
+            BuildSparks();
+            impulseSource = gameObject.AddComponent<CinemachineImpulseSource>();
+            impulseSource.DefaultVelocity = new Vector3(0.4f, 0.4f, 0.15f);   // 기본 쉐이크 방향(힘으로 스케일)
+        }
 
         void Update()
         {
-            // 셰이크 감쇠
-            if (shakeAmp > 0f)
-                shakeAmp = Mathf.MoveTowards(shakeAmp, 0f, ShakeDecay * Time.unscaledDeltaTime);
-
             var main = Main.Instance;
             if (main == null) return;
             ref readonly SimWorld w = ref main.World;
@@ -82,19 +85,11 @@ namespace Game.View
 
         void LateUpdate()
         {
-            // Main.Update가 카메라 위치·회전을 세팅한 "뒤"에 셰이크·FOV킥을 덧씌운다(안 싸움).
-            var cam = Main.Instance != null ? Main.Instance.Cam : null;
-            if (cam == null) return;
-
-            // 대시 FOV 킥: 순간 확대 후 빠르게 복귀 (둠식 속도감)
-            if (baseFov < 0f) baseFov = cam.fieldOfView;
-            cam.fieldOfView = baseFov + FovKickAmount * fovKick;
-
-            if (shakeAmp <= 0f) return;
-            Vector3 off = Random.insideUnitSphere * shakeAmp;
-            off.z *= 0.3f;
-            cam.transform.position += off;
-            cam.transform.rotation *= Quaternion.Euler(off.y * 30f, off.x * 30f, 0f);
+            // FOV 킥은 vcam 렌즈에 얹는다(Brain이 실카메라에 반영). 쉐이크는 Impulse가 처리(여기 없음).
+            var vcam = Main.Instance != null ? Main.Instance.GameplayVcam : null;
+            if (vcam == null) return;
+            if (baseFov < 0f) baseFov = vcam.Lens.FieldOfView;
+            vcam.Lens.FieldOfView = baseFov + FovKickAmount * fovKick;
         }
 
         void OnHit(Vector3 pos)
@@ -112,7 +107,10 @@ namespace Game.View
             CombatAudio.Death();
         }
 
-        void AddShake(float amp) => shakeAmp = Mathf.Max(shakeAmp, amp);
+        void AddShake(float amp)   // amp 세기로 Impulse 발생 → vcam ImpulseListener가 카메라 흔듦
+        {
+            if (impulseSource != null) impulseSource.GenerateImpulseWithForce(amp * ShakeForce);
+        }
 
         void EmitSparks(Vector3 pos, int count)
         {

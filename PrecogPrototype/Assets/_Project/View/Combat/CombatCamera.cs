@@ -64,7 +64,9 @@ namespace Game.View
             float k = 1f - Mathf.Exp(-TurnRate * Time.unscaledDeltaTime);
             curYaw   = Mathf.LerpAngle(curYaw, lockYaw, k);
             curPitch = Mathf.LerpAngle(curPitch, lockPitch, k);
-            cam.transform.rotation = Quaternion.Euler(curPitch, curYaw, 0f);
+            // 실카메라 직접 회전(Brain과 싸움) 대신 입력 시선을 갱신 → Main이 vcam에 반영 → Brain이 구동.
+            main.SetLookYaw(curYaw);
+            main.SetLookPitch(curPitch);
         }
 
         static Vector3 LungeTargetPos(in SimWorld w, int targetId, out float height)
