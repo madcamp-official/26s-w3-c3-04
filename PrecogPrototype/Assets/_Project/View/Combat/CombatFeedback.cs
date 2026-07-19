@@ -87,9 +87,14 @@ namespace Game.View
                 Vector3 lungeDir = w.player.combat.lungeDest - w.player.pos;   // 런지 표적 방향
                 if (lg == CombatConfig.LgTravel) AxisShake(lungeDir, 0.10f);   // 발동: 표적 방향 훅
                 if (prevLunge == CombatConfig.LgTravel && lg == CombatConfig.LgRecovery)
-                { AxisShake(lungeDir, 0.22f); fovKick = CombatConfig.LungeFovKick / FovKickAmount; }  // 임팩트: 표적 방향 강한 훅 + FOV 킥
+                {
+                    AxisShake(lungeDir, 0.22f); fovKick = CombatConfig.LungeFovKick / FovKickAmount;   // 임팩트: 표적 방향 강한 훅 + FOV 킥
+                    ScreenFx.Impact(0.55f);   // 색수차 버스트
+                }
                 prevLunge = lg;
             }
+            // 런지 Travel 동안 렌즈 왜곡 풀백(매 프레임 목표 세팅 → 종료 시 자연 복귀)
+            ScreenFx.LungePull(lg == CombatConfig.LgTravel ? 1f : 0f);
 
             // ── 착지 충격: grounded false→true 전환 시 직전 하강 속도 비례 수직 임펄스 ──
             bool grounded = w.player.grounded;
@@ -123,6 +128,7 @@ namespace Game.View
         void OnDeath(Vector3 pos)
         {
             DirectionalShake(pos, 0.18f, 0.5f);    // 처치: 더 강한 반동 + 위로 펀치
+            ScreenFx.Impact(0.4f);                 // 색수차 버스트
             EmitSparks(pos, 30);
             CombatAudio.Death();
         }
