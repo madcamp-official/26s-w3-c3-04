@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using Game.Sim;
 
@@ -182,6 +183,39 @@ namespace Game.Bridge
             };
             bake.links[2].landingPosition = bake.nodes[1].position;
             return FromBake(bake);
+        }
+
+        /// <summary>실제 3층 아레나 그래프(17노드). 경사로·2F·3F·반층 Walk(양방향) + 다리→1F북 절벽 드롭.
+        /// 손 authoring(기본). corridor 폭·agentMask 정밀 튜닝은 후속(전부 -1=모든 몹, Walk).</summary>
+        public static GraphPathfinder CreateArena()
+        {
+            var nodes = new[]
+            {
+                N(0, 0f,0f,0f, 0),      N(1, 14f,0f,-6f, 0),    N(2, -14f,0f,6f, 0),
+                N(3, 10f,0f,-2f, 0),    N(4, -10f,0f,2f, 0),    N(5, -6f,0f,17f, 0),
+                N(6, 6f,0f,-17f, 0),    N(7, 10f,4.5f,6f, 2),   N(8, 10f,4.5f,18f, 2),
+                N(9, -10f,4.5f,-6f, 2), N(10, -10f,4.5f,-18f, 2),
+                N(11, 18f,9f,20f, 3),   N(12, -18f,9f,-20f, 3), N(13, 0f,9f,22f, 3),
+                N(14, -14f,3f,17f, 1),  N(15, 14f,3f,-17f, 1),  N(16, 0f,0f,20f, 0),
+            };
+            var links = new List<ArenaNavLink>();
+            int id = 0;
+            void W(int a, int b)
+            {
+                links.Add(new ArenaNavLink { linkId = id++, fromNodeId = a, toNodeId = b, traversalType = NavTraversalType.Walk, traversalTicks = 30, agentMask = -1 });
+                links.Add(new ArenaNavLink { linkId = id++, fromNodeId = b, toNodeId = a, traversalType = NavTraversalType.Walk, traversalTicks = 30, agentMask = -1 });
+            }
+            W(0,1); W(0,2); W(0,3); W(0,4); W(0,5); W(0,6); W(1,3); W(2,4);   // 1F
+            W(3,7); W(4,9);            // 1F→2F 경사로
+            W(7,8); W(9,10);           // 2F
+            W(8,11); W(10,12);         // 2F→3F 경사로
+            W(11,13); W(12,13);        // 3F 다리
+            W(5,14); W(6,15);          // 1F→반층 경사로
+            W(0,16); W(5,16);          // 1F 북
+            links.Add(new ArenaNavLink { linkId = id++, fromNodeId = 13, toNodeId = 16,
+                traversalType = NavTraversalType.DropDown, traversalTicks = 30, agentMask = -1,
+                landingPosition = nodes[16].position, landingSlotCount = 1 });   // 다리→1F북 절벽
+            return FromBake(new ArenaMapBake { nodes = nodes, links = links.ToArray() });
         }
 
         static ArenaNavNode N(int id,float x,float y,float z,int floor) => new ArenaNavNode { nodeId=id, position=new Vector3(x,y,z), floorId=floor, areaFlags=MapAreaFlags.Playable };

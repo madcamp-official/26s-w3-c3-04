@@ -68,7 +68,7 @@ namespace Game.View
             // 런타임·예측 모두 같은 불변 유향 그래프를 사용한다. NavMesh는 MapBuilder의
             // 제작/검증 단계에만 남기고 후보 확장 중 CalculatePath를 호출하지 않는다.
             services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers),
-                                       GraphPathfinder.CreatePrototypeArena());
+                                       GraphPathfinder.CreateArena());
 
             world = SimWorld.Create();
             world.player = PlayerSim.Spawn(map.playerSpawn);
