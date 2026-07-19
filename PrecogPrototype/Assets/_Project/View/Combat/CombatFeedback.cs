@@ -13,8 +13,16 @@ namespace Game.View
     public class CombatFeedback : MonoBehaviour
     {
         // 셰이크 = Cinemachine Impulse (방향·세기 파라미터). vcam의 ImpulseListener가 수신.
+        // 상황별(타격 각도·런지 방향·착지)로 임펄스 "방향 벡터"를 달리 줘 손맛을 낸다.
         const float ShakeForce = 6f;   // amp(0~) → 임펄스 힘 배율 (전체 쉐이크 세기 튜닝)
+        // 착지 충격(수직): 하강 속도 비례. 튜닝 상수.
+        const float LandMinSpeed = 3f;     // 이 속도 미만 착지는 무시(잔착지)
+        const float LandPerSpeed = 0.018f; // 하강속도 → amp 환산
         CinemachineImpulseSource impulseSource;
+
+        // 착지 감지용 이전 프레임 상태
+        bool  prevGrounded = true;
+        float prevVelY;
 
         static CombatFeedback inst;
         /// <summary>다른 연출(플레이어 피격 등)이 같은 셰이크 시스템을 쓰게 하는 정적 진입점.</summary>
@@ -66,9 +74,9 @@ namespace Game.View
                 prevAlive[i] = e.alive;
             }
 
-            // ── 플레이어 액션 셰이크 + 대시 FOV 킥 ──
+            // ── 플레이어 액션 셰이크(방향성) + 대시 FOV 킥 ──
             bool dash = w.player.dashTicks > 0;
-            if (dash && !prevDash) { AddShake(0.10f); fovKick = 1f; }
+            if (dash && !prevDash) { AxisShake(w.player.dashDir, 0.10f); fovKick = 1f; }   // 대시 방향으로 훅
             prevDash = dash;
             if (fovKick > 0f)
                 fovKick = Mathf.MoveTowards(fovKick, 0f, FovKickDecay * Time.unscaledDeltaTime);
@@ -76,11 +84,23 @@ namespace Game.View
             byte lg = w.player.combat.lungePhase;
             if (lg != prevLunge)
             {
-                if (lg == CombatConfig.LgTravel) AddShake(0.10f);                      // 발동
+                Vector3 lungeDir = w.player.combat.lungeDest - w.player.pos;   // 런지 표적 방향
+                if (lg == CombatConfig.LgTravel) AxisShake(lungeDir, 0.10f);   // 발동: 표적 방향 훅
                 if (prevLunge == CombatConfig.LgTravel && lg == CombatConfig.LgRecovery)
-                { AddShake(0.22f); fovKick = CombatConfig.LungeFovKick / FovKickAmount; }  // 임팩트: 강한 셰이크 + FOV 킥(0~1 모델)
+                { AxisShake(lungeDir, 0.22f); fovKick = CombatConfig.LungeFovKick / FovKickAmount; }  // 임팩트: 표적 방향 강한 훅 + FOV 킥
                 prevLunge = lg;
             }
+
+            // ── 착지 충격: grounded false→true 전환 시 직전 하강 속도 비례 수직 임펄스 ──
+            bool grounded = w.player.grounded;
+            if (grounded && !prevGrounded)
+            {
+                float impact = Mathf.Max(0f, -prevVelY);
+                if (impact > LandMinSpeed)
+                    AxisShake(Vector3.down, Mathf.Clamp(impact * LandPerSpeed, 0.08f, 0.30f));
+            }
+            prevGrounded = grounded;
+            prevVelY     = w.player.vel.y;
         }
 
         void LateUpdate()
@@ -94,7 +114,7 @@ namespace Game.View
 
         void OnHit(Vector3 pos)
         {
-            AddShake(0.12f);
+            DirectionalShake(pos, 0.12f, 0.35f);   // 타격 각도: 적→카메라 반동 + 약간 위로
             EmitSparks(pos, 14);
             CombatAudio.Hit();        // 칼 타격(금속)
             CombatAudio.EnemyPain();  // 적 신음(유기)
@@ -102,14 +122,38 @@ namespace Game.View
 
         void OnDeath(Vector3 pos)
         {
-            AddShake(0.18f);
+            DirectionalShake(pos, 0.18f, 0.5f);    // 처치: 더 강한 반동 + 위로 펀치
             EmitSparks(pos, 30);
             CombatAudio.Death();
         }
 
-        void AddShake(float amp)   // amp 세기로 Impulse 발생 → vcam ImpulseListener가 카메라 흔듦
+        // 무방향(정적 진입점 등): DefaultVelocity 방향으로 세기만.
+        void AddShake(float amp)
         {
             if (impulseSource != null) impulseSource.GenerateImpulseWithForce(amp * ShakeForce);
+        }
+
+        // 타격 각도 셰이크: 타격 지점 → 카메라(반동 방향) + upBias 만큼 위로 튐.
+        void DirectionalShake(Vector3 fromWorldPos, float amp, float upBias)
+        {
+            if (impulseSource == null) return;
+            Vector3 dir = Vector3.up;
+            var cam = Main.Instance != null ? Main.Instance.Cam : null;
+            if (cam != null)
+            {
+                Vector3 toCam = cam.transform.position - fromWorldPos;
+                toCam.y = 0f;
+                dir = toCam.sqrMagnitude > 1e-4f ? toCam.normalized : cam.transform.forward;
+            }
+            impulseSource.GenerateImpulse((dir + Vector3.up * upBias) * (amp * ShakeForce));
+        }
+
+        // 방향 지정 셰이크(런지·대시·착지): 주어진 월드 방향으로 훅.
+        void AxisShake(Vector3 worldDir, float amp)
+        {
+            if (impulseSource == null) return;
+            if (worldDir.sqrMagnitude < 1e-6f) { AddShake(amp); return; }
+            impulseSource.GenerateImpulse(worldDir.normalized * (amp * ShakeForce));
         }
 
         void EmitSparks(Vector3 pos, int count)
