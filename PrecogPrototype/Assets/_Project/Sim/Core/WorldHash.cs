@@ -18,6 +18,9 @@ namespace Game.Sim
             h = Mix(h, (ulong)w.tick);
             h = Mix(h, w.rngState);
             h = Mix(h, (ulong)w.nextEnemyId);   // id 발급기(재사용 방지) — 데싱크 감지용
+            h = Mix(h, w.spawnLocked ? 1UL : 0UL);
+            h = Mix(h, (ulong)w.waveId);
+            h = Mix(h, (ulong)w.mapVersion);
 
             h = MixV(h, w.player.pos);
             h = MixV(h, w.player.vel);
@@ -45,6 +48,9 @@ namespace Game.Sim
                 h = MixV(h, e.pos);
                 h = MixV(h, e.vel);
                 h = MixF(h, e.yaw);
+                h = Mix(h, e.grounded ? 1UL : 0UL);
+                h = MixF(h, e.radius);
+                h = MixF(h, e.height);
                 h = MixV(h, e.waypoint);
                 h = Mix(h, e.hasWaypoint ? 1UL : 0UL);
                 h = Mix(h, (ulong)e.repathTicks);
@@ -52,6 +58,17 @@ namespace Game.Sim
                 h = Mix(h, (ulong)e.descentTicks);
                 h = MixV(h, e.descentStart);
                 h = MixV(h, e.descentLanding);
+                h = Mix(h, (ulong)(e.currentNavNodeId + 1));
+                h = Mix(h, (ulong)(e.destinationNavNodeId + 1));
+                h = Mix(h, (ulong)(e.nextNavNodeId + 1));
+                h = Mix(h, (ulong)(e.activeTraversalLinkId + 1));
+                h = Mix(h, (ulong)(e.currentFloorId + 1));
+                h = Mix(h, (ulong)e.traversalPhase);
+                h = Mix(h, (ulong)e.activeMoveKind);
+                h = Mix(h, (ulong)e.traversalTicks);
+                h = Mix(h, (ulong)e.jumpDuration);
+                h = MixV(h, e.jumpStart);
+                h = MixV(h, e.jumpEnd);
                 h = CombatHash.MixEnemy(h, in e.combat);   // combat 소유 해시
                 h = AIHash.MixAI(h, in e.ai);              // AI 소유 해시
             }

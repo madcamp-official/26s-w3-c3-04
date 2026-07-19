@@ -1,0 +1,993 @@
+# 게임 런타임 ↔ 예측 엔진 통합 계약
+
+- 버전: 1.3
+- 확정일: 2026-07-18
+- 적용 대상: `PrecogPrototype`
+- 상태: **MVP 구현 기준 확정**
+- 정본 우선순위: 이 문서 → ADR-0003/0004/0007 → 통합 계획서 → 과거 검토 문서
+
+단, **적 AI 세부 규칙은 게임 개발자 설명 대기 상태의 초안**이다.
+적 AI 절에 명시된 항목이 작성·공동 승인되기 전에는 해당 수치를 최종 계약으로 간주하지 않는다.
+
+이 문서는 게임 개발자와 예측 엔진 개발자가 공유하는 실행 계약이다.
+여기에 적힌 구조·순서·단위·판정은 한쪽에서 임의로 변경할 수 없다.
+수치 튜닝도 아래 변경 절차를 거쳐야 한다.
+
+### 항상 참조 규칙
+
+다음 영역의 작업자는 작업 시작 전에 이 문서를 읽고 영향을 받는 장을 PR 설명에 적는다.
+
+- 게임 Sim·전투·플레이어 이동
+- 적 AI·투사체·스폰
+- 맵·NavMesh·고정 그래프·충돌
+- Snapshot·WorldHash
+- Beam Search·후보 평가·AI LOD
+- 잔상·예측 리듬 실행·Perfect/Good/Miss
+
+저장소 루트 `AGENTS.md`와 `README.md`가 이 문서를 필수 정본으로 가리킨다.
+계약과 코드가 다르면 코드에 맞춰 문서를 조용히 고치는 것이 아니라, 변경 절차에 따라
+의도와 호환성 영향을 먼저 합의한다.
+
+---
+
+## 1. 제품 계약
+
+### 1.1 핵심 플레이
+
+정식 플레이 단계 명칭은 **예측 리듬 실행(Prediction Rhythm Execution)** 이다.
+후보를 선택한 뒤 플레이어 입력 없이 성공하는 완전 자동 재생은 구현하지 않는다.
+
+```text
+예측 발동
+→ 현재 SimWorld 스냅샷 고정
+→ 3초 후보 탐색
+→ 최대 3개 후보 프리뷰
+→ 후보 선택
+→ 저장된 월드 상태 궤적 적용
+→ 플레이어가 ActionEvent 타이밍에 액션 입력
+→ Perfect / Good이면 계속
+→ Miss이면 즉시 종료하고 현재 실제 상태에서 직접 조작
+```
+
+### 1.2 플레이어와 엔진의 역할
+
+| 항목 | 담당 |
+| --- | --- |
+| 이동 위치·시선·적 상태·전투 결과 | 선택 후보의 저장된 상태 궤적 |
+| 대시·점프·평타·타깃 런지 입력 | 플레이어 |
+| 입력 판정 | `RhythmJudge` |
+| 화면 보간·잔상·아이콘·효과음 | View |
+| Miss 이후 상태 | Miss 확정 틱의 실제 `SimWorld` |
+
+WASD 이동과 마우스 시선은 예측 리듬 실행 중 궤적에 의해 제어한다.
+플레이어가 직접 입력하는 필수 리듬 액션은 대시, 점프, 평타, 타깃 런지다.
+
+---
+
+## 2. 시간 계약
+
+| 항목 | 확정값 |
+| --- | ---: |
+| 시뮬레이션 주기 | 60Hz |
+| 1틱 | `1 / 60초` |
+| 기본 예측 길이 | 180틱 / 3초 |
+| 성능 저하 시 최소 예측 길이 | 120틱 / 2초 |
+| Beam 매크로 길이 | 15틱 / 0.25초 |
+| 경로선 샘플 | 6틱 / 0.1초 |
+| 일반 잔상 샘플 | 30틱 / 0.5초 |
+
+- Sim 내부에서는 `Time.deltaTime`, `Time.time`, 코루틴 시간을 사용하지 않는다.
+- 모든 쿨타임·선딜·후딜·스턴·판정 창은 정수 틱으로 저장한다.
+- View만 두 Sim 틱 사이를 보간할 수 있다.
+- View 보간 결과는 판정·충돌·피해에 영향을 주지 않는다.
+
+---
+
+## 3. 리듬 판정 계약
+
+### 3.1 판정 대상
+
+일반 30틱 잔상은 경로 가독성을 위한 표식이다. 모든 일반 잔상이 입력 노드는 아니다.
+리듬 판정은 후보 데이터의 `PredictedActionEvent`가 존재하는 틱에만 생성한다.
+
+### 3.1.1 잔상 표시 계약
+
+선택한 후보의 3초 경로에는 **30틱, 즉 0.5초 간격으로 뚜렷한 잔상**을 남긴다.
+잔상은 잠깐 나타났다 사라지는 파티클이 아니라 플레이어가 다음 박자와 위치를 읽는
+리듬 노드다.
+
+각 잔상은 다음 데이터를 가진다.
+
+```text
+ghostIndex
+sampleTick
+worldPosition
+bodyYaw
+actionType 또는 None
+actionTargetId
+judgementState
+```
+
+표시 규칙:
+
+- 후보 선택 직후 선택 경로의 잔상을 한 번에 표시한다.
+- 기본 간격은 30틱이며, 3초 후보에는 시작·종료 포함 최대 7개를 표시한다.
+- `ActionEvent`가 일반 잔상 사이에 있으면 해당 정확한 위치에 액션 잔상을 추가한다.
+- 액션 잔상에는 대시 방향, 점프, 평타, 런지 아이콘을 붙인다.
+- 현재 판정 대상 잔상은 크기·밝기·외곽선으로 가장 뚜렷하게 강조한다.
+- 다음 잔상은 현재 잔상보다 약하게, 이후 잔상은 경로를 읽을 수 있는 최소 밝기로 표시한다.
+- 통과한 잔상은 즉시 삭제하지 않고 0.25초 동안 흐려진 뒤 제거한다.
+- Perfect는 강한 청록/백색 펄스, Good은 약한 청록 펄스, Miss는 적색 파열로 구분한다.
+- 벽이나 바닥에 가려지는 잔상은 실루엣 또는 깊이 무시 외곽선으로 위치를 읽을 수 있어야 한다.
+- 잔상 메시·애니메이션·VFX는 판정을 결정하지 않는다. 판정 기준은 `sampleTick` 또는
+  `PredictedActionEvent.tick`뿐이다.
+
+잔상 위치는 View가 임의 생성하지 않는다. 최종 후보를 60Hz로 정밀 재실행해 얻은
+`PredictedFrame`에서 샘플링한다. 맵의 위층·아래층 경로도 실제 높이에 잔상을 배치한다.
+
+```csharp
+public enum PredictedActionType : byte
+{
+    Jump,
+    DashForward,
+    DashBackward,
+    DashLeft,
+    DashRight,
+    Attack,
+    Lunge
+}
+```
+
+### 3.2 판정 폭
+
+| 판정 | 이벤트 틱 기준 | 의미 |
+| --- | ---: | --- |
+| Perfect | ±3틱 / ±50ms | 계획 유지, 강한 피드백 |
+| Good | ±8틱 / 약 ±133ms | 계획 유지, 약한 피드백 |
+| Miss | Good 창 안에 성공 입력 없음 | 즉시 종료 |
+
+- 빠른 입력은 Good 창 시작부터 해당 이벤트에 버퍼링한다.
+- 입력은 시간상 가장 가까운 아직 미판정 이벤트 하나에만 소비한다.
+- 같은 거리 동률이면 더 이른 이벤트를 선택한다.
+- 잘못된 액션 입력은 이벤트를 소비하지 않는다. Good 창 종료까지 올바른 입력이 없으면 Miss다.
+- 같은 버튼을 연타해 미래의 여러 이벤트를 미리 성공 처리할 수 없다.
+- Perfect와 Good은 궤적 시간·위치·피해 결과를 변경하지 않는다.
+
+### 3.3 Miss 전환
+
+1. Good 창 종료 틱에 성공 입력이 없으면 Miss를 확정한다.
+2. 그 틱까지 적용된 `SimWorld`를 실제 월드로 유지한다.
+3. 이후 저장된 궤적을 더 적용하지 않는다.
+4. 입력 버퍼와 잔상·액션 UI를 비운다.
+5. 다음 Sim 틱부터 일반 입력을 `SimStep.Run`에 전달한다.
+6. `spawnLocked`를 해제한다.
+
+예상 위치로 순간 보정하거나 후보 시작 상태로 롤백하지 않는다.
+
+---
+
+## 4. Sim 실행 계약
+
+게임 플레이, 후보 탐색, 최종 후보 검증은 모두 다음 함수를 사용한다.
+
+```csharp
+SimStep.Run(
+    ref SimWorld world,
+    in InputCmd command,
+    in SimServices services);
+```
+
+한 틱의 실행 순서는 고정한다.
+
+1. 플레이어 이동·점프·대시·런지 이동
+2. 플레이어 평타·런지 전투 상태 진행
+3. 적 ID 오름차순 이동·AI 판단
+4. 적 공격·피해·스턴·사망 처리
+5. 엔티티 겹침 분리
+6. 월드 틱 증가
+
+이 순서를 바꾸는 PR은 게임 개발자와 예측 엔진 개발자 모두의 승인이 필요하다.
+
+### 금지 사항
+
+- Sim에서 `GameObject`, `Transform`, `Animator`, `NavMeshAgent` 참조
+- Sim 결과를 Animation Event로 결정
+- 컬렉션 순회 순서에 의존하는 동률 판정
+- 현재 시간·프레임률에 따른 분기
+- 관리되지 않은 난수
+- 후보별 런타임 메모리 할당
+
+---
+
+## 5. 입력 계약
+
+`InputCmd`가 Sim으로 들어가는 유일한 플레이어 명령이다.
+
+```csharp
+public struct InputCmd
+{
+    public Vector2 move;
+    public float yaw;
+    public bool jump;
+    public bool dash;
+    public DashDirection dashDirection;
+    public bool attack;
+    public bool lunge;
+    public int lungeTargetId;
+}
+```
+
+### 규칙
+
+- 이동은 카메라 yaw 기준이다.
+- 대시는 전·후·좌·우 네 방향만 허용한다.
+- 대시 시작 시 방향을 고정한다.
+- 일반 플레이의 자동 타깃 선택 결과도 `lungeTargetId`에 기록한다.
+- 예측 후보는 타깃을 명시한 `lungeTargetId`를 사용한다.
+- 사용할 수 없는 행동은 무시하며 상태를 부분 변경하지 않는다.
+- 막기·가드·칼등치기·질풍참 입력은 계약에 존재하지 않는다.
+
+---
+
+## 6. 전투 수치 계약
+
+### 플레이어
+
+| 항목 | 값 |
+| --- | ---: |
+| 최대 HP | 3 |
+| 평타 선딜 | 6틱 |
+| 평타 활성 | 2틱 |
+| 평타 후딜 | 12틱 |
+| 평타 범위 | 1.8m |
+| 평타 반각 | 55도 |
+| 공격 피해 | 1 |
+| 공격 스턴 | 30틱 / 0.5초 |
+
+### 4방향 대시
+
+| 항목 | 값 |
+| --- | ---: |
+| 지속 | 9틱 / 0.15초 |
+| 평균 속도 기준 | 26m/s |
+| 총 이동 거리 | 3.9m |
+| 이동 곡선 | SmoothStep, 총거리 보존 |
+| 충전 | 1 |
+| 재충전 | 60틱 / 1초 |
+| 피해·스턴·무적 | 없음 |
+
+### 타깃 런지
+
+| 항목 | 값 |
+| --- | ---: |
+| 최소 거리 | 1.2m |
+| 최대 거리 | 8m |
+| 정면 반각 | 30도 |
+| 높이 차 | 0.8m 이하 |
+| 정지 거리 | 적 앞 0.9m |
+| 선딜 | 3틱 |
+| 이동 | 5틱 |
+| 후딜 | 10틱 |
+| 쿨타임 | 120틱 / 2초 |
+| 피해·스턴 | 1 / 30틱 |
+| 무적 | 없음 |
+
+런지 타깃 조건은 생존, 거리, 높이, 정면 원뿔, LOS, 도착점 캡슐 점유 가능 여부다.
+우선순위는 **각도 → 거리 → 적 ID**다. 시작 순간 `targetId`와 도착점을 고정하며
+이동 중 재탐색하지 않는다. 타깃이 도중에 죽어도 고정 도착점까지 이동하되 피해는 적용하지 않는다.
+
+### 적 AI — 게임 개발자 설명 필요, 현재는 초안
+
+적 AI 계약은 예측 엔진이 임의로 확정하지 않는다. 게임 개발자가 실제 적 설계를 설명하고
+아래 표를 채운 뒤 양쪽 리뷰를 거쳐 이 절을 확정해야 한다. 그전까지 아래 내용은
+프로토타입 연결용 초안이며 최종 게임 규칙의 SSOT가 아니다.
+
+현재 프로토타입 가정:
+
+| 항목 | 임시값 |
+| --- | ---: |
+| 일반 HP | 2 |
+| 중형 HP | 3 |
+| 근접 공격 선딜 | 24틱 |
+| 근접 공격 활성 | 3틱 |
+| 근접 공격 후딜 | 30틱 |
+| 근접 공격 쿨타임 | 45틱 |
+| 근접 공격 범위 | 1.45m |
+| 근접 공격 반각 | 55도 |
+
+현재 임시 원칙은 공격 선딜 시작 시 공격 방향 고정, 활성 구간의 단일 피해 판정,
+AI 난수 미사용이다.
+
+게임 개발자가 제공해야 하는 설명:
+
+- 최종 적 종류와 `enemyTypeId`
+- 종류별 HP·이동 속도·충돌 크기
+- 상태 목록과 상태 전이도
+- 감지 거리·시야·LOS 규칙
+- 추격·정지·후퇴·포위 규칙
+- 타깃 선택과 동률 해소 순서
+- 공격별 선딜·활성·후딜·쿨타임
+- 공격 방향을 고정하는 정확한 틱
+- 근접·원거리·투사체·범위 공격의 피해 규칙
+- 스턴·피격·사망 중 상태 전이
+- 계단·경사·상승 점프·일방 하강 링크 사용 가능 여부
+- 올라갈 수 없는 높이를 만났을 때의 행동
+- 예측 중 AI LOD를 허용할 수 있는 상태와 허용할 수 없는 상태
+- 소환·분열·텔레포트 등 새 엔티티를 만드는 행동 유무
+
+설명 완료 전에도 예측 엔진 개발은 인터페이스와 버퍼를 만들 수 있지만,
+최종 Beam 평가·위협도·성능 LOD는 AI 계약 승인 이후 확정한다.
+
+---
+
+## 7. 월드 상태와 스냅샷 계약
+
+`Snapshot.CopyTo()`가 복사하지 않는 Sim 상태는 존재해서는 안 된다.
+
+필수 상태:
+
+- 월드 tick, waveId, mapVersion, spawnLocked
+- 플레이어 위치·속도·yaw·접지·점프 수
+- 플레이어 HP·생존·경직
+- 대시 방향·남은 틱·충전·재충전
+- 평타·런지 phase·타이머·타깃 ID·시작점·도착점·쿨타임
+- 적 ID·타입·위치·속도·yaw·접지·생존
+- 적 HP·스턴·AI 상태·상태 타이머·공격 쿨타임·고정 공격 방향
+- 적 내비게이션 노드·목적 노드·다음 노드·활성 링크
+- 하강·Traversal 상태와 타이머
+- 이후 투사체를 추가하면 모든 활성 투사체 상태
+
+`WorldHash.Compute()`는 위 상태를 모두 포함해야 한다.
+View 전용 상태, 머티리얼, 애니메이터 진행률은 포함하지 않는다.
+
+---
+
+## 8. 맵·Navigation·Collision 계약
+
+### 8.1 맵 구조 계약
+
+최종 전투 맵은 평면만 가정하지 않는다. 같은 XZ 위치에 서로 다른 높이의 이동 가능
+영역이 존재할 수 있으며, 플레이어와 적은 경사·계단·점프·낙하를 통해 위층과 아래층으로
+이동할 수 있다.
+
+맵의 모든 이동 연결은 방향성을 가진다.
+
+```csharp
+public enum NavTraversalType : byte
+{
+    Walk,
+    RampUp,
+    RampDown,
+    StairUp,
+    StairDown,
+    JumpUp,
+    BoostUp,
+    DropDown,
+    Blocked
+}
+```
+
+핵심 규칙:
+
+- `Walk`, `Ramp`, `Stair`는 실제 지형과 이동 가능 경사가 검증된 경우에만 연결한다.
+- `JumpUp`은 플레이어의 실제 점프·더블점프 성능으로 도달 가능한 경우에만 만든다.
+- `BoostUp`은 층이동 기동을 가진 적만 사용할 수 있는 아래→위 일방 링크다.
+- `DropDown`은 위에서 아래로만 이동하는 일방 링크다.
+- 아래에서 위로 갈 수 없는 절벽·발판에는 역방향 링크를 만들지 않는다.
+- 지형이 가까워 보여도 높이·벽·천장 때문에 도달 불가능하면 노드를 연결하지 않는다.
+- 올라갈 수 없는 곳은 `Blocked` 또는 연결 없음으로 표현한다. 예측 엔진이 임의 점프나
+  런지로 통과 가능한 것으로 추정해서는 안 된다.
+- 런지는 `JumpUp` 대체 수단이 아니다. 확정 도착점에 캡슐 점유와 지면이 모두 유효해야 한다.
+- 적 종류가 특정 상승·하강 링크를 사용할 수 없다면 링크의 `agentMask`로 제한한다.
+- 낙하 피해가 도입되면 링크 데이터에 낙하 높이와 예상 피해를 포함한다.
+- 맵 밖, 장식용 발판, 배경 건물은 이동 그래프에 포함하지 않는다.
+
+### 8.2 맵 제작·베이크 책임
+
+현재 프로토타입의 시각 기준 맵은
+`Assets/Synty/PolygonStarter/Scenes/Demo.unity`다. 이 씬은 플레이 검증용 기준일 뿐,
+Synty 배치 자체를 예측 엔진의 데이터로 직접 읽는 것을 계약으로 삼지 않는다.
+
+맵 작업 순서는 다음으로 고정한다.
+
+```text
+그레이박스 이동 구조 확정
+→ 층·상승·하강·금지 영역 배치
+→ NavMesh 검증
+→ 고정 그래프·충돌 프록시 베이크
+→ 예측 경로 통합 테스트
+→ 디자인 메시와 조명 적용
+→ 그래프·충돌·LOS 재검증
+```
+
+디자인 교체 전에 이동 구조를 확정하며, 디자인 메시는 이미 검증된 이동 구조를
+임의로 좁히거나 막아서는 안 된다.
+
+게임 개발자는 다음 데이터를 제공한다.
+
+- 플레이 가능 영역과 맵 경계
+- 층·구역 ID
+- 스폰 지점과 웨이브 진입 지점
+- 플레이어·적 이동 가능 표면
+- 상승·하강·점프·낙하 링크
+- 올라갈 수 없는 절벽과 금지 영역
+- 런지 도착 금지 영역
+- 위험 지역·낙사 지역·탈출 가능 지점
+- 동적 문·엘리베이터·파괴 지형 존재 여부
+
+예측 엔진에 전달하는 맵 결과물은 하나의 불변 베이크 데이터로 묶는다.
+
+```csharp
+public sealed class ArenaMapBake
+{
+    public int mapVersion;
+    public ArenaNavNode[] nodes;
+    public ArenaNavLink[] links;
+    public MapArea[] areas;
+    public SpawnPoint[] spawnPoints;
+}
+```
+
+`MapArea`는 최소한 `Playable`, `Blocked`, `LungeForbidden`, `FallHazard`,
+`EscapeCandidate` 플래그를 표현한다. 예측 프리뷰와 실행 중에는 이 베이크 데이터를
+교체하거나 수정하지 않는다.
+
+맵 변경 후에는 NavMesh와 고정 그래프를 다시 베이크하고 `mapVersion`을 증가시킨다.
+디자인 메시를 교체해도 베이크 결과와 충돌 프록시가 같다면 버전을 유지할 수 있지만,
+이동 가능 영역·높이·충돌·LOS 중 하나라도 달라지면 반드시 증가시킨다.
+
+### 8.3 Navigation
+
+- 게임 씬 제작·검증에는 Unity NavMesh를 사용한다.
+- 예측 후보 루프에서는 `NavMesh.CalculatePath`와 `NavMesh.SamplePosition`을 호출하지 않는다.
+- 최종 맵의 NavMesh에서 고정 노드·링크 그래프를 베이크한다.
+- 그래프 동률은 다음 노드 ID가 낮은 경로를 선택한다.
+- 맵 또는 그래프 변경 시 `mapVersion`을 증가시킨다.
+- 후보의 `mapVersion`이 실제 월드와 다르면 후보를 폐기한다.
+
+필수 베이크 데이터:
+
+```text
+nodeId, position, floorId, areaFlags
+neighborIds
+traversalType, traversalTicks, linkId
+heightDelta, dropHeight
+agentMask
+landingPosition
+landingSlotCount, landingSpread
+mapVersion
+```
+
+그래프는 유향 그래프다. A→B가 존재해도 B→A가 자동으로 존재하지 않는다.
+특히 `DropDown`은 역방향 이동을 금지하고, `JumpUp`은 실제 도달 테스트를 통과한
+경우에만 별도 역방향 링크를 가질 수 있다.
+
+예측 후보가 도달 불가능한 노드를 목표로 삼으면 해당 후보를 즉시 폐기한다.
+경로가 없는 경우 직선 이동으로 대체하지 않는다.
+
+### 8.4 층이동 실행 계약
+
+기존의 적 자체 하강 판단은 사용하지 않는다. 적이 런타임에 `NavMesh.CalculatePath`를
+여러 번 호출해 “걸어갈지 떨어질지” 비교하지 않고, 사전 계산 경로표의 다음 유향 링크를
+그대로 실행한다.
+
+`PathStep`은 최소한 다음 이동 종류를 직접 반환해야 한다.
+
+```csharp
+public enum MoveKind : byte
+{
+    None,
+    Walk,
+    JumpUp,
+    Drop,
+    Boost
+}
+```
+
+`Jump` 하나를 Drop과 Boost에 공용으로 쓰고 `linkId`를 다시 조회하는 방식은 사용하지 않는다.
+
+상승과 하강은 공용 상태 머신을 사용한다.
+
+```csharp
+public enum TraversalPhase : byte
+{
+    None,
+    Pause,
+    Airborne,
+    Recovery
+}
+```
+
+하강:
+
+```text
+DropStart까지 일반 이동
+→ Pause 12틱
+→ jumpStart에서 jumpEnd까지 매 틱 포물선 이동
+→ Recovery 15틱
+```
+
+상승:
+
+```text
+BoosterStart까지 일반 이동
+→ Pause
+→ jumpStart에서 jumpEnd까지 매 틱 수직 중심 보간
+→ Recovery
+```
+
+- 순간이동식 `pos = landing`은 금지한다.
+- Airborne 중에도 실제 위치·충돌·피격 판정을 유지한다.
+- 엔티티 겹침 분리는 Airborne 동안만 제외한다.
+- 상승·하강 중 피격 또는 스턴 시 처리 규칙은 적 AI 설명에서 확정한다.
+- `jumpStart`, `jumpEnd`, `jumpDuration`, `traversalPhase`, `activeTraversalLinkId`를
+  Snapshot과 WorldHash에 포함한다.
+- 여러 적이 같은 링크에 겹쳐 착지하지 않도록 `entityId % landingSlotCount`로
+  결정론적 착지 슬롯을 선택한다.
+- 슬롯 오프셋은 링크의 착지 평면 안에서 `landingSpread` 범위로 베이크하며,
+  착지 캡슐 유효성 검사를 통과한 슬롯만 저장한다.
+- 기본 슬롯이 점유됐으면 그다음 슬롯을 인덱스 오름차순으로 검사한다.
+- 모든 슬롯이 점유됐으면 링크 진입을 대기하고 다음 틱에 같은 순서로 다시 검사한다.
+
+### 8.5 Collision
+
+Sim은 `ICollision`만 호출한다.
+
+- 일반 플레이: Unity Physics 어댑터 허용
+- 후보 탐색: 베이크 충돌 또는 캐시된 단순 질의 우선
+- 최종 후보 검증: 정밀 충돌 사용
+- 런지 도착점 정밀 검사는 런지 시작 시 한 번 수행
+- 예측 리듬 실행 중 동적 지형 변화는 금지
+
+### 8.6 맵 디버그 표시
+
+개발 빌드에서는 다음을 켜고 끌 수 있어야 한다.
+
+- 이동 가능 노드와 floorId
+- 양방향 보행 링크
+- 상승 링크
+- 하강 전용 링크
+- 도달 불가능·금지 영역
+- 런지 도착점과 실패 이유
+- 예측 경로가 사용한 링크 ID
+
+권장 색상은 보행 청색, 상승 녹색, 하강 황색, 금지 적색이다.
+
+---
+
+## 9. 폐쇄계·스폰 계약
+
+예측 프리뷰 시작부터 성공·Miss 종료까지 다음 값을 유지한다.
+
+```text
+spawnLocked = true
+mapVersion = fixed
+```
+
+잠금 중 금지:
+
+- 새 웨이브·적·투사체 외부 스폰
+- 문·엘리베이터·파괴 지형 상태 변경
+- 랜덤 드롭
+- 컷신으로 Sim 시간 변경
+- 예측 범위 밖 스크립트가 HP·위치·AI 상태 수정
+
+이미 활성화된 적과 투사체는 계속 Sim에 포함한다.
+예측 리듬 실행 중 처치는 가능하지만 처치 컷신은 재생하지 않는다.
+
+---
+
+## 10. 탐색 계약
+
+### 기본 예산
+
+| 항목 | 값 |
+| --- | ---: |
+| 예측 길이 | 180틱 |
+| 매크로 | 15틱 |
+| Beam 폭 | 12 |
+| 평균 행동 후보 | 최대 4 |
+| 런지 후보 | 가까운 유효 대상 최대 2 |
+| 반환 후보 | 최대 3 |
+| 목표 시간 | 200ms |
+| 하드 리밋 | 300ms |
+| 후보 탐색 GC Alloc | 0 목표 |
+
+행동 생성의 정렬 순서는 고정한다.
+
+```text
+ForwardMove
+LeftMove
+RightMove
+Retreat
+Jump
+ForwardDash
+BackwardDash
+LeftDash
+RightDash
+Attack
+Lunge(targetId 오름차순)
+Wait
+```
+
+불가능하거나 쿨타임인 행동은 생성하지 않는다.
+Wait는 공격·투사체 통과, Recovery 종료, 쿨다운 회복처럼 대기할 전술적 이유가 있는
+경우를 위한 최후순위 행동이다. 동일 점수 후보는 연속 Wait 횟수, 전체 Wait 횟수가
+적은 순서로 고른 뒤 입력 시퀀스 사전순, candidateId 오름차순으로 정렬한다.
+전술적 이유가 확인되지 않은 연속 Wait는 1회를 초과하지 않는다.
+
+즉시 폐기 조건:
+
+- 플레이어 사망
+- 맵 이탈 또는 벽 내부
+- 유효하지 않은 런지
+- NaN·Infinity
+- mapVersion 불일치
+- 잠금 중 외부 스폰 감지
+
+### 성능 저하 순서
+
+300ms를 초과하면 다음 순서로 축소한다.
+
+1. 먼 적 AI 정밀도 하향
+2. Beam 12 → 8 → 6
+3. 예측 180틱 → 120틱
+4. 반환 후보 3 → 1
+
+전투 규칙·틱 순서·최종 후보 정밀 검증은 축소하지 않는다.
+
+---
+
+## 11. 후보 결과 계약
+
+```csharp
+public sealed class CandidatePath
+{
+    public int candidateId;
+    public InputCmd[] controls;
+    public PredictedFrame[] predictedFrames;
+    public PredictedActionEvent[] actionEvents;
+    public int killCount;
+    public int expectedHits;
+    public int dashCount;
+    public int lungeCount;
+    public int durationTicks;
+    public float safetyScore;
+    public float killScore;
+    public float difficultyScore;
+    public ulong initialSnapshotHash;
+    public int mapVersion;
+}
+```
+
+- Beam 확장 중에는 전체 프레임 궤적을 저장하지 않는다.
+- 상위 후보만 최초 스냅샷에서 60Hz로 다시 실행해 매 틱 `PredictedFrame`을 만든다.
+- `actionEvents`는 실제 Sim에서 행동이 시작된 틱으로 생성한다.
+- 프리뷰 선택 직전에 initialSnapshotHash와 mapVersion을 다시 검사한다.
+
+---
+
+## 12. 평가 계약
+
+초기 평가는 아래 정규화 항목을 사용한다. 실제 가중치는 한 파일
+`PredictionScoreConfig`에서만 관리한다.
+
+| 항목 | 방향 | 초기 가중치 |
+| --- | --- | ---: |
+| 플레이어 사망 | 감점 | -10000 |
+| 플레이어 피격 1회 | 감점 | -200 |
+| 남은 HP 1 | 가점 | +100 |
+| 일반 적 처치 | 가점 | +120 |
+| 중형 적 처치 | 가점 | +250 |
+| 적에게 피해 1 | 가점 | +25 |
+| 종료 지점 탈출 경로 있음 | 가점 | +80 |
+| 포위 적 1명 | 감점 | -30 |
+| 남은 대시 1회 | 가점 | +20 |
+| 동일 행동 연속 반복 | 감점 | -5 |
+
+후보 카드에는 최소한 다음을 표시한다.
+
+- 예상 처치 수
+- 예상 피격 수
+- 종료 HP
+- 대시·런지 사용 수
+- 리듬 난이도
+- 안전도
+
+게임 개발자는 플레이테스트 결과를 제공하고, 예측 엔진 개발자는 점수 분포와 선택 이유를
+로그로 제공한다. 재미가 없는 후보 문제를 탐색 버그와 점수 튜닝 문제로 구분한다.
+
+---
+
+## 13. 소유권 계약
+
+| 영역 | 주 책임 | 공동 승인 필요 |
+| --- | --- | --- |
+| `SimWorld`, `InputCmd`, `SimStep` | 게임 개발자 | 예측 엔진 개발자 |
+| 전투·이동 수치 | 게임 개발자 | 기획·예측 엔진 개발자 |
+| 적 AI 설명·상태 전이·공격 규칙 | 게임 개발자 | 예측 엔진 개발자 |
+| Snapshot·WorldHash | 예측 엔진 개발자 | 게임 개발자 |
+| 후보 생성·Beam·평가 | 예측 엔진 개발자 | 게임 개발자 |
+| 리듬 판정 | 예측 엔진 개발자 | 게임 개발자·기획 |
+| 맵·NavMesh·그래프 베이크 | 게임 개발자 | 예측 엔진 개발자 |
+| 잔상·아이콘·카드·피드백 | 게임 개발자 | 예측 엔진 개발자 |
+
+다음 변경은 반드시 양쪽 리뷰가 필요하다.
+
+- Sim 필드 추가·삭제
+- SimStep 실행 순서 변경
+- 행동 시작·피해 발생 틱 변경
+- 타깃 선택 우선순위 변경
+- 판정 폭과 Miss 전환 규칙 변경
+- 내비게이션 베이크 형식 변경
+- 후보 평가 항목 변경
+
+---
+
+## 14. 버전·변경 절차
+
+계약에 영향을 주는 PR은 다음을 포함한다.
+
+1. 이 문서의 버전 증가
+2. 변경 이유와 영향 범위
+3. Snapshot·WorldHash 갱신
+4. 결정론 회귀 테스트
+5. 기존 후보 데이터 폐기 여부
+6. 게임 개발자와 예측 엔진 개발자 승인
+
+런타임 호환성 값:
+
+```text
+contractVersion
+mapVersion
+simulationVersion
+```
+
+세 값 중 하나라도 후보 데이터와 다르면 저장 후보를 재사용하지 않는다.
+
+---
+
+## 15. 완료·검증 계약
+
+### 필수 자동 검증
+
+- 같은 스냅샷과 입력으로 180틱 × 100회 WorldHash 일치
+- Snapshot 복사 후 원본·복사본 배열 독립성
+- 적 ID·후보 동률 결과 반복 일치
+- 런지 타깃과 도착점 반복 일치
+- 같은 맵에서 상승·하강 링크 경로 반복 일치
+- 역방향 없는 DropDown을 아래에서 위로 탐색할 때 경로 없음
+- 도달 불가능 발판으로 JumpUp 후보가 생성되지 않음
+- Perfect·Good 경계 틱 테스트
+- Good 창 종료 Miss 테스트
+- Miss 다음 틱 직접 조작 테스트
+- spawnLocked 중 외부 스폰 거부 테스트
+- mapVersion 불일치 후보 거부 테스트
+
+### 통합 완료 조건
+
+- 4~8마리에서 3초 후보를 200ms 내 생성
+- 32마리에서 300ms 하드 리밋 안에 결과 반환
+- 최소 1개 유효 후보 또는 명시적 “안전 경로 없음” 반환
+- 프리뷰 잔상과 예측 리듬 실행 위치가 동일
+- 30틱마다 뚜렷한 잔상이 실제 높이와 floorId에 맞게 표시
+- ActionEvent가 30틱 샘플 사이에 있어도 별도 액션 잔상 생성
+- 벽 뒤·위층·아래층 잔상의 위치와 다음 진행 방향 식별 가능
+- 모든 필수 ActionEvent가 입력 UI와 연결
+- 입력 없는 실행이 반드시 Miss
+- Miss 직후 플레이어·적·쿨타임·속도가 끊김 없이 이어짐
+- 실행 완료 또는 Miss 후 spawnLocked 해제
+
+---
+
+## 16. 구현 시작 체크리스트
+
+### 게임 개발자
+
+- [ ] 모든 게임 결과가 `SimStep.Run` 안에서 결정됨
+- [ ] Unity 객체 상태가 Sim 결과를 바꾸지 않음
+- [ ] 전투 수치가 Config 한 곳에 있음
+- [ ] 최종 맵 그래프 베이크 가능
+- [ ] 상승·하강·도달 불가능 링크를 맵에서 명시
+- [ ] 적 종류별 사용 가능한 수직 링크 설명
+- [ ] 적 AI 상태 전이와 공격 규칙 설명서 제공
+- [ ] 스폰 잠금 API 제공
+- [ ] ActionEvent에 필요한 행동 시작 상태 노출
+
+### 예측 엔진 개발자
+
+- [ ] 버퍼 재사용 Snapshot Pool
+- [ ] WorldHash 회귀 테스트
+- [ ] 고정 순서 후보 생성
+- [ ] Beam 시간 제한과 축소 정책
+- [ ] 최종 후보 60Hz 정밀 재실행
+- [ ] `RhythmExecution`, `TrajectoryPlayback`, `RhythmJudge` 분리
+- [ ] 30틱 잔상과 ActionEvent 잔상 생성기 분리
+- [x] floorId·유향 링크를 후보 탐색에 반영
+- [ ] Miss 원자적 전환
+
+### 공동
+
+- [ ] 이 계약의 수치와 규칙 리뷰
+- [ ] 런지·대시·적 공격 한 틱 타임라인 확인
+- [ ] 3개 대표 전투 시나리오 골든 테스트 작성
+- [ ] 8·16·32·50마리 성능 측정
+- [ ] 계약 변경 승인자 지정
+
+---
+
+## 17. 게임 코드 미완성 상태의 병렬 개발 계약
+
+게임 개발이 완료되지 않아도 예측 엔진 개발은 진행한다. 단, 확정되지 않은 게임 규칙을
+예측팀이 임의로 구현하지 않고, 계약 인터페이스와 FakeSim으로 전체 파이프라인을 먼저 만든다.
+
+### 17.1 계층 경계
+
+```text
+실제 Game Sim ── GamePredictionAdapter ─┐
+                                       ├─ Prediction Engine
+계약용 FakeSim ─ FakePredictionAdapter ─┘
+```
+
+예측 엔진은 GameObject, MonoBehaviour, Animator, NavMeshAgent 또는 개별 적 클래스에
+직접 의존하지 않는다.
+
+권장 경계:
+
+```csharp
+public interface IPredictionSimulation
+{
+    void CopyWorld(in SimWorld source, ref SimWorld destination);
+    void Step(ref SimWorld world, in InputCmd command);
+    ulong ComputeHash(in SimWorld world);
+    PredictionObservation Observe(in SimWorld world);
+}
+
+public struct PredictionObservation
+{
+    public bool playerAlive;
+    public int playerHealth;
+    public int aliveEnemyCount;
+    public int killCount;
+    public int expectedHitCount;
+    public float surroundedRisk;
+    public bool hasEscapeRoute;
+}
+```
+
+초기에는 인터페이스 경계를 우선한다. 프로파일링으로 호출 비용이 확인된 뒤에만
+구체 타입·제네릭·Burst 친화 구조로 최적화한다.
+
+### 17.2 지금 바로 구현할 범위
+
+게임 개발자 코드 없이 확정적으로 만들 수 있는 모듈:
+
+```text
+PredictionSettings
+PredictionRequest / PredictionResult
+CandidatePath
+PredictedFrame / PredictedActionEvent
+MacroAction
+WorldBufferPool
+ActionGenerator
+BeamSearch
+PredictionScoreConfig
+TrajectoryBuilder
+GhostNodeBuilder
+RhythmJudge
+RhythmExecution state machine
+FakePredictionSimulation
+FakeMapGraph
+```
+
+FakeSim 단계별 기능:
+
+1. 플레이어 위치와 Wait·Move만 지원
+2. 대시·점프·평타·런지 이벤트 지원
+3. 정지 적과 처치 상태 지원
+4. 고정 선딜 근접 적 지원
+5. 고정 속도 투사체 지원
+6. Drop·Boost·도달 불가 유향 그래프 지원
+
+### 17.3 FakeSim의 목적과 금지
+
+FakeSim은 다음을 검증한다.
+
+- Beam Search가 후보를 확장·정렬·축소하는가
+- 버퍼 풀에서 GC와 상태 누수가 없는가
+- 최종 후보만 60Hz 궤적을 생성하는가
+- 30틱 잔상과 ActionEvent 잔상이 생성되는가
+- Perfect·Good·Miss와 Miss 복귀 상태 머신이 동작하는가
+- Drop·Boost와 도달 불가 링크를 올바르게 구분하는가
+
+FakeSim에서 금지:
+
+- 초안인 적 AI를 최종 규칙처럼 하드코딩
+- 최종 맵 좌표를 추측
+- 공중 런지 자동 확정
+- 임시 수치를 여러 파일에 복제
+- 실제 Game Sim과 별개의 제품용 전투 규칙 작성
+
+FakeSim 전용 수치는 `FakePredictionConfig`에만 두고 제품 Config와 이름을 분리한다.
+
+### 17.4 FakeMapGraph 최소 시나리오
+
+```text
+1층 A ─ B ─ C
+      │     ╲
+   Boost     Drop
+      │       ╲
+2층 D ─ E ─ F    도달 불가 발판 G
+```
+
+필수 테스트:
+
+- A↔B↔C 보행
+- B→D Boost
+- D에서 B로 역방향 이동 불가
+- F→C Drop
+- C에서 F로 역방향 이동 불가
+- G 경로 없음
+- 같은 Drop을 사용하는 여러 적의 착지 슬롯 반복 일치
+
+### 17.5 실제 Game Sim 교체 조건
+
+게임 개발자가 기능을 제공하면 다음 순서로 FakeSim을 교체한다.
+
+1. 게임 개발자가 해당 규칙을 계약에서 승인
+2. 실제 Sim 필드와 Config 확인
+3. `GamePredictionAdapter` 구현
+4. Snapshot·WorldHash 누락 검사
+5. FakeSim 골든 입력을 실제 Sim에도 실행
+6. 결과 차이를 계약 차이·게임 버그·FakeSim 한계로 분류
+7. 실제 Sim 통합 테스트 통과 후 해당 Fake 기능을 보조 테스트로만 유지
+
+FakeSim과 실제 Sim이 모든 좌표에서 완전히 같은 결과를 낼 필요는 없다. FakeSim은 예측
+파이프라인 검증용이다. 제품 프리뷰와 예측 리듬 실행에 사용하는 최종 결과는 반드시
+실제 `SimStep.Run`으로 생성한다.
+
+### 17.6 개발 차단 기준
+
+다음 작업은 게임 개발자 확정 전까지 인터페이스·테스트 더블까지만 구현한다.
+
+- 최종 적 상태 전이와 공격 수치
+- 돌진 적 상세 동작
+- 원거리 조준 보정과 투사체 판정
+- 비행 적 3D 회피
+- 공중 적 런지
+- 최종 Drop·Booster 위치와 agentMask
+- 동적 문·엘리베이터·파괴 지형
+
+반대로 다음 작업은 기다리지 않는다.
+
+- 후보 데이터와 버퍼 풀
+- Beam Search
+- 고정 순서와 동률 해소
+- 점수 Config와 관측 인터페이스
+- 최종 후보 정밀 궤적 생성
+- 0.5초 잔상
+- 리듬 판정
+- Miss 전환
+- 결정론·성능 테스트 하네스
+
+---
+
+## 18. 작업 시작·종료 템플릿
+
+모든 관련 작업은 다음 항목을 기록한다.
+
+```text
+참조 계약 버전:
+영향 장:
+변경하는 Sim 필드:
+Snapshot 변경:
+WorldHash 변경:
+mapVersion 영향:
+simulationVersion 영향:
+추가한 테스트:
+게임 개발자 승인 필요 항목:
+예측 개발자 승인 필요 항목:
+```
+
+완료 보고에서 계약의 미완료 체크박스를 임의로 완료 처리하지 않는다. 실제 코드와 자동
+테스트가 존재할 때만 완료로 바꾼다.

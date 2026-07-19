@@ -11,41 +11,27 @@ namespace Game.Bridge
     /// </summary>
     public class NavMeshPathfinder : IPathfinder
     {
-        readonly NavMeshPath path = new NavMeshPath();
-        const float SampleRadius = 4f;
-
-        public PathStep NextStep(Vector3 from, Vector3 to)
+        public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
         {
-            var step = new PathStep { kind = MoveKind.None, next = to };
+            var step = new PathStep { kind = MoveKind.None, next = to, currentNodeId = -1,
+                nextNodeId = -1, destinationNodeId = -1, linkId = -1, floorId = -1, destinationFloorId = -1 };
             if (!Calc(from, to)) return step;
             var c = path.corners;
-            if (c.Length < 2)
-            {
-                if (c.Length == 1) { step.kind = MoveKind.Walk; step.next = c[0]; }
-                return step;
-            }
-
-            // 다음 코너가 이미 급낙차 = 링크 위 → 즉시 낙하
-            if (IsDrop(from, c[1])) { step.kind = MoveKind.Jump; step.next = c[1]; return step; }
-
-            // 다음 코너는 완만(=off-mesh link 입구)인데 '그 다음'이 급낙차이고 입구에 근접했으면
-            // 낙하 커밋(문턱에서 오락가락 낑김 방지 — 착지점으로 바로 떨어짐).
-            if (c.Length >= 3 && HorizDist(from, c[1]) < SimConfig.DropCommitDist && IsDrop(c[1], c[2]))
-            { step.kind = MoveKind.Jump; step.next = c[2]; return step; }
-
-            step.kind = MoveKind.Walk; step.next = c[1];
+            if (c.Length < 1) return step;
+            Vector3 nc = c.Length >= 2 ? c[1] : c[0];
+            step.next = nc;
+            float drop = from.y - nc.y;
+            float dx = nc.x - from.x, dz = nc.z - from.z;
+            float horiz = Mathf.Sqrt(dx * dx + dz * dz);
+            step.kind = drop > SimConfig.DropDetectMinHeight && drop > horiz * SimConfig.DropDetectRatio
+                ? MoveKind.Drop : MoveKind.Walk;
+            step.traversalStart = from;
             return step;
         }
 
-        /// <summary>a→b가 절벽 낙차인가(가파른 아래). 경사로는 완만해서 false.</summary>
-        static bool IsDrop(Vector3 a, Vector3 b)
-        {
-            float drop = a.y - b.y;
-            return drop > SimConfig.DropDetectMinHeight && drop > HorizDist(a, b) * SimConfig.DropDetectRatio;
-        }
-
-        static float HorizDist(Vector3 a, Vector3 b)
-        { float dx = b.x - a.x, dz = b.z - a.z; return Mathf.Sqrt(dx * dx + dz * dz); }
+        public int FloorIdAt(Vector3 position) => -1;
+        readonly NavMeshPath path = new NavMeshPath();
+        const float SampleRadius = 4f;
 
         bool Calc(Vector3 from, Vector3 to)
         {

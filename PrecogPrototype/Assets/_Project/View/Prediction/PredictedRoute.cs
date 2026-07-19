@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Game.Sim;
+using Game.Prediction;
 
 namespace Game.View
 {
@@ -13,5 +15,38 @@ namespace Game.View
         public List<Vector3> kills = new List<Vector3>();   // 처치 위치 마커
         public float seconds;                               // 예상 소요 시간(초)
         public Color color = Color.white;
+
+        // >>> [예측 세션 추가, 2026-07-18] 아래 ghostFrames/actionMarkers/controls 3개 필드와
+        // 파일 맨 아래 ActionMarker 구조체는 원래 없었다(위 4개 필드가 KJH 원본). 실제 예측
+        // 연동·자동실행·잔상 표시에 필요해서 추가함 — RoutePreviewStub은 이 3개를 안 채우고
+        // 기본값(빈 리스트/null)으로 두므로 하위 호환된다.
+        /// <summary>계약 3.1.1절 "0.5초(30틱) 간격 정지 잔상"용 샘플 프레임(시작·종료 포함).
+        /// 순수 가독성용 표식이며, 계약 3.1절 "모든 일반 잔상이 입력 노드는 아니다"대로
+        /// 리듬 판정 대상이 아니다 — 판정 대상은 아래 actionMarkers뿐.
+        /// RoutePreviewStub은 못 채운다(실제 재시뮬레이션이 있어야 함) — 그때는 비어있다.</summary>
+        public List<PredictedFrame> ghostFrames = new List<PredictedFrame>();
+
+        /// <summary>계약 3.1/3.1.1절: 실제 행동이 시작된 정확한 틱마다 하나씩 — 0.5초 격자와
+        /// 무관하게, 같은 0.5초 안에 행동이 여러 개 있어도(예: 런지 직후 대시) 각자의 정확한
+        /// 위치에 별도로 생긴다. 리듬 판정(Perfect/Good/Miss)은 이 마커의 tick만 기준으로 한다.
+        /// RoutePreviewStub은 못 채운다 — 그때는 비어있다.</summary>
+        public List<ActionMarker> actionMarkers = new List<ActionMarker>();
+
+        /// <summary>확정 시 실제 플레이어를 자동 재생하기 위한 매 틱 기록 입력. RoutePreviewStub은
+        /// 못 채운다 — 그때는 null이고, PredictionController가 자동실행을 건너뛴다.</summary>
+        public InputCmd[] controls;
+    }
+    // <<< [예측 세션 추가 끝]
+
+    /// <summary>계약 3.1.1절 액션 잔상 1개 — 대시 방향·평타·런지 등 실제 행동이 시작된 정확한
+    /// 틱의 위치·방향·종류. PredictedActionEvent(Prediction 쪽 계약)에 월드 위치·yaw를 얹은
+    /// View 전용 표현.</summary>
+    public struct ActionMarker
+    {
+        public int tick;
+        public Vector3 position;
+        public float yaw;
+        public PredictedActionType type;
+        public int targetId;   // Lunge 전용, 그 외 -1
     }
 }

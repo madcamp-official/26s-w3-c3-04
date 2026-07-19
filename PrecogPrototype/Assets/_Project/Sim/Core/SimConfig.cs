@@ -61,12 +61,21 @@ namespace Game.Sim
         // 절벽 낙하 (자연 낙하). off-mesh link를 큰 낙차로 감지 → 착지점으로 걸어 나가 떨어짐.
         public const float DropDetectMinHeight = 2f;    // 다음 코너가 이만큼 아래면 낙하 후보
         public const float DropDetectRatio     = 1.5f;  // 낙차 > 수평거리 * 이 값 이면 절벽(경사로와 구분)
-        public const float DropCommitDist      = 2f;    // 링크 입구에 이만큼 근접하면 낙하 커밋(문턱 낑김 방지)
-        public const int   DropWindupTicks    = 10;    // 도약 전 주저(윈드업, ~0.17초) — 가장자리서 응시
-        public const float DropArcHeight      = 3f;    // 도약 apex 높이(시작점 위로 솟구침) — 클수록 크게 뜀
-        public const float DropLaunchFrac     = 0.35f; // 상승 시간 비율(나머지는 가속 하강=중력 느낌)
-        public const int   DropDurationTicks  = 16;    // 도약(상승+하강) 시간(~0.27초)
-        public const int   DropLandHoldTicks  = 10;    // 착지 "쿵" + 경직(~0.17초) 뒤 추격 재개
+        // ── 그래프 층이동(traversal) — 팀원 예측 모델. 몹이 Drop/Boost 링크를 Pause→Airborne(포물선)→Recovery로 실행 ──
+        public const int   TraversalPauseTicks     = 12;    // 도약 전 멈칫(주저)
+        public const int   TraversalRecoveryTicks  = 15;    // 착지 후 회복(경직)
+        public const int   TraversalDefaultAirTicks = 30;   // 링크에 틱 지정 없을 때 공중 시간
+        public const float TraversalArcHeight       = 1.25f;// 포물선 apex(기본)
+        // 내 둠식 도약 튜닝값(Phase C에서 traversal Airborne 곡선에 반영). 지금은 보관.
+        public const float DropArcHeight      = 3f;    // 솟구침 높이(크게 뜀)
+        public const float DropLaunchFrac     = 0.35f; // 상승:하강 비율(가속낙하)
+        // (레거시 자연낙하 상수 — NavMeshPathfinder가 참조. 그래프 전환 후 정리 예정)
+        public const float DropCommitDist      = 2f;
+        public const int   DropWindupTicks     = 10;
+        public const int   DropDurationTicks   = 16;
+        public const int   DropLandHoldTicks   = 10;
+        public const float DescentLandEpsilon  = 0.3f;
+        public const int   DescentMaxTicks     = 120;
 
         // 소환 (지정 지점 + 일정 간격)
         public const int SpawnIntervalTicks = 45;   // 0.75초마다 한 마리

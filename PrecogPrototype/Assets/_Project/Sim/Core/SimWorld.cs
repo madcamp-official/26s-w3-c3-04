@@ -12,6 +12,15 @@ namespace Game.Sim
         public int       nextEnemyId;   // 재사용되지 않는 단조 고유 id 발급기(슬롯 재사용과 무관)
         public uint      rngState;   // 시드 고정 결정론 RNG 상태 (DetRng)
 
+        // >>> [예측 세션 추가, 2026-07-18] 원래 없던 필드 3개. 예측(Game.Prediction) 상태
+        // 중복제거·후보 태깅용 — PREDICTION_CONTRACT.md 참고. 되돌리려면 이 3줄과 아래
+        // Create()의 mapVersion=1, Snapshot.cs의 해당 복사 3줄, WorldHash.cs의 해당 해시 3줄을
+        // 같이 제거해야 한다(안 그러면 컴파일은 되지만 예측 쪽이 이 필드를 계속 참조해서 깨짐).
+        public bool spawnLocked;
+        public int  waveId;
+        public int  mapVersion;
+        // <<< [예측 세션 추가 끝]
+
         // ── 적→플레이어 히트 큐 (AI 세션). AI가 큐잉 → CombatResolve가 방어판정 후 적용.
         //    한 틱 안에서 생성·소비되고 CombatResolve가 비우므로 틱 경계엔 항상 비어 있음 → 해시 불필요.
         public PlayerHit[] pendingHits;
@@ -38,6 +47,7 @@ namespace Game.Sim
                 pendingHitCount = 0,
                 projectiles = new Projectile[128],
                 projectileCount = 0,
+                mapVersion = 1,   // [예측 세션 추가] 위 spawnLocked/waveId/mapVersion 필드 초기값
             };
         }
 

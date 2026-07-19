@@ -11,22 +11,20 @@
 
 - **게임 디자인**: [design/GDD.md](design/GDD.md) — 계속 갱신되는 정본
 - **기술 구조**: `design/ARCHITECTURE.md` — 아직 없음 (프로토타입 구조 확정 후 작성 예정)
-- **인터페이스 계약**: `../shared/INTERFACES.md` — 아직 없음 (예측 팀 합류 시 작성)
+- **게임 ↔ 예측 인터페이스 계약**: [../shared/PREDICTION_CONTRACT.md](../shared/PREDICTION_CONTRACT.md) — 구현 기준 SSOT
+- **몹·층이동 계약 초안**: [../shared/ENEMY_SYSTEM.md](../shared/ENEMY_SYSTEM.md) — 게임 개발자 승인 대기 항목 포함
 
 ## 현재 국면
 
-**프로토타입 착수 직전.** Unity 프로젝트(`PrecogPrototype`, Unity 6 URP) 생성 완료. Git 저장소 연결 완료.
+**예측 기반 보강 단계.** Unity 프로토타입의 이동·전투·적 AI·스냅샷 기반을 정리하고 게임 ↔ 예측 계약을 확정했다.
 
 프로토타입 목표는 "손맛"이 아니라 **증명**이다 — 이 프로젝트를 잡아도 되는가, 예측 구현이 가능한가. 핵심 리스크(탐색 성능, 결정론)를 앞으로 당겨 검증한다.
 
 ## 아직 안 정한 것
 
-- 가드 게이지 회복 방식 — (a) 라인하르트 방패식 / (b) 비홀드 후 회복
 - 회복 아이템 드랍률 — **이게 사실상 게임 장르를 결정**
-- 질풍참 스턴 세부 — 지속 시간, 베임 연출 타이밍, 경직 중 밀림 여부
-- NavMesh 런타임 베이크 vs 사전 베이크
+- 정적 Navigation Graph의 최종 노드 배치
 - 예지 경로 탐색 축소 방향 (탐색 깊이 절단 / 목표 후보 절단 / 루트 그래프 사전 배치)
-- 재생 중 시선 자동화 여부
 - 프리뷰 입력이 단타와 겹치는 문제
 
 ## 결정 기록 (decisions/)
@@ -39,8 +37,9 @@
 | [0002](decisions/0002-enemy-one-shot-kill.md) | 적 전부 한방컷 | ~~대체됨~~ → 0006 |
 | [0003](decisions/0003-state-trajectory-replay.md) | 상태 궤적 재생 (입력 재생 기각) | 확정 |
 | [0004](decisions/0004-remove-rng-from-ai.md) | 적 AI 난수 완전 제거 | 확정 |
-| [0005](decisions/0005-dash-to-iaijutsu.md) | 대시 → 질풍참 | 개정됨(잠정) |
-| [0006](decisions/0006-enemy-hp-and-universal-stun.md) | 적 HP 2~3 + 만능 스턴, 우클=칼등치기, 막기 폐기 | 잠정 |
+| [0005](decisions/0005-dash-to-iaijutsu.md) | 대시 → 질풍참 | 대체됨 → 0007 |
+| [0006](decisions/0006-enemy-hp-and-universal-stun.md) | 적 HP 2~3 + 만능 스턴 | 입력 구조는 0007로 대체 |
+| [0007](decisions/0007-four-way-dash-and-target-lunge.md) | 4방향 대시 + 타깃 런지 | 확정 |
 
 ## 검토 기록 (reviews/)
 
@@ -53,8 +52,8 @@
 3. **`SimulateTick` 벤치마크** — 적 12마리로 1틱 μs 측정 → 프로젝트 가능 여부
 4. 결정론 검증 — 스냅샷 복원 → 재굴림 → 해시 일치
 5. **미니 탐색** — 행동 3개 × 깊이 3, 실측 시간 → 예측 구현 가능성
-6. 플레이어 전체 (이동/질풍참/더블점프/평타/막기)
-7. 2층 아레나 + NavMesh + Drop Link
+6. 플레이어 전체 (이동/4방향 대시/더블점프/평타/타깃 런지)
+7. 2층 아레나 + 정적 Navigation Graph + Drop Link
 8. 적 2·3종 (원거리, 중형)
 9. 벽타기 — 탐색 행동 공간에 넣고 재벤치마크
 10. 웨이브, 아이템, 게이지, 스폰 잠금

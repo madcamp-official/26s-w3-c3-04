@@ -40,5 +40,23 @@ namespace Game.Bridge
             groundY = 0f;
             return false;
         }
+
+        // >>> [예측 세션 추가] 아래 두 메서드는 프로젝트 병합 때 예측 쪽(prediction-foundation)의
+        // 독립 추가가 자동으로 합쳐진 것 — 기존 메서드는 안 건드림. Ports.cs의 ICollision에
+        // 같은 이름으로 선언돼 있다.
+        public bool HasLineOfSight(Vector3 from, Vector3 to)
+        {
+            Vector3 delta = to - from;
+            float distance = delta.magnitude;
+            if (distance <= 1e-5f) return true;
+            return !Physics.Raycast(from, delta / distance, distance, mask, QueryTriggerInteraction.Ignore);
+        }
+
+        public bool CanOccupyCapsule(Vector3 feet, float radius, float height)
+        {
+            CharacterMotor.Capsule(feet, radius, height, out Vector3 bottom, out Vector3 top);
+            return !Physics.CheckCapsule(bottom, top, radius, mask, QueryTriggerInteraction.Ignore);
+        }
+        // <<< [예측 세션 추가 끝]
     }
 }

@@ -122,7 +122,7 @@ namespace Game.Sim
             }
 
             // 개시 판단 (경직/하강 아니고, 사거리 + 시야)
-            if (e.combat.stunTicks == 0 && e.descentPhase == DescentPhase.None)
+            if (e.combat.stunTicks == 0 && e.descentPhase == DescentPhase.None && e.traversalPhase == TraversalPhase.None)
             {
                 Vector3 to = w.player.pos - e.pos; to.y = 0f;
                 float hd = to.magnitude;

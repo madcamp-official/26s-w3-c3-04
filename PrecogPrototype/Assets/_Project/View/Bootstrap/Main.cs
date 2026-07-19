@@ -19,6 +19,19 @@ namespace Game.View
         public ref readonly SimWorld World => ref world;
         public Camera Cam => cam;
 
+        // >>> [예측 세션 추가, 2026-07-18] Services/SpawnEnemyNear/ClearAllEnemies는 원래 없던
+        // 접근자다. 예측 쪽(PredictionPreview.cs, RealRoutePreview.cs)이 실제 SimServices와
+        // 디버그용 적 스폰/제거가 필요해서 추가함 — 전부 읽기 전용이거나 디버그 전용이라
+        // 기존 게임 루프 동작에는 영향 없음.
+        public SimServices Services => services;
+
+        /// <summary>디버그용: 지정 위치 근처에 적 1마리 소환(예측 미리보기 시나리오 설정용).</summary>
+        public void SpawnEnemyNear(Vector3 pos) => world.AddEnemy(pos);
+
+        /// <summary>디버그용: 살아있는 적 전부 제거(예측 미리보기 시나리오 리셋용).</summary>
+        public void ClearAllEnemies() => world.enemyCount = 0;
+        // <<< [예측 세션 추가 끝]
+
         // 화면연출(칼등치기 카메라 고정)이 끝날 때 최종 시선을 되돌려 써서 원복 방지.
         // yaw는 sim 입력(cmd.yaw)에도 쓰이므로 여기 하나로 시점·조준이 동기화된다.
         public void SetLookYaw(float yaw) => input.Yaw = yaw;
@@ -52,10 +65,10 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
-            // NavMesh 복귀: 런타임 NavMesh 길찾기(연속 메시·기둥 우회). 얇은 다리 낙하는
-            // 매 틱 navmesh 되당김(ClampToNavMesh)으로 방지. 노드 그래프는 은퇴 예정(Phase 3).
-            IPathfinder pathfinder = new NavMeshPathfinder();
-            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers), pathfinder);
+            // 런타임·예측 모두 같은 불변 유향 그래프를 사용한다. NavMesh는 MapBuilder의
+            // 제작/검증 단계에만 남기고 후보 확장 중 CalculatePath를 호출하지 않는다.
+            services = new SimServices(new PhysicsCollision(Physics.DefaultRaycastLayers),
+                                       GraphPathfinder.CreatePrototypeArena());
 
             world = SimWorld.Create();
             world.player = PlayerSim.Spawn(map.playerSpawn);
@@ -102,25 +115,51 @@ namespace Game.View
 
         void FixedUpdate()
         {
-            if (prediction.Frozen) return;   // 예측 정지 중엔 sim·소환 멈춤
+            // >>> [예측 세션 변경, 2026-07-18] 원래 코드는 아래 두 줄이었다:
+            //   if (prediction.Frozen) return;   // 예측 정지 중엔 sim·소환 멈춤
+            //   prevWorld = Snapshot.Clone(in world);
+            //   InputCmd cmd = input.Consume();
+            // 즉 예측 관련 상태(Preview든 Following이든)면 통째로 멈췄었다. 확정한 경로를
+            // 실제 플레이어가 자동으로 수행하게 하려면(Following) 시뮬레이션을 계속 돌리되
+            // 실시간 입력 대신 기록된 입력을 넣어야 해서, Preview/Following을 분리했다.
+            // 되돌리려면: 아래 if/else 블록을 지우고 위 두 줄로 교체 + SpawnTick() 조건도 제거.
+            if (prediction.state == PredictionController.State.Preview) return;   // 미리보기 중엔 정지
+
+            InputCmd cmd;
+            if (prediction.state == PredictionController.State.Following)
+            {
+                // 확정된 예측 경로를 실제로 재생 — 기록된 입력을 그대로 넣는다. 재생이 끝나면
+                // TryConsumeFollowingInput이 false를 주면서 자동으로 Idle로 돌아간다.
+                if (!prediction.TryConsumeFollowingInput(out cmd)) return;
+            }
+            else if (ConsoleOpen)
+            {
+                cmd = InputCmd.Empty;
+                cmd.yaw = input.Yaw;
+                cmd.pitch = input.Pitch;
+            }
+            else
+            {
+                cmd = input.Consume();
+            }
 
             prevWorld = Snapshot.Clone(in world);
-            // 콘솔 열림 중엔 플레이어 입력 무시(시점만 유지) — 몹은 계속 움직임
-            InputCmd cmd;
-            if (ConsoleOpen) { cmd = InputCmd.Empty; cmd.yaw = input.Yaw; cmd.pitch = input.Pitch; }
-            else cmd = input.Consume();
             SimStep.Run(ref world, in cmd, in services);
             fixedAccum = 0f;
 
-            SpawnTick();
+            // 확정 경로 재생 중엔 예측이 가정한 대로(spawnLocked) 새 적 소환을 잠근다 —
+            // 아니면 예측이 못 본 적이 재생 중에 끼어들어 결과가 어긋난다.
+            if (prediction.state != PredictionController.State.Following)
+                SpawnTick();
+            // <<< [예측 세션 변경 끝]
 
-            // 절벽 도약 시작 감지 (off-mesh link 큰 낙차 → Leaping 진입)
+            // 고정 그래프 층이동 시작 감지
             for (int i = 0; i < world.enemyCount; i++)
             {
                 if (prevWorld.enemyCount > i &&
-                    prevWorld.enemies[i].descentPhase == DescentPhase.None &&
-                    world.enemies[i].descentPhase == DescentPhase.Leaping)
-                    Debug.Log($"[도약] 적 {i} 절벽 도약 (tick {world.tick})");
+                    prevWorld.enemies[i].traversalPhase == TraversalPhase.None &&
+                    world.enemies[i].traversalPhase == TraversalPhase.Pause)
+                    Debug.Log($"[층이동] 적 {i} {world.enemies[i].activeMoveKind} 시작 (tick {world.tick})");
             }
         }
 
