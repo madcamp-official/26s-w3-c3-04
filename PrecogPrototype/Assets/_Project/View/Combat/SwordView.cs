@@ -54,7 +54,7 @@ namespace Game.View
             byte lg = p.combat.lungePhase;
             if (lg != prevLunge)
             {
-                if (prevLunge == CombatConfig.LgNone && lg == CombatConfig.LgWindup)
+                if (prevLunge == CombatConfig.LgNone && lg == CombatConfig.LgTravel)
                     CombatAudio.Backstrike();   // 런지 발동음(구 칼등치기 사운드 재사용)
                 prevLunge = lg;
             }
