@@ -792,7 +792,24 @@ namespace Game.View
             if (camPose == null) return;
             Vector3 pivot = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
             Quaternion rot = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
-            camPose.position = pivot - (rot * Vector3.forward) * PredictionConfig.CamDist;
+            Vector3 direction = -(rot * Vector3.forward);
+            float distance = PredictionConfig.CamDist;
+            int collisionMask = Physics.DefaultRaycastLayers & ~(1 << PredictionAccentLayer);
+            if (Physics.SphereCast(
+                pivot,
+                PredictionConfig.CamCollisionRadius,
+                direction,
+                out RaycastHit hit,
+                PredictionConfig.CamDist,
+                collisionMask,
+                QueryTriggerInteraction.Ignore))
+            {
+                distance = Mathf.Clamp(
+                    hit.distance - PredictionConfig.CamCollisionPadding,
+                    PredictionConfig.CamCollisionMinDistance,
+                    PredictionConfig.CamDist);
+            }
+            camPose.position = pivot + direction * distance;
             camPose.rotation = rot;
         }
 

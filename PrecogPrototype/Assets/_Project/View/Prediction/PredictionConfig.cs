@@ -19,6 +19,9 @@ namespace Game.View
         public const float OrbitPitchInit = 18f;    // 진입 시 살짝 위에서
         public const float OrbitPitchMin  = -10f;
         public const float OrbitPitchMax  = 80f;
+        public const float CamCollisionRadius = 0.28f;
+        public const float CamCollisionPadding = 0.12f;
+        public const float CamCollisionMinDistance = 0.45f;
 
         // 루트 색 (순서: PredictionPlanner.PlanByProfile이 고정하는 안전형/기회형/공격형)
         public static readonly Color[] RouteColors =
