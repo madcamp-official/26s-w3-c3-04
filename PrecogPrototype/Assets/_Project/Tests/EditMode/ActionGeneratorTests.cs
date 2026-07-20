@@ -125,6 +125,31 @@ namespace Game.Sim.Tests
             Assert.AreEqual(2, lungeCount, "유효 타깃 2명이면 런지 후보도 2개 나와야 함(계약 10장)");
         }
 
+        /// <summary>
+        /// 런지 유효성 판정을 real Sim(PlayerCombat.CanLunge)에 위임한 이후의 회귀 고정.
+        /// 옛 독립 재구현은 "플레이어의 현재 정면 방향" 기준 cone으로 걸러서, 사거리·높이·LOS가
+        /// 전부 유효해도 플레이어 뒤쪽 적은 후보에서 제외됐다 — 실제 게임에서 마우스로 뒤를
+        /// 보고 런지하면 되는 상황과 어긋났다. CanLunge는 "이 대상을 정확히 바라본다면winner"을
+        /// 가정하고 판정하므로, 현재 정면과 무관하게 사거리·높이·LOS만으로 유효해야 한다.
+        /// </summary>
+        [Test]
+        public void Generate_ProducesLungeCandidate_ForValidTargetBehindPlayer()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);   // yaw=0 → 정면은 +Z
+            world.AddEnemy(new Vector3(0f, 0f, -3f));        // 정반대 방향(-Z), 사거리·높이는 유효
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int count = ActionGenerator.Generate(in world, in services, in settings, buffer);
+
+            bool hasLunge = false;
+            for (int i = 0; i < count; i++)
+                if (buffer[i].type == MacroActionType.Lunge) hasLunge = true;
+            Assert.IsTrue(hasLunge, "사거리·높이·LOS가 유효하면 정면 밖(뒤쪽) 적도 런지 후보여야 함");
+        }
+
         [Test]
         public void Generate_OrdersLungeCandidatesByAscendingTargetId()
         {

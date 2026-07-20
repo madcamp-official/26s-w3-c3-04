@@ -186,7 +186,7 @@ namespace Game.Prediction
             for (int i = 0; i < world.enemyCount; i++)
             {
                 ref readonly EnemySim enemy = ref world.enemies[i];
-                if (!CanTargetForLunge(in player, in enemy, in services, out _)) continue;
+                if (!CanLungeTarget(in world, in player, in enemy, in services)) continue;
 
                 Vector3 direction = CombatMath.FlatDirection(player.pos, enemy.pos);
                 float dot = Vector3.Dot(forward, direction);
@@ -217,46 +217,36 @@ namespace Game.Prediction
         }
 
         /// <summary>
-        /// PlayerCombat.CanTarget(Sim, private)과 동일한 규칙의 독립 구현.
-        /// 알려진 한계: 런지 유효성 판정이 Sim과 Prediction 두 곳에 존재한다 — 실제 판정
-        /// 규칙이 바뀌면 양쪽을 함께 고쳐야 한다. 근본 해결(Sim 쪽 공개 CanLunge API로 통합)은
-        /// 게임 개발자 승인이 필요해 docs/shared/AERIAL_LUNGE_SIM_API_PROPOSAL.md로 남긴다.
+        /// 런지 유효성 판정을 실제 Sim(PlayerCombat.CanLunge)에 그대로 위임한다 — 예측 전용
+        /// 독립 재구현을 없애서 "예측 됨 → 실제 안 됨" 괴리 자체를 구조적으로 제거한다
+        /// (docs/shared/AERIAL_LUNGE_SIM_API_PROPOSAL.md, KJH 구현 완료).
         ///
-        /// 예전엔 여기서 착지점을 "지면 스냅+캡슐 점유 가능"으로 추가 검증했는데, 실제 Sim
-        /// (PlayerCombat.TryLockDestination/IsLungeable)엔 그런 조건이 아예 없다 — 항상
-        /// "대상 고도(enemy.y+LungeAimUp)"에 무조건 붙는다. 그 결과 표준 hover 고도
-        /// (AIConfig.FlyHoverOffset=2m)에 뜬 공중 적조차, 지면까지의 하향 레이가 딱 그
-        /// 한계치(SampleGround의 maxDown=2f+원점오프셋0.5=2.5m ≈ 필요거리 2.5m)에 걸려
-        /// 실전에서 거의 항상 실패해 런지 후보 자체가 생성되지 않는 버그였다(공중 유닛
-        /// 타겟팅이 접근 시도조차 안 되는 원인). 실제 규칙에 없는 조건이라 삭제하고,
-        /// 착지 높이도 real Sim과 동일하게 계산한다.
+        /// CanLunge는 p.yaw/p.aimPitch(현재 조준) 기준으로 판정하므로, 이 후보를 정확히
+        /// 바라보도록 조준만 맞춘 가상 PlayerSim(위치는 그대로)을 만들어 넣는다 — 그래야
+        /// 실제 발동 경로(IsLungeable+TryLockDestination)와 완전히 같은 결과가 나온다.
+        /// 실제 매크로 실행 시엔 MacroAction이 lungeTargetId를 명시 전달해 PlayerCombat.Step이
+        /// FindLungeTarget(자동 조준 탐지)를 건너뛰므로, 사거리·높이차·LOS를 걸러내는 건
+        /// 사실상 이 검색 단계가 유일한 관문이다 — 지금 정확히 그 검사를 real Sim 규칙으로
+        /// 대체한 것.
         /// </summary>
-        static bool CanTargetForLunge(in PlayerSim player, in EnemySim enemy, in SimServices services, out Vector3 destination)
+        static bool CanLungeTarget(in SimWorld world, in PlayerSim player, in EnemySim enemy, in SimServices services)
         {
-            destination = player.pos;
             if (!enemy.alive || enemy.combat.gloryStage > 0) return false;
-            if (Mathf.Abs(enemy.pos.y - player.pos.y) > CombatConfig.LungeHeightTolerance) return false;
 
-            float distance = CombatMath.FlatDistance(player.pos, enemy.pos);
-            if (distance < CombatConfig.LungeMinRange || distance > CombatConfig.LungeMaxRange + enemy.radius) return false;
-
-            Vector3 forward = CombatMath.Forward(player.yaw);
-            Vector3 delta = enemy.pos - player.pos; delta.y = 0f;
-            float along = Vector3.Dot(delta, forward);
-            Vector3 lateral = delta - forward * along;
-            if (along < CombatConfig.LungeMinRange || along > CombatConfig.LungeMaxRange + enemy.radius)
-                return false;
-            if (lateral.magnitude > CombatConfig.LungeAimRadius + enemy.radius)
-                return false;
-
+            PlayerSim aimed = player;
             Vector3 eye = player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
-            Vector3 target = enemy.pos + Vector3.up * (enemy.height * 0.6f);
-            if (!services.Collision.HasLineOfSight(eye, target)) return false;
-
-            Vector3 direction = CombatMath.FlatDirection(player.pos, enemy.pos);
-            destination = enemy.pos - direction * (CombatConfig.LungeStopDistance + enemy.radius);
-            destination.y = enemy.pos.y + CombatConfig.LungeAimUp;   // real Sim과 동일: 대상 고도에 붙음
-            return true;
+            Vector3 center = enemy.pos + Vector3.up * (enemy.height * 0.5f);
+            Vector3 dir = center - eye;
+            if (dir.sqrMagnitude > 1e-8f)
+            {
+                // Quaternion.Euler(pitch, yaw, 0)*forward와 정확히 왕복하는 유일한 안전한 방법 —
+                // 회전 합성 순서를 직접 손으로 유도하면 부호를 틀리기 쉬워, LookRotation을
+                // eulerAngles로 분해해 그대로 되돌린다(엔진이 왕복을 보장).
+                Vector3 lookEuler = Quaternion.LookRotation(dir).eulerAngles;
+                aimed.yaw = lookEuler.y;
+                aimed.aimPitch = lookEuler.x;
+            }
+            return PlayerCombat.CanLunge(in world, in aimed, in services, enemy.id, out _);
         }
     }
 }

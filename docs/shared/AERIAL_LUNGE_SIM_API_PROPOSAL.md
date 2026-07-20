@@ -1,6 +1,9 @@
 # 제안: 런지 유효성/착지점 판정의 Sim 공개 API 화 (예측·Sim 이중 구현 제거)
 
-상태: **KJH(게임 개발자) 조율 대기.**
+상태: **완료.** KJH가 `PlayerCombat.CanLunge` 공개 API를 커밋(`85cfd10`, core-integrated)했고,
+예측 쪽(`ActionGenerator.CanTargetForLunge` 독립 재구현)을 삭제해 그 API로 완전히 교체했다
+(`CanLungeTarget` 헬퍼가 후보를 바라보도록 조준을 세팅한 가상 `PlayerSim`을 만들어 위임).
+아래 내용은 그 과정의 기록으로 남긴다.
 
 **2026-07-20 갱신**: 아래에서 "코너 케이스"라고 적었던 착지 높이 불일치가, 실제로는 **표준
 hover 고도(FlyHoverOffset=2m)인 공중 적 전반에서 거의 항상 실패하는 심각한 버그**였음이

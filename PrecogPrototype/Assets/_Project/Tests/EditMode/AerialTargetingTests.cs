@@ -180,9 +180,10 @@ namespace Game.Sim.Tests
         /// StubCollision은 SampleGround/CanOccupyCapsule이 항상 성공이라, "실제 아레나에서 착지점
         /// 아래 지면이 안 잡힘"(구덩이·다층 지형·hover 고도가 raycast 한계치에 걸림) 상황을 재현하지
         /// 못한다. 실전에서 "공중 유닛에 접근 시도 자체를 안 함"으로 관측된 버그가 바로 이 실패
-        /// 모드였다 — CanTargetForLunge가 그런 조건을 요구하는데, 그 조건은 real Sim
+        /// 모드였다 — 예측의 옛 독립 재구현(ActionGenerator.CanTargetForLunge, 지금은 삭제되고
+        /// PlayerCombat.CanLunge 위임으로 교체됨)이 그런 조건을 요구했는데, 그 조건은 real Sim
         /// (PlayerCombat.TryLockDestination)엔 애초에 없다. 이 스텁으로 그 상황을 강제해서
-        /// 회귀를 고정한다.
+        /// 회귀를 고정한다 — 지금은 CanLunge가 애초에 지면을 안 보므로 항상 통과해야 정상.
         /// </summary>
         sealed class NoGroundBeneathCollision : ICollision
         {
