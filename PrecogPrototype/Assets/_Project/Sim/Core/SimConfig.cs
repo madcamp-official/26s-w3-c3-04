@@ -24,10 +24,10 @@ namespace Game.Sim
 
         // ── 이동·점프 (static = F1 튜닝 패널에서 실시간 조정. 예측 중 변경 금지) ──
         //    2026-07-18 F1 튜닝으로 확정한 기본값.
-        public static float PlayerMoveSpeed = 8.01f;
-        public static float PlayerJumpSpeed = 10.24f;
+        public static float PlayerMoveSpeed = 9.17f;
+        public static float PlayerJumpSpeed = 11.25f;
         public static int   JumpBufferTicks = 12;    // 착지 직전 점프 선입력 허용
-        public static float AirJumpBoost    = 7.86f; // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
+        public static float AirJumpBoost    = 9.34f; // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
         public static int   AirJumpBoostTicks = 12;  // 임펄스 지속(감쇠)
 
         // ── 4방향 대시 (진짜 임펄스: 초기 속도 부여 → 매 틱 드래그로 감쇠. 이동 전용) ──
