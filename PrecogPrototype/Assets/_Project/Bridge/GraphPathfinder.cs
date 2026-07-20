@@ -16,6 +16,13 @@ namespace Game.Bridge
         readonly int[,] directLink;
         public int MapVersion { get; }
 
+        // ── 공간 색인 ──
+        // NearestNode는 예측에서 적×틱마다 불린다(≈337k 규모). 노드가 늘면 전체 선형 스캔이
+        // 그대로 병목이 되므로, 격자 해시로 주변 셀만 본다. 결과·동률 해소는 선형 스캔과 동일.
+        readonly Dictionary<long, List<int>> grid;
+        readonly float gridCell;
+        readonly int gridMaxRing;
+
         GraphPathfinder(ArenaNavNode[] nodes, ArenaNavLink[] links, int[,] next, int[,] distance, int[,] directLink, int mapVersion)
         {
             this.nodes = nodes;
@@ -24,7 +31,30 @@ namespace Game.Bridge
             this.distance = distance;
             this.directLink = directLink;
             MapVersion = mapVersion;
+
+            // 노드가 적으면 색인이 오히려 손해라 그냥 선형 스캔
+            if (nodes.Length >= 24)
+            {
+                gridCell = 8f;
+                grid = new Dictionary<long, List<int>>(nodes.Length);
+                var min = new Vector3(float.MaxValue, 0f, float.MaxValue);
+                var max = new Vector3(float.MinValue, 0f, float.MinValue);
+                for (int i = 0; i < nodes.Length; i++)
+                {
+                    Vector3 p = nodes[i].position;
+                    if (p.x < min.x) min.x = p.x; if (p.x > max.x) max.x = p.x;
+                    if (p.z < min.z) min.z = p.z; if (p.z > max.z) max.z = p.z;
+                    long k = CellKey(p);
+                    if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>();
+                    l.Add(i);
+                }
+                float span = Mathf.Max(max.x - min.x, max.z - min.z);
+                gridMaxRing = Mathf.Max(2, Mathf.CeilToInt(span / gridCell) + 1);
+            }
         }
+
+        long CellKey(Vector3 p)
+            => ((long)Mathf.FloorToInt(p.x / gridCell) << 32) ^ ((long)Mathf.FloorToInt(p.z / gridCell) & 0xffffffffL);
 
         public static GraphPathfinder FromBake(ArenaMapBake bake, int agentMask = -1)
         {
@@ -33,6 +63,7 @@ namespace Game.Bridge
             ArenaNavNode[] ns = (ArenaNavNode[])bake.nodes.Clone();
             ArenaNavLink[] ls = (ArenaNavLink[])bake.links.Clone();
             Array.Sort(ns, (a, b) => a.nodeId.CompareTo(b.nodeId));
+            FillTraversalDefaults(ns, ls);
             int n = ns.Length;
             var dist = new int[n, n];
             var first = new int[n, n];
@@ -51,7 +82,13 @@ namespace Game.Bridge
                 if (l.traversalType == NavTraversalType.Blocked || (l.agentMask & agentMask) == 0) continue;
                 int a = IndexOf(ns, l.fromNodeId), b = IndexOf(ns, l.toNodeId);
                 if (a < 0 || b < 0) continue;
-                int cost = Mathf.Max(1, Mathf.RoundToInt(Vector3.Distance(ns[a].position, ns[b].position) * 100f));
+                // 비용: 도약 링크는 Bake가 구워둔 "환산거리"(주저+비행+멈칫을 걸은 거리로 환산)를 쓴다.
+                // 이걸 안 쓰고 직선거리로 두면 도약이 공짜로 보여, 평상시(NavMesh, 보정됨)와
+                // 정반대 판단을 하게 된다 — 예측이 거짓말하는 상태가 된다.
+                float costMeters = l.costDistance > 0f
+                    ? l.costDistance
+                    : Vector3.Distance(ns[a].position, ns[b].position);
+                int cost = Mathf.Max(1, Mathf.RoundToInt(costMeters * 100f));
                 if (cost < dist[a, b] || (cost == dist[a, b] && (direct[a, b] < 0 || l.linkId < ls[direct[a, b]].linkId)))
                 {
                     dist[a, b] = cost;
@@ -103,6 +140,42 @@ namespace Game.Bridge
             }
         }
 
+        /// <summary>
+        /// 탄도 파라미터를 안 채운 링크에 길이 기반 기본값을 넣는다.
+        /// ★ 손으로 짠 그래프(CreateArena 등)는 이 필드들이 0이라 그대로 두면
+        ///   "주저·멈칫 없이 즉시 도약 + 최소 clearance"가 되어 기존 동작이 바뀐다.
+        ///   마커 Bake는 clearance를 항상 0보다 크게 채우므로, clearance<=0을 "미지정"으로 본다.
+        /// </summary>
+        static void FillTraversalDefaults(ArenaNavNode[] ns, ArenaNavLink[] ls)
+        {
+            for (int i = 0; i < ls.Length; i++)
+            {
+                var l = ls[i];
+                if (l.traversalType == NavTraversalType.Walk ||
+                    l.traversalType == NavTraversalType.Blocked) continue;
+                if (l.clearance > 0f) continue;   // 이미 구워진 링크
+
+                int a = IndexOf(ns, l.fromNodeId), b = IndexOf(ns, l.toNodeId);
+                if (a < 0 || b < 0) continue;
+                Vector3 from = ns[a].position;
+                Vector3 to = l.landingPosition != default ? l.landingPosition : ns[b].position;
+                float len = Vector3.Distance(from, to);
+
+                l.clearance = Mathf.Clamp(len * SimConfig.TraversalClearanceRatio,
+                                          SimConfig.TraversalMinClearance, SimConfig.TraversalMaxClearance);
+                if (l.pauseTicks <= 0)
+                    l.pauseTicks = TraversalBallistics.LengthToTicks(len,
+                        SimConfig.TraversalPauseMin, SimConfig.TraversalPauseMax,
+                        SimConfig.TraversalLengthRef, SimConfig.TraversalLengthExp);
+                if (l.recoverTicks <= 0)
+                    l.recoverTicks = TraversalBallistics.LengthToTicks(len,
+                        SimConfig.TraversalRecoverMin, SimConfig.TraversalRecoverMax,
+                        SimConfig.TraversalLengthRef, SimConfig.TraversalLengthExp);
+                if (l.landingSlotCount <= 0) l.landingSlotCount = 1;
+                ls[i] = l;
+            }
+        }
+
         public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
         {
             if (nodes.Length == 0) return default;
@@ -117,7 +190,15 @@ namespace Game.Bridge
             if ((link.agentMask & agentMask) == 0) return default;
             MoveKind kind = ToMoveKind(link.traversalType);
             Vector3 target = kind == MoveKind.Drop || kind == MoveKind.Boost ? link.landingPosition : nodes[b].position;
-            return MakeStep(kind, target, a, b, destination, link.linkId, link.traversalTicks);
+            PathStep s = MakeStep(kind, target, a, b, destination, link.linkId, link.traversalTicks);
+            // 탄도 파라미터를 실어 보낸다 — 실행부가 에디터 프리뷰와 같은 함수로 궤적을 푼다.
+            s.clearance    = link.clearance;
+            s.gravity      = link.gravity;
+            s.pauseTicks   = link.pauseTicks;
+            s.recoverTicks = link.recoverTicks;
+            s.slotCount    = link.landingSlotCount;
+            s.slotSpread   = link.landingSpread;
+            return s;
         }
 
         PathStep MakeStep(MoveKind kind, Vector3 target, int a, int b, int destination, int linkId, int ticks)
@@ -161,6 +242,42 @@ namespace Game.Bridge
         }
 
         int NearestNode(Vector3 p)
+        {
+            if (grid == null) return NearestLinear(p);
+
+            int best = -1; float bestSq = float.MaxValue;
+            int cx = Mathf.FloorToInt(p.x / gridCell), cz = Mathf.FloorToInt(p.z / gridCell);
+
+            for (int ring = 0; ring <= gridMaxRing; ring++)
+            {
+                // 이번 고리의 셀들만 훑는다(이미 본 안쪽 고리는 건너뜀)
+                for (int dx = -ring; dx <= ring; dx++)
+                for (int dz = -ring; dz <= ring; dz++)
+                {
+                    if (ring > 0 && Mathf.Abs(dx) != ring && Mathf.Abs(dz) != ring) continue;
+                    long key = ((long)(cx + dx) << 32) ^ ((long)(cz + dz) & 0xffffffffL);
+                    if (!grid.TryGetValue(key, out var bucket)) continue;
+                    for (int b = 0; b < bucket.Count; b++)
+                    {
+                        int i = bucket[b];
+                        float sq = (nodes[i].position - p).sqrMagnitude;
+                        // 동률 해소는 선형 스캔과 동일하게 nodeId 오름차순 → 결정론 보존
+                        if (sq < bestSq - 1e-5f ||
+                            (best >= 0 && Mathf.Abs(sq - bestSq) <= 1e-5f && nodes[i].nodeId < nodes[best].nodeId))
+                        { best = i; bestSq = sq; }
+                    }
+                }
+                // 이 고리 안쪽이 보장하는 반경보다 이미 가까우면 더 볼 필요 없음
+                if (best >= 0)
+                {
+                    float guaranteed = ring * gridCell;
+                    if (bestSq <= guaranteed * guaranteed) break;
+                }
+            }
+            return best >= 0 ? best : NearestLinear(p);
+        }
+
+        int NearestLinear(Vector3 p)
         {
             int best = 0; float bestSq = float.MaxValue;
             for (int i = 0; i < nodes.Length; i++)

@@ -3,8 +3,17 @@ using Game.Sim;
 
 namespace Game.View
 {
-    /// <summary>몹 종류 별칭 → 3축 조합. 콘솔·씬 세팅이 공유하는 단일 정의.</summary>
-    public enum MobKind : byte { Grunt = 0, Pinky = 1, Soldier = 2, Caco = 3, Large = 4 }
+    /// <summary>
+    /// 몹 종류 별칭 → 3축 조합. 콘솔·씬 세팅이 공유하는 단일 정의.
+    /// ※ 값은 씬에 숫자로 직렬화된다 — <b>새 종류는 반드시 맨 뒤에 추가</b>할 것.
+    ///   중간에 끼우면 이미 저장된 웨이브 설정의 몹 종류가 전부 어긋난다.
+    /// </summary>
+    public enum MobKind : byte
+    {
+        Grunt = 0, Pinky = 1, Soldier = 2, Caco = 3, Large = 4,
+        GruntT = 5,     // 근층 — 근접 + 층이동
+        SoldierT = 6,   // 원층 — 원거리 + 층이동
+    }
 
     /// <summary>스폰 지점 하나 = 위치(씬의 빈 오브젝트) + 그 지점에서 나올 종류.</summary>
     [System.Serializable]
@@ -34,10 +43,12 @@ namespace Game.View
         {
             switch (k)
             {
-                case MobKind.Pinky:   return (CombatType.Melee,  MobilityType.Charge, SizeClass.Normal);
-                case MobKind.Soldier: return (CombatType.Ranged, MobilityType.Ground, SizeClass.Normal);
-                case MobKind.Caco:    return (CombatType.Ranged, MobilityType.Flying, SizeClass.Normal);
-                case MobKind.Large:   return (CombatType.Melee,  MobilityType.Ground, SizeClass.Large);
+                case MobKind.Pinky:    return (CombatType.Melee,  MobilityType.Charge,    SizeClass.Normal);
+                case MobKind.Soldier:  return (CombatType.Ranged, MobilityType.Ground,    SizeClass.Normal);
+                case MobKind.Caco:     return (CombatType.Ranged, MobilityType.Flying,    SizeClass.Normal);
+                case MobKind.Large:    return (CombatType.Melee,  MobilityType.Ground,    SizeClass.Large);
+                case MobKind.GruntT:   return (CombatType.Melee,  MobilityType.Traversal, SizeClass.Normal);  // 근층
+                case MobKind.SoldierT: return (CombatType.Ranged, MobilityType.Traversal, SizeClass.Normal);  // 원층
                 default:              return (CombatType.Melee,  MobilityType.Ground, SizeClass.Normal);  // Grunt
             }
         }
@@ -52,6 +63,11 @@ namespace Game.View
                 case "soldier": kind = MobKind.Soldier; return true;
                 case "caco":    kind = MobKind.Caco;    return true;
                 case "large":   kind = MobKind.Large;   return true;
+                // 층이동 변종(근층·원층)
+                case "gruntt":
+                case "근층":    kind = MobKind.GruntT;   return true;
+                case "soldiert":
+                case "원층":    kind = MobKind.SoldierT; return true;
                 default:        kind = MobKind.Grunt;   return false;
             }
         }
@@ -73,10 +89,12 @@ namespace Game.View
         {
             switch (k)
             {
-                case MobKind.Pinky:   return new Color(1f, 0.4f, 0.2f);
-                case MobKind.Soldier: return new Color(0.3f, 0.7f, 1f);
-                case MobKind.Caco:    return new Color(0.8f, 0.3f, 1f);
-                case MobKind.Large:   return new Color(1f, 0.85f, 0.2f);
+                case MobKind.Pinky:    return new Color(1f, 0.4f, 0.2f);
+                case MobKind.Soldier:  return new Color(0.3f, 0.7f, 1f);
+                case MobKind.Caco:     return new Color(0.8f, 0.3f, 1f);
+                case MobKind.Large:    return new Color(1f, 0.85f, 0.2f);
+                case MobKind.GruntT:   return new Color(0.5f, 1f, 0.5f);    // 근층 = 근접색 계열 + 층이동
+                case MobKind.SoldierT: return new Color(0.2f, 1f, 0.85f);   // 원층 = 원거리색 계열 + 층이동
                 default:              return Color.white;   // Grunt
             }
         }

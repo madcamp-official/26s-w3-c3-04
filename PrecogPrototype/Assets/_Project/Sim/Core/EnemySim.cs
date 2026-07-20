@@ -33,6 +33,10 @@ namespace Game.Sim
         public bool    hasWaypoint;
         public int     repathTicks;   // 재계산까지 남은 틱
 
+        // 스폰 펄스(웨이브 배관에서 튀어나옴). >0 = 발사 중 — AI·공격 정지, 탄도 비행만.
+        // 지상몹은 착지하면 해제, 공중몹은 타이머로 해제. 설계: docs/shared/웨이브_시스템_설계.md §4
+        public int launchTicks;
+
         public EnemyCombatState combat;   // ← combat 세션 소유 (health/stun/처치)
         public EnemyAI          ai;       // ← AI 세션 소유 (상태머신/아키타입)
 
@@ -55,6 +59,28 @@ namespace Game.Sim
         public Vector3 jumpStart;
         public Vector3 jumpEnd;
 
+        /// <summary>점유 중인 착지 슬롯 번호(-1 = 없음). 링크 정원·겹침 방지 판정을 이 값 훑기로 한다.</summary>
+        public int traversalSlot;
+
+        /// <summary>이번 도약의 주저·멈칫 틱(도약 시작 시 링크에서 복사). repathTicks 등 기존 필드와 의미가 달라 별도로 둔다.</summary>
+        public int traversalPauseTicks;
+        public int traversalRecoverTicks;
+
+        /// <summary>
+        /// 이번 도약의 궤적 파라미터(시작 시 링크에서 복사). 비행 중 매 틱 궤적을 재구성할 때
+        /// 이 값을 써야 <b>출발할 때 계획한 아치 그대로</b> 난다. 안 들고 있으면 다른 아치로 날다가
+        /// 착지점에 스냅되어 끊겨 보이고, 에디터 고스트와도 어긋난다.
+        /// </summary>
+        public float traversalClearance;
+        public float traversalGravity;
+
+        /// <summary>
+        /// 개체 고정 개성값 0~1. ★ 스폰 시 1회 결정, 이후 불변 → 예측 포크에 안전(ADR-0004 개정).
+        /// 판단(무엇을 할지)에는 쓰지 않고 "얼마나 세게" 같은 연속값에만 관여한다.
+        /// 지금 용도: 분리(뭉치기 방지) 세기 배율 — 전부 같은 가중치라 정면 대칭 진동이 나던 문제 해소.
+        /// </summary>
+        public float personality;
+
         public static EnemySim Spawn(int id, Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
         {
             bool large = size == SizeClass.Large;
@@ -71,7 +97,25 @@ namespace Game.Sim
                 height = SimConfig.EnemyHeight * scale,
                 combat = EnemyCombatState.Spawn(hp),
                 ai = EnemyAI.Spawn(combat, mobility, size),
+                traversalSlot = -1,
+                personality = Personality(id),
             };
+        }
+
+        /// <summary>
+        /// id → 0~1 고정값. 난수 스트림이 아니라 <b>순수 해시</b>라 상태가 없고 포크에 안전하다.
+        /// (ADR-0004 개정: 판단 시 난수는 금지, 스폰 시 고정 상수는 허용.)
+        /// </summary>
+        public static float Personality(int id)
+        {
+            unchecked
+            {
+                uint x = (uint)id * 2654435761u;   // Knuth 승수
+                x ^= x >> 15; x *= 2246822519u;
+                x ^= x >> 13; x *= 3266489917u;
+                x ^= x >> 16;
+                return (x & 0xFFFFu) / 65535f;
+            }
         }
     }
 }

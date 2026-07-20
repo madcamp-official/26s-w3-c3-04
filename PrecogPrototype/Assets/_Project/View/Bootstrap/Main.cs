@@ -33,6 +33,43 @@ namespace Game.View
 
         /// <summary>디버그용: 살아있는 적 전부 제거(예측 미리보기 시나리오 리셋용).</summary>
         public void ClearAllEnemies() => world.enemyCount = 0;
+
+        /// <summary>웨이브 런타임용: 지정 위치·조합으로 스폰하고 부여된 적 id를 돌려준다(-1 = 실패).</summary>
+        public int SpawnEnemyAt(Vector3 pos, CombatType combat, MobilityType mobility, SizeClass size)
+        {
+            int id = world.nextEnemyId;   // AddEnemy가 이 값을 쓰고 증가시킨다
+            return world.AddEnemy(pos, combat, mobility, size) ? id : -1;
+        }
+
+        /// <summary>
+        /// 웨이브 배관용: 스폰과 동시에 **펄스**(초기 속도)를 주고 발사 상태로 만든다(설계 §4).
+        /// 발사 중엔 AI·공격이 멈추고 탄도로 날아가며, 지상몹은 착지 시 · 공중몹은 타이머로 해제된다.
+        /// </summary>
+        public int SpawnEnemyLaunched(Vector3 pos, CombatType combat, MobilityType mobility, SizeClass size,
+                                      Vector3 launchVel)
+        {
+            int id = SpawnEnemyAt(pos, combat, mobility, size);
+            if (id < 0) return -1;
+            for (int i = 0; i < world.enemyCount; i++)
+                if (world.enemies[i].id == id)
+                {
+                    world.enemies[i].vel = launchVel;
+                    world.enemies[i].launchTicks = 1;   // >0 = 발사 중
+                    world.enemies[i].grounded = false;
+                    break;
+                }
+            return id;
+        }
+
+        /// <summary>주어진 id들 중 살아있는 적 수 — 웨이브별 생존 카운트용(Sim 수정 없이 웨이브 소속 추적).</summary>
+        public int AliveCountAmong(System.Collections.Generic.HashSet<int> ids)
+        {
+            if (ids == null || ids.Count == 0) return 0;
+            int n = 0;
+            for (int i = 0; i < world.enemyCount; i++)
+                if (world.enemies[i].alive && ids.Contains(world.enemies[i].id)) n++;
+            return n;
+        }
         // <<< [예측 세션 추가 끝]
 
         // 화면연출(칼등치기 카메라 고정)이 끝날 때 최종 시선을 되돌려 써서 원복 방지.
@@ -90,10 +127,39 @@ namespace Game.View
             // 하이브리드: 평상시 = 런타임 NavMesh(연속 경로·나비 매끄러움).
             // 예측 검색·following 재생 = 고정 그래프(포크·결정론). 둘 다 EnemyMovement가 그대로 씀.
             var collision = new PhysicsCollision(Physics.DefaultRaycastLayers);
-            var runtimePathfinder = new NavMeshPathfinder();
-            ValidatePredictionMapAgainstNavMesh(predictionMap, runtimePathfinder);
-            services      = new SimServices(collision, runtimePathfinder);
-            graphServices = new SimServices(collision, GraphPathfinder.FromBake(predictionMap));
+            var navPathfinder = new NavMeshPathfinder();
+            ValidatePredictionMapAgainstNavMesh(predictionMap, navPathfinder);
+
+            // 층이동 마커 Bake — 씬의 TraversalLink를 NavMeshLink(평상시) + 그래프 링크(예측)로 굽는다.
+            // 같은 소스에서 양쪽을 만들기 때문에 평상시·예측의 층이동이 구조적으로 어긋나지 않는다.
+            var markers = FindObjectsByType<TraversalLink>(FindObjectsSortMode.None);
+
+            // 예측 그래프: 이 씬용으로 구운 에셋이 있으면 그걸 쓰고, 없으면 코드 그래프로 폴백.
+            // 폴백 덕분에 SampleScene(하드코딩 그래프)은 굽지 않아도 그대로 동작한다.
+            string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            var graphAsset = Resources.Load<PredictionGraphAsset>(PredictionGraphAsset.ResourceName(sceneName));
+            GraphPathfinder graphPathfinder;
+            if (graphAsset != null && graphAsset.HasData)
+            {
+                graphPathfinder = GraphPathfinder.FromBake(graphAsset.ToBake());
+                Debug.Log($"[예측 그래프] '{sceneName}' 구운 그래프 사용 — 노드 {graphAsset.nodeCount} · 링크 {graphAsset.linkCount} " +
+                          $"(구운 시각 {graphAsset.bakedAt}, 마커 {graphAsset.markerCount}개)");
+            }
+            else
+            {
+                graphPathfinder = GraphPathfinder.CreateArena();
+                Debug.LogWarning($"[예측 그래프] '{sceneName}'용 구운 그래프가 없어 코드 그래프(SampleScene 전용)로 폴백합니다.\n" +
+                                 "  이 씬에서 예측을 쓰려면 Tools/층이동 링크/예측 그래프 굽기 를 실행하십시오.");
+            }
+            if (markers.Length > 0)
+            {
+                var baked = TraversalBaker.Bake(markers, System.Array.Empty<ArenaNavNode>());
+                navPathfinder.links = baked.ToArray();   // 코너 좌표 매칭으로 진입 판정
+                Debug.Log($"[층이동] 마커 {markers.Length}개 → 링크 {baked.Count}개 구움");
+            }
+
+            services      = new SimServices(collision, navPathfinder);
+            graphServices = new SimServices(collision, graphPathfinder);
 
             world = SimWorld.Create();
             world.mapVersion = predictionMap.mapVersion;

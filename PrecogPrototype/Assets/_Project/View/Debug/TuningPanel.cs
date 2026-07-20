@@ -60,6 +60,13 @@ namespace Game.View
         {
             var kb = Keyboard.current;
             if (kb == null) return;
+            if (kb.f2Key.wasPressedThisFrame)
+            {
+                var v = NavMeshDebugView.Toggle();
+                Debug.Log(v != null
+                    ? "[NavMesh 시각화] 켬 — 파랑=Walkable, 노랑=Jump, 그 외=커스텀 Area. 마커 끝점 초록=면 위 / 빨강=면 밖"
+                    : "[NavMesh 시각화] 끔");
+            }
             if (kb.f1Key.wasPressedThisFrame)
             {
                 if (!captured) Capture();
@@ -118,6 +125,30 @@ namespace Game.View
             CombatConfig.LungeHitStopTicks = ISlider("임팩트 히트스톱(틱)", CombatConfig.LungeHitStopTicks, 0, 20);
             CombatConfig.LungeFovKick = FSlider("임팩트 FOV킥(도)", CombatConfig.LungeFovKick, 0f, 25f);
 
+            GUILayout.Label("<b>층이동(도약) — 주저·멈칫</b>", Rich());
+            GUILayout.Label("0으로 내리면 그 단계가 아예 사라짐. 몹이 못 올라오는지 확인용.", Rich());
+            SimConfig.TraversalPauseMin   = ISlider("주저 최소(틱)", SimConfig.TraversalPauseMin, 0, 30);
+            SimConfig.TraversalPauseMax   = ISlider("주저 최대(틱)", SimConfig.TraversalPauseMax, 0, 60);
+            SimConfig.TraversalRecoverMin = ISlider("멈칫 최소(틱)", SimConfig.TraversalRecoverMin, 0, 30);
+            SimConfig.TraversalRecoverMax = ISlider("멈칫 최대(틱)", SimConfig.TraversalRecoverMax, 0, 60);
+            SimConfig.TraversalAscendShape  = FSlider("상승 가속(1=등속, 클수록 초반 폭발)", SimConfig.TraversalAscendShape, 1f, 4f);
+            SimConfig.TraversalDescendShape = FSlider("하강 가속(1=등속, 클수록 막판 폭발)", SimConfig.TraversalDescendShape, 1f, 4f);
+            if (GUILayout.Button("주저·멈칫 전부 0 (즉시 도약)"))
+            {
+                SimConfig.TraversalPauseMin = SimConfig.TraversalPauseMax = 0;
+                SimConfig.TraversalRecoverMin = SimConfig.TraversalRecoverMax = 0;
+            }
+            GUILayout.Label($"→ 길이 8m 링크 기준 주저 {Preview(SimConfig.TraversalPauseMin, SimConfig.TraversalPauseMax)}틱 · " +
+                            $"멈칫 {Preview(SimConfig.TraversalRecoverMin, SimConfig.TraversalRecoverMax)}틱", Rich());
+
+            GUILayout.Label("<b>몹 분산(뭉치기 방지)</b>", Rich());
+            GUILayout.Label("개성값(개체 고정 0~1)이 분리 세기를 '최소배율~1배'로 갈라 놓습니다.", Rich());
+            AIConfig.SeparationWeight   = FSlider("분리 세기", AIConfig.SeparationWeight, 0f, 3f);
+            AIConfig.SeparationRadius   = FSlider("개인공간 반경(m)", AIConfig.SeparationRadius, 0.2f, 4f);
+            AIConfig.SeparationMaxPush  = FSlider("분리 상한", AIConfig.SeparationMaxPush, 0.5f, 6f);
+            AIConfig.SeparationScaleMin = FSlider("개체차 최소배율(1=개체차 없음)", AIConfig.SeparationScaleMin, 0.1f, 1f);
+            GUILayout.Label($"→ 실효 세기 범위 {AIConfig.SeparationWeight * AIConfig.SeparationScaleMin:0.00} ~ {AIConfig.SeparationWeight:0.00}", Rich());
+
             GUILayout.Label("<b>플레이어</b>", Rich());
             CombatConfig.PlayerMaxHp = ISlider("최대 HP(다음 스폰부터)", CombatConfig.PlayerMaxHp, 1, 20);
             CombatConfig.PlayerHitStunTicks = ISlider("피격 경직(틱)", CombatConfig.PlayerHitStunTicks, 0, 60);
@@ -128,6 +159,11 @@ namespace Game.View
             GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
+
+        /// <summary>길이 8m 링크가 받을 틱 수(슬라이더 효과 즉시 확인용).</summary>
+        static int Preview(int min, int max)
+            => TraversalBallistics.LengthToTicks(8f, min, max,
+                   SimConfig.TraversalLengthRef, SimConfig.TraversalLengthExp);
 
         /// <summary>임펄스 총 거리 = v0·dt·(1-decay^N)/(1-decay). PlayerMovement와 동일 공식.</summary>
         static float DashDistance()

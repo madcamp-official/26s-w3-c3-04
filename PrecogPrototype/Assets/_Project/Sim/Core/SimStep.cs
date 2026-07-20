@@ -45,7 +45,7 @@ namespace Game.Sim
         /// <summary>
         /// 이동·겹침밀침으로 걷기 가능 표면(navmesh) 밖으로 밀려난 지상몹을 되당긴다 — 얇은 다리 낙하 방지.
         /// 무엇이 밀었든(추격·분리 스티어링·겹침 밀침) 틱 끝에 한 번 잡으므로 낙하가 원천 차단된다.
-        /// 제외: 하강 중(일부러 낙하) · 공중몹(떠 있음) · 돌진 중(오버커밋해 다리 밖으로 날아가게).
+        /// 제외: 하강 중(일부러 낙하) · <b>층이동 도약 중</b> · 공중몹(떠 있음) · 돌진 중(오버커밋).
         /// XZ만 당기고 y는 지면 스냅에 맡긴다(수직 팝 방지). navmesh 없으면(그래프 모드) 무동작.
         /// </summary>
         static void ClampToNavMesh(ref SimWorld w, in SimServices svc)
@@ -54,7 +54,10 @@ namespace Game.Sim
             {
                 ref EnemySim e = ref w.enemies[i];
                 if (!e.alive) continue;
-                if (e.descentPhase != DescentPhase.None) continue;   // 하강 중
+                if (e.descentPhase != DescentPhase.None) continue;   // 하강 중(구식 경로)
+                // ★ 층이동 도약 중엔 절대 당기면 안 된다. 공중 궤적은 걷기 가능 표면 밖이라
+                //   매 틱 XZ를 바닥으로 되당기면 탄도와 싸워 뚝뚝 끊기고, 착지에 도달하지 못한다.
+                if (e.traversalPhase != TraversalPhase.None) continue;
                 if (e.ai.mobility == MobilityType.Flying) continue;  // 공중몹
                 if (e.ai.state == EnemyState.ChargeRun) continue;    // 돌진 중(오버커밋 허용)
                 if (svc.Pathfinder.ClampToWalkable(e.pos, SimConfig.EnemyNavClampDist, out Vector3 onMesh))

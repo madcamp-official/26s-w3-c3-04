@@ -27,6 +27,7 @@ namespace Game.Sim
             h = MixF(h, w.player.yaw);
             h = MixF(h, w.player.aimPitch);
             h = Mix(h, w.player.grounded ? 1UL : 0UL);
+            h = MixV(h, w.player.lastGroundedPos);   // 적 추적 목표 — 빠지면 데싱크를 못 잡는다
             h = Mix(h, (ulong)w.player.jumpCount);
             h = Mix(h, (ulong)w.player.jumpBufferTicks);
             h = Mix(h, (ulong)w.player.jumpBoostTicks);
@@ -69,6 +70,13 @@ namespace Game.Sim
                 h = Mix(h, (ulong)e.jumpDuration);
                 h = MixV(h, e.jumpStart);
                 h = MixV(h, e.jumpEnd);
+                h = Mix(h, (ulong)(e.traversalSlot + 1));   // 착지 슬롯 점유
+                h = Mix(h, (ulong)e.traversalPauseTicks);
+                h = Mix(h, (ulong)e.traversalRecoverTicks);
+                h = MixF(h, e.traversalClearance);
+                h = MixF(h, e.traversalGravity);
+                h = Mix(h, (ulong)e.launchTicks);           // 스폰 펄스 진행 상태
+                h = MixF(h, e.personality);                 // 개체 고정 개성값
                 h = CombatHash.MixEnemy(h, in e.combat);   // combat 소유 해시
                 h = AIHash.MixAI(h, in e.ai);              // AI 소유 해시
             }
