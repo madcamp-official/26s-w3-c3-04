@@ -24,7 +24,13 @@ namespace Game.Bridge
         static int restrictedArea = -2;   // -2 = 아직 조회 안 함, -1 = 프로젝트에 없음
 
         const float SampleRadius = 4f;
-        const float MatchEpsilon = 0.35f;   // 코너 ↔ 마커 출발점 좌표 일치 허용 오차(m)
+        // 코너 ↔ 마커 출발점 허용 오차.
+        // ★ NavMesh는 링크 진입점을 링크 "변" 위 아무 곳에나 잡는다(폭이 있으면 중심에서 ±폭/2).
+        //   실측에서 0.50m 어긋났고, 오차를 0.35로 두었더니 접근 각도에 따라 매칭이 되다 말다 했다
+        //   (= 간헐적으로 도약을 안 하던 원인). Baker가 폭 0으로 굽지만 여유를 넉넉히 둔다.
+        const float MatchEpsilon   = 0.9f;
+        const float FootEpsilon    = 1.2f;   // 몹이 발판 위에 섰다고 볼 수평 반경(도착 판정 0.6보다 넉넉히)
+        const float LandingEpsilon = 1.5f;   // 다음 코너 ↔ 링크 착지점 허용 오차(착지점은 슬롯만큼 벌어짐)
 
         readonly NavMeshPath path = new NavMeshPath();
 
@@ -47,24 +53,49 @@ namespace Game.Bridge
             step.traversalStart = from;
 
             // ── 마커 진입 판정 ──
-            int li = FindLinkStartingNear(nc, agentMask);
-            if (li >= 0)
-            {
-                ArenaNavLink l = links[li];
-                step.kind = l.traversalType == NavTraversalType.JumpUp ? MoveKind.JumpUp : MoveKind.Drop;
-                step.traversalStart = l.traversalStartPosition;   // 발판까지 걸어간 뒤 도약
-                step.next = l.landingPosition;
-                step.linkId = l.linkId;
-                step.traversalTicks = l.traversalTicks;
-                step.clearance = l.clearance;
-                step.gravity = l.gravity;
-                step.pauseTicks = l.pauseTicks;
-                step.recoverTicks = l.recoverTicks;
-                return step;
-            }
+            // (1) 이미 발판 위에 서 있는 경우. 이 경우 다음 코너는 링크 "출발점"이 아니라 "착지점"이라
+            //     출발점만 보면 매칭이 실패해, 몹이 건널 수 없는 착지점으로 걸으려다 가장자리에서 떤다.
+            int li = FindLinkAtFoot(from, nc, agentMask);
+            // (2) 아직 접근 중인 경우 — 다음 코너가 링크 출발점.
+            if (li < 0) li = FindLinkStartingNear(nc, agentMask);
+            if (li >= 0) return TraversalStep(step, links[li], from);
 
             step.kind = MoveKind.Walk;
             return step;
+        }
+
+        /// <summary>링크 하나를 PathStep으로 변환(탄도 파라미터·슬롯 정보까지 실어 보냄).</summary>
+        static PathStep TraversalStep(PathStep step, ArenaNavLink l, Vector3 from)
+        {
+            step.kind = l.traversalType == NavTraversalType.JumpUp ? MoveKind.JumpUp : MoveKind.Drop;
+            step.traversalStart = l.traversalStartPosition;   // 발판까지 걸어간 뒤 도약
+            step.next = l.landingPosition;
+            step.linkId = l.linkId;
+            step.traversalTicks = l.traversalTicks;
+            step.clearance = l.clearance;
+            step.gravity = l.gravity;
+            step.pauseTicks = l.pauseTicks;
+            step.recoverTicks = l.recoverTicks;
+            step.slotCount = l.landingSlotCount;
+            step.slotSpread = l.landingSpread;
+            return step;
+        }
+
+        /// <summary>
+        /// 몹이 이미 어떤 링크의 발판 위에 서 있는가. 오판을 막기 위해
+        /// "현재 위치가 출발점 근처" + "다음 코너가 그 링크의 착지점"을 <b>동시에</b> 요구한다.
+        /// </summary>
+        int FindLinkAtFoot(Vector3 from, Vector3 nextCorner, int agentMask)
+        {
+            for (int i = 0; i < links.Length; i++)
+            {
+                if ((links[i].agentMask & agentMask) == 0) continue;
+                Vector3 flat = links[i].traversalStartPosition - from; flat.y = 0f;
+                if (flat.sqrMagnitude > FootEpsilon * FootEpsilon) continue;
+                if ((links[i].landingPosition - nextCorner).sqrMagnitude > LandingEpsilon * LandingEpsilon) continue;
+                return i;
+            }
+            return -1;
         }
 
         /// <summary>좌표가 어떤 마커 링크의 출발점과 (오차 내) 일치하고 그 몹이 쓸 수 있으면 그 인덱스.</summary>

@@ -45,7 +45,12 @@ namespace Game.View
             foreach (var m in markers)
             {
                 if (m == null) continue;
-                Vector3 high = m.High, low = m.Low;
+
+                // ★ 끝점을 NavMesh 위로 당긴다.
+                // NavMesh는 에이전트 반경만큼 가장자리가 깎여 있어, 발판 끝에 찍은 좌표는 NavMesh 밖일 수 있다.
+                // 그 상태로 링크를 만들면 연결이 안 되고, 몹이 발판까지 가서 맴돌기만 한다(부들부들).
+                Vector3 high = SnapToNavMesh(m.High);
+                Vector3 low  = SnapToNavMesh(m.Low);
                 if ((high - low).sqrMagnitude < 1e-6f) continue;
 
                 // 최소 clearance로도 궤적이 구조물을 뚫으면 굽지 않는다(무효 마커).
@@ -118,6 +123,18 @@ namespace Game.View
             return m.AscendTraversalOnly ? traversal : (ground | charge | traversal);
         }
 
+        /// <summary>
+        /// 좌표를 NavMesh 위로 당긴다. 링크 끝점이 NavMesh 밖이면 연결 자체가 안 되므로 필수.
+        /// 못 찾으면 원래 좌표(그 경우 그 마커는 사실상 무효라 로그로 알린다).
+        /// </summary>
+        static Vector3 SnapToNavMesh(Vector3 p)
+        {
+            if (UnityEngine.AI.NavMesh.SamplePosition(p, out var hit, 3f, UnityEngine.AI.NavMesh.AllAreas))
+                return hit.position;
+            Debug.LogWarning($"[층이동] 끝점 {p:F2} 근처에 NavMesh가 없습니다 — 링크가 연결되지 않을 수 있습니다.");
+            return p;
+        }
+
         static int NearestNodeId(IList<ArenaNavNode> nodes, Vector3 p)
         {
             if (nodes == null || nodes.Count == 0) return -1;
@@ -143,7 +160,9 @@ namespace Game.View
             link.bidirectional = false;                    // 방향별 권한이 달라 항상 단방향 2개로 굽는다
             link.startPoint = Vector3.zero;
             link.endPoint   = go.transform.InverseTransformPoint(to);
-            link.width = 1f;
+            // ★ 폭 0 = 점 링크. 폭이 있으면 NavMesh가 진입점을 변 위 아무 곳에나 잡아
+            //   경로 코너가 링크 좌표와 최대 폭/2만큼 어긋나고, 그러면 진입 판정이 되다 말다 한다.
+            link.width = 0f;
             link.area = AreaIndex(ascend && m.AscendTraversalOnly ? AreaLeapTraversal : AreaLeap);
 
             // 비용: 도약의 실제 소요시간을 걸은 거리로 환산 → NavMesh가 "돌아갈까 뛸까"를 공정하게 비교.

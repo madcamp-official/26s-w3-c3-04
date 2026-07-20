@@ -163,7 +163,7 @@ namespace Game.EditorTools
             else if (tick < pause + flight)      { p = arc.At(tick - pause);     phase = "비행"; }
             else                                 { p = arc.end;                  phase = "멈칫"; }
 
-            float r = TraversalLink.MaxAgentRadius, h = TraversalLink.MaxAgentHeight;
+            float r = link.ValidateRadius, h = link.ValidateHeight;
             Handles.color = phase == "비행" ? new Color(1f, 0.9f, 0.2f, 0.95f)
                                             : new Color(1f, 0.5f, 0.2f, 0.95f);
             Handles.DrawWireDisc(p + Vector3.up * r, Vector3.up, r);

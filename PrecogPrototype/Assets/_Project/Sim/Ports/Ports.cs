@@ -39,6 +39,8 @@ namespace Game.Sim
         public float gravity;       // 0 = SimConfig 기본
         public int   pauseTicks;    // 도약 전 주저
         public int   recoverTicks;  // 착지 후 멈칫
+        public int   slotCount;     // 착지 슬롯 수(검증 통과분)
+        public float slotSpread;    // 슬롯 링 반경
     }
 
     public interface IPathfinder

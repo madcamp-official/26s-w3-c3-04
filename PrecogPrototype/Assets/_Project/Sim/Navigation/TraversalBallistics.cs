@@ -22,14 +22,29 @@ namespace Game.Sim
         public float   launchVy;    // 초기 수직 속도
         public float   gravity;     // 양수
         public int     flightTicks; // 총 비행 틱(>=1)
+        public bool    ascend;      // 착지점이 더 높은가(상승 도약)
 
         public bool IsValid => flightTicks > 0 && gravity > 0f;
 
-        /// <summary>비행 시작 후 tick 시점의 위치. tick >= flightTicks면 착지점으로 스냅.</summary>
+        /// <summary>
+        /// 비행 시작 후 tick 시점의 위치. tick >= flightTicks면 착지점으로 스냅.
+        ///
+        /// ★ 궤적의 <b>모양</b>은 탄도 그대로 두고, 그 위를 지나는 <b>속도 배분만</b> 바꾼다(시간 워핑).
+        ///   · 상승: 초반을 크게 가속하고 도착하며 느려짐(박차고 오르는 느낌)
+        ///   · 하강: 초반은 느리고 <b>막판에 크게 가속</b>(쿵 내리꽂히는 느낌)
+        ///   순수 물리라면 등속 수평 + 중력이지만, 그건 밋밋해서 의도적으로 연출을 얹은 것이다.
+        ///   닫힌 형식이라 결정론은 그대로 유지된다.
+        /// </summary>
         public Vector3 At(int tick)
         {
             if (tick >= flightTicks) return end;
-            float t = tick * SimConfig.TickDelta;
+            float x = flightTicks > 0 ? (float)tick / flightTicks : 0f;   // 0..1 정규화 진행도
+            float p2 = Mathf.Max(0.05f, ascend ? SimConfig.TraversalAscendShape
+                                               : SimConfig.TraversalDescendShape);
+            // 상승 = ease-out(초반 빠름), 하강 = ease-in(막판 빠름)
+            float u = ascend ? 1f - Mathf.Pow(1f - x, p2) : Mathf.Pow(x, p2);
+
+            float t = u * flightTicks * SimConfig.TickDelta;
             Vector3 p = start + horizVel * t;
             p.y = start.y + launchVy * t - 0.5f * gravity * t * t;
             return p;
@@ -51,7 +66,7 @@ namespace Game.Sim
         /// </summary>
         public static BallisticArc Solve(Vector3 start, Vector3 end, float clearance, float gravity = 0f)
         {
-            var arc = new BallisticArc { start = start, end = end };
+            var arc = new BallisticArc { start = start, end = end, ascend = end.y > start.y + 0.05f };
             float g = gravity > 0f ? gravity : SimConfig.TraversalGravity;
             arc.gravity = g;
 

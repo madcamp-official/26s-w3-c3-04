@@ -85,6 +85,17 @@ namespace Game.Sim
             if (!e.alive) return;
             if (e.combat.gloryStage > 0) return;   // 글로리킬 처형 중 — AI·이동 정지(얼림)
 
+            // 스폰 펄스로 날아가는 중엔 상태머신을 막는다 — 안 막으면 추격 이동이 초기 속도를
+            // 즉시 덮어써 펄스가 사라지고, 착지 전에 공격도 나간다(설계 §4: 착지까지 무공격).
+            if (e.launchTicks > 0)
+            { EnemyMovement.StepLaunch(ref e, in svc, dt); return; }
+
+            // 층이동(도약) 중엔 상태머신이 끼어들지 못하게 한다. 안 막으면 공중에서 공격 시퀀스로
+            // 전환해 Plant/RangedMove가 위치를 덮어써 궤적이 뚝뚝 끊기거나 순간이동한다.
+            // 도약은 한번 시작하면 착지까지 커밋된다.
+            if (e.traversalPhase != TraversalPhase.None)
+            { EnemyMovement.Step(ref w, i, Vector3.zero, in svc, dt); return; }
+
             // 돌진몹(Charge)은 이동·공격 융합 자체 시퀀스 — mobility로 먼저 분기(바인드도 내부 처리)
             if (e.ai.mobility == MobilityType.Charge) { StepCharge(ref w, i, in svc, dt); return; }
             // 공중몹(Flying)도 자체 기동(비행 호버 + 벽 우회) + 기존 원거리 공격 재사용

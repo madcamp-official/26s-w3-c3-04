@@ -39,6 +39,67 @@ namespace Game.EditorTools
             Debug.Log($"[층이동 링크] 끝점 바닥 스냅: {n}개");
         }
 
+        [MenuItem("Tools/층이동 링크/NavMesh Area 생성 (Leap · LeapTraversal)", false, 30)]
+        static void EnsureAreas()
+        {
+            // 몹별 게이팅은 NavMesh Area로 이뤄진다. Area가 없으면 코드가 0(Walkable)으로 폴백해
+            // "상승제한 링크인데 아무나 다 지나가는" 상태가 된다.
+            var asset = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/NavMeshAreas.asset");
+            if (asset == null || asset.Length == 0)
+            { Debug.LogError("[층이동] NavMeshAreas.asset을 찾지 못했습니다."); return; }
+
+            var so = new SerializedObject(asset[0]);
+            var areas = so.FindProperty("areas");
+            if (areas == null) { Debug.LogError("[층이동] areas 속성을 찾지 못했습니다."); return; }
+
+            int made = 0;
+            foreach (string want in new[] { "Leap", "LeapTraversal" })
+            {
+                bool exists = false;
+                for (int i = 0; i < areas.arraySize; i++)
+                    if (areas.GetArrayElementAtIndex(i).FindPropertyRelative("name").stringValue == want)
+                    { exists = true; break; }
+                if (exists) continue;
+
+                // 3번부터가 커스텀 슬롯(0~2는 Walkable/NotWalkable/Jump 예약)
+                for (int i = 3; i < areas.arraySize; i++)
+                {
+                    var el = areas.GetArrayElementAtIndex(i);
+                    var nameProp = el.FindPropertyRelative("name");
+                    if (!string.IsNullOrEmpty(nameProp.stringValue)) continue;
+                    nameProp.stringValue = want;
+                    el.FindPropertyRelative("cost").floatValue = 1f;
+                    made++;
+                    break;
+                }
+            }
+            so.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets();
+
+            var names = UnityEngine.AI.NavMesh.GetAreaNames();
+            Debug.Log($"[층이동] NavMesh Area 정리 완료(신규 {made}개). 현재 Area: {string.Join(", ", names)}\n" +
+                      "  이제 상승제한 링크가 Traversal 특성 몹에게만 열립니다. 링크를 다시 Bake(Play 재시작)하십시오.");
+        }
+
+        [MenuItem("Tools/층이동 링크/NavMesh 시각화 켜기·끄기", false, 40)]
+        static void ToggleNavMeshView()
+        {
+            var view = Object.FindFirstObjectByType<NavMeshDebugView>();
+            if (view != null)
+            {
+                Undo.DestroyObjectImmediate(view.gameObject);
+                Debug.Log("[층이동] NavMesh 시각화 껐습니다.");
+                return;
+            }
+            var go = new GameObject("[NavMeshDebugView]");
+            go.AddComponent<NavMeshDebugView>();
+            Undo.RegisterCreatedObjectUndo(go, "NavMesh 시각화 켜기");
+            Selection.activeGameObject = go;
+            Debug.Log("[층이동] NavMesh 시각화 켰습니다. Scene 뷰 Gizmos가 켜져 있어야 보입니다.\n" +
+                      "  파랑=Walkable, 노랑=Jump, 그 외 색=커스텀 Area(Leap 등).\n" +
+                      "  마커 끝점: 초록=면 위 / 빨강=면 밖(주황 선이 가장 가까운 면까지의 거리).");
+        }
+
         [MenuItem("Tools/층이동 링크/씬의 링크 요약 출력", false, 21)]
         static void Summary()
         {

@@ -54,7 +54,7 @@ namespace Game.Sim
                 {
                     // 발판 도착 — 정원이 남아 있고 빈 슬롯이 있어야 도약한다. 아니면 대기(제자리).
                     int slot = ClaimSlot(in w, selfIndex, in step);
-                    if (slot >= 0) StartTraversal(ref e, in step, slot);
+                    if (slot >= 0) StartTraversal(ref e, in step, slot, in svc);
                     else Move(ref e, Vector3.zero, in svc, dt);   // 순번 대기
                     return;
                 }
@@ -63,6 +63,37 @@ namespace Game.Sim
             }
 
             WalkTowards(ref e, step.next, sep, target, in svc, dt);
+        }
+
+        /// <summary>
+        /// 스폰 펄스 비행(설계 §4). 배관에서 받은 초기 속도로 날아가며, 그동안 AI·공격은 정지한다.
+        /// 수평은 등속(공기저항 없음), 수직은 CharacterMotor의 중력 — 닫힌 물리라 포크 재현이 보장된다.
+        /// 지상몹: 최소 체공 후 착지하면 해제. 공중몹: 착지가 없으므로 타이머로 해제.
+        /// 어느 쪽이든 안전 타임아웃이 있어 어디 걸려도 영구 정지하지 않는다.
+        /// </summary>
+        public static void StepLaunch(ref EnemySim e, in SimServices svc, float dt)
+        {
+            e.launchTicks++;
+
+            Vector3 horiz = new Vector3(e.vel.x, 0f, e.vel.z) * dt;
+            e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, horiz, e.radius, e.height);
+            CharacterMotor.ResolveVertical(svc.Collision, ref e.pos, ref e.vel, dt, out bool grounded);
+            e.grounded = grounded;
+
+            if (e.ai.mobility == MobilityType.Flying)
+            {
+                if (e.launchTicks >= SimConfig.SpawnLaunchFlyTicks) EndLaunch(ref e);
+                return;
+            }
+            if (e.launchTicks >= SimConfig.SpawnLaunchMinTicks && grounded) EndLaunch(ref e);
+            else if (e.launchTicks >= SimConfig.SpawnLaunchMaxTicks) EndLaunch(ref e);   // 안전망
+        }
+
+        static void EndLaunch(ref EnemySim e)
+        {
+            e.launchTicks = 0;
+            e.vel.x = e.vel.z = 0f;   // 평상시 수평속도는 0이 기본(이동은 변위로 처리)
+            e.hasWaypoint = false;
         }
 
         static bool IsTraversal(MoveKind k)
@@ -100,6 +131,25 @@ namespace Game.Sim
             return -1;
         }
 
+        /// <summary>
+        /// 실제 착지 지점 결정. 슬롯 오프셋을 적용하되 <b>거기가 정말 설 수 있는 자리인지 검증</b>한다.
+        /// 검증 없이 오프셋을 쓰면 발판 밖 허공에 착지해, 도약이 끝나는 순간 중력·클램프가 잡아채
+        /// "공중에 도착했다가 발판 위로 순간이동"하는 현상이 난다. 못 쓰면 정확한 착지점으로 폴백.
+        /// (도약 시작 시 1회만 질의 — 매 틱이 아니라 예측 포크에도 부담 없음.)
+        /// </summary>
+        static Vector3 ResolveLanding(Vector3 landing, int slot, in PathStep step, in EnemySim e, in SimServices svc)
+        {
+            Vector3 candidate = landing + SlotOffset(slot, step.slotCount, step.slotSpread);
+            if (svc.Collision.SampleGround(candidate, SlotGroundProbe, out float groundY))
+            {
+                Vector3 onGround = new Vector3(candidate.x, groundY, candidate.z);
+                if (svc.Collision.CanOccupyCapsule(onGround, e.radius, e.height)) return onGround;
+            }
+            return landing;   // 슬롯이 허공/막힘 → 원래 착지점
+        }
+
+        const float SlotGroundProbe = 2.5f;   // 슬롯 아래로 이만큼까지 바닥을 찾는다
+
         /// <summary>착지 슬롯 오프셋. 링 위 균등 배치 — 마커 에디터의 GetSlots와 같은 규칙.</summary>
         public static Vector3 SlotOffset(int slot, int slotCount, float spread)
         {
@@ -132,24 +182,31 @@ namespace Game.Sim
             Move(ref e, horiz, in svc, dt);
         }
 
-        static void StartTraversal(ref EnemySim e, in PathStep step, int slot)
+        static void StartTraversal(ref EnemySim e, in PathStep step, int slot, in SimServices svc)
         {
-            e.traversalPhase = TraversalPhase.Pause;
             e.activeMoveKind = step.kind;
             e.activeTraversalLinkId = step.linkId;
             e.traversalSlot = slot;
             e.traversalTicks = 0;
             e.jumpStart = e.pos;
-            e.jumpEnd = step.next + SlotOffset(slot, SimConfig.TraversalSlotMax, 0f);
+            e.jumpEnd = ResolveLanding(step.next, slot, in step, in e, in svc);
             e.nextNavNodeId = step.nextNodeId;
             e.vel = Vector3.zero;
 
             // 링크가 구워둔 주저·비행·멈칫. traversalTicks에 총 소요를 실어 보내지 않고
             // 여기서 탄도를 다시 푼다 — 에디터 프리뷰와 완전히 같은 함수라 궤적이 일치한다.
+            // 궤적 파라미터를 들고 있어야 비행 중 매 틱 "같은 아치"로 재구성된다.
+            e.traversalClearance = step.clearance;
+            e.traversalGravity   = step.gravity;
             BallisticArc arc = TraversalBallistics.Solve(e.jumpStart, e.jumpEnd, step.clearance, step.gravity);
             e.jumpDuration = arc.flightTicks;
-            e.traversalPauseTicks   = step.pauseTicks   > 0 ? step.pauseTicks   : SimConfig.TraversalPauseMin;
-            e.traversalRecoverTicks = step.recoverTicks > 0 ? step.recoverTicks : SimConfig.TraversalRecoverMin;
+            // 링크에 구워진 값을 그대로 쓴다. 0도 유효한 값(주저·멈칫 없음)이라
+            // "0이면 기본값으로 대체"하면 안 된다 — 튜닝으로 0까지 내릴 수 있어야 한다.
+            e.traversalPauseTicks   = Mathf.Max(0, step.pauseTicks);
+            e.traversalRecoverTicks = Mathf.Max(0, step.recoverTicks);
+
+            // 주저가 0이면 Pause 단계를 아예 건너뛴다(0 = 완전히 없음이어야 함).
+            e.traversalPhase = e.traversalPauseTicks > 0 ? TraversalPhase.Pause : TraversalPhase.Airborne;
         }
 
         static void StepTraversal(ref EnemySim e, in SimServices svc)
@@ -158,7 +215,7 @@ namespace Game.Sim
             {
                 case TraversalPhase.Pause:
                     e.vel = Vector3.zero;
-                    if (++e.traversalTicks >= Mathf.Max(1, e.traversalPauseTicks))
+                    if (++e.traversalTicks >= e.traversalPauseTicks)
                     { e.traversalPhase = TraversalPhase.Airborne; e.traversalTicks = 0; }
                     break;
 
@@ -170,30 +227,41 @@ namespace Game.Sim
                     e.pos = arc.At(e.traversalTicks);
                     e.grounded = false;
                     if (e.traversalTicks >= e.jumpDuration)
-                    { e.pos = e.jumpEnd; e.traversalPhase = TraversalPhase.Recovery; e.traversalTicks = 0; }
+                    {
+                        e.pos = e.jumpEnd;
+                        if (e.traversalRecoverTicks > 0)
+                        { e.traversalPhase = TraversalPhase.Recovery; e.traversalTicks = 0; }
+                        else FinishTraversal(ref e, in svc);
+                    }
                     break;
                 }
 
                 case TraversalPhase.Recovery:
                     e.vel = Vector3.zero;
-                    if (++e.traversalTicks >= Mathf.Max(1, e.traversalRecoverTicks))
-                    {
-                        e.traversalPhase = TraversalPhase.None;
-                        e.activeMoveKind = MoveKind.None;
-                        e.activeTraversalLinkId = -1;
-                        e.traversalSlot = -1;
-                        e.currentNavNodeId = e.nextNavNodeId;
-                        e.currentFloorId = svc.Pathfinder.FloorIdAt(e.pos);
-                        e.hasWaypoint = false; e.traversalTicks = 0;
-                    }
+                    if (++e.traversalTicks >= e.traversalRecoverTicks) FinishTraversal(ref e, in svc);
                     break;
             }
         }
 
-        /// <summary>비행 중 궤적 재구성. 시작·끝·비행틱이 상태에 있으므로 매번 같은 결과가 나온다.</summary>
+        static void FinishTraversal(ref EnemySim e, in SimServices svc)
+        {
+            e.traversalPhase = TraversalPhase.None;
+            e.activeMoveKind = MoveKind.None;
+            e.activeTraversalLinkId = -1;
+            e.traversalSlot = -1;
+            e.currentNavNodeId = e.nextNavNodeId;
+            e.currentFloorId = svc.Pathfinder.FloorIdAt(e.pos);
+            e.hasWaypoint = false;
+            e.traversalTicks = 0;
+        }
+
+        /// <summary>
+        /// 비행 중 궤적 재구성. 시작 시 복사해 둔 clearance·gravity를 그대로 써야
+        /// 출발할 때 계획한 아치와 동일한 궤적이 나온다(에디터 고스트와도 일치).
+        /// </summary>
         static BallisticArc ArcOf(in EnemySim e)
         {
-            var arc = TraversalBallistics.Solve(e.jumpStart, e.jumpEnd, 0f, 0f);
+            var arc = TraversalBallistics.Solve(e.jumpStart, e.jumpEnd, e.traversalClearance, e.traversalGravity);
             arc.flightTicks = Mathf.Max(1, e.jumpDuration);   // 시작 시 확정한 비행 틱을 그대로 유지
             return arc;
         }

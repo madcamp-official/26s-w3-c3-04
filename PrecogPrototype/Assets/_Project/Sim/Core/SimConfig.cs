@@ -16,6 +16,15 @@ namespace Game.Sim
 
         public const float Gravity = -25f;
 
+        // ── 스폰 펄스(웨이브 배관에서 튀어나옴). 설계 §4 ──
+        // 전부 고정값 = 결정론 유지(Random 금지). 스프레드가 필요하면 sim 상태로 시드할 것.
+        public const float SpawnLaunchSpeed     = 9f;    // 배관 바깥(마커 forward) 방향 초기 속도
+        public const float SpawnLaunchUp        = 3.5f;  // 위쪽 성분(아치를 만들어 벽을 벗어나게)
+        public const float SpawnLaunchStartGap  = 0.8f;  // 배관 면에서 이만큼 앞에서 출발(초기 겹침 방지)
+        public const int   SpawnLaunchMinTicks  = 8;     // 최소 체공 — 스폰 즉시 착지 판정 방지
+        public const int   SpawnLaunchMaxTicks  = 180;   // 안전 타임아웃(3초) — 어디 걸려도 반드시 해제
+        public const int   SpawnLaunchFlyTicks  = 30;    // 공중몹: 착지 개념이 없어 이 틱 뒤 정상 AI
+
         // 이동 시 넘을 수 있는 수직 턱 높이(step-up). 이 이하 턱은 올라타고, 초과면 벽으로 막힘.
         // NavMesh가 잇는 작은 턱(잔단차 0.3 등)을 모터도 넘게 해 "경로는 있는데 몸이 낌"을 방지.
         // Cover(0.8)·mantle(1.5)는 초과라 여전히 못 넘음(의도대로).
@@ -81,13 +90,19 @@ namespace Game.Sim
         public const float TraversalClearanceRatio = 0.18f; // 기본 clearance = 링크 길이 × 이 값
         public const float TraversalMaxClearance = 4f;    // clearance 상한
 
+        // 도약 속도 배분(연출). 궤적 모양은 그대로 두고 그 위를 지나는 속도만 바꾼다.
+        // 1 = 등속(순수 물리), 클수록 치우침이 강해진다. static = F1에서 조절.
+        public static float TraversalAscendShape  = 2.2f; // 상승: 초반을 크게 가속(박차고 오름)
+        public static float TraversalDescendShape = 2.4f; // 하강: 막판을 크게 가속(쿵 내리꽂힘)
+
         // 주저·멈칫 = 링크 직선 길이 비례(데드존 없음 — 짧아도 최소값). 곡선은 가속형(exponent>1).
-        public const int   TraversalPauseMin      = 3;
-        public const int   TraversalPauseMax      = 22;
-        public const int   TraversalRecoverMin    = 4;
-        public const int   TraversalRecoverMax    = 30;
-        public const float TraversalLengthRef     = 14f;   // 이 길이에서 최대치에 도달
-        public const float TraversalLengthExp     = 1.9f;  // >1 = 길수록 급격히 증가
+        // static = F1 튜닝 패널에서 실시간 조정(0으로 내려 "주저·멈칫 없음"도 시험 가능). 예측 중 변경 금지.
+        public static int   TraversalPauseMin      = 3;
+        public static int   TraversalPauseMax      = 22;
+        public static int   TraversalRecoverMin    = 4;
+        public static int   TraversalRecoverMax    = 30;
+        public static float TraversalLengthRef     = 14f;   // 이 길이에서 최대치에 도달
+        public static float TraversalLengthExp     = 1.9f;  // >1 = 길수록 급격히 증가
 
         // 착지 슬롯(동시 도약 혼잡 방지)
         public const int   TraversalSlotMax       = 6;    // 링크당 최대 슬롯 수

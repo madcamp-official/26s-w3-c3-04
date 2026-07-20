@@ -102,6 +102,8 @@ namespace Game.Bridge
             s.gravity      = link.gravity;
             s.pauseTicks   = link.pauseTicks;
             s.recoverTicks = link.recoverTicks;
+            s.slotCount    = link.landingSlotCount;
+            s.slotSpread   = link.landingSpread;
             return s;
         }
 

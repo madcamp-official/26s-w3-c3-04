@@ -47,6 +47,14 @@ namespace Game.View
         public int   slotCount  = 3;
         public float slotSpread = 1.4f;
 
+        [Header("검증 기준 몹 크기")]
+        [Tooltip("대형몹(3배)도 이 링크를 지나가야 하면 체크. 실내처럼 층간이 낮으면 대부분 무효가 되므로 기본은 해제")]
+        public bool validateForLargeMobs = false;
+
+        [Header("기즈모")]
+        [Tooltip("궤적 위에 몹 캡슐 크기를 그려 천장 여유를 확인")]
+        public bool showCapsules = true;
+
         // ── 파생값 ──
         public Vector3 PointA => transform.position;
         public Vector3 PointB => transform.TransformPoint(endOffset);
@@ -110,6 +118,7 @@ namespace Game.View
                 h = h * 31 + DesiredClearance.GetHashCode();
                 h = h * 31 + gravity.GetHashCode();
                 h = h * 31 + (int)kind;
+                h = h * 31 + (validateForLargeMobs ? 1 : 0);
                 return h;
             }
         }
@@ -117,7 +126,7 @@ namespace Game.View
         /// <summary>희망 clearance부터 내려가며 "뚫리지 않는 최대치"를 찾는다(이분 탐색).</summary>
         float FitClearance(out bool isBlocked, out Vector3 hitAt)
         {
-            float radius = MaxAgentRadius, height = MaxAgentHeight;
+            float radius = ValidateRadius, height = ValidateHeight;
             float desired = DesiredClearance;
             float min = SimConfig.TraversalMinClearance;
 
@@ -169,19 +178,26 @@ namespace Game.View
             return true;
         }
 
-        /// <summary>허용된 몹 중 가장 큰 캡슐 — "그런트는 통과하는데 대형몹은 박히는" 상황 방지.</summary>
-        public static float MaxAgentRadius =>
-            Mathf.Max(SimConfig.EnemyRadius * SimConfig.EnemyLargeScale,
-                      SimConfig.EnemyRadius * SimConfig.EnemyNormalScale * AIConfig.ChargeRadiusMul);
-        public static float MaxAgentHeight => SimConfig.EnemyHeight * SimConfig.EnemyLargeScale;
+        /// <summary>
+        /// 검증에 쓸 캡슐 크기.
+        /// 기본은 <b>일반몹</b>(돌진몹 반경 포함) — 대형몹(3배, 높이 4.3m)으로 검증하면 실내처럼
+        /// 층간이 낮은 맵에서는 거의 모든 링크가 무효가 되어 층이동 자체가 사라진다.
+        /// 대형몹이 반드시 지나가야 하는 링크만 <see cref="validateForLargeMobs"/>를 켠다.
+        /// </summary>
+        public float ValidateRadius => validateForLargeMobs
+            ? SimConfig.EnemyRadius * SimConfig.EnemyLargeScale
+            : SimConfig.EnemyRadius * SimConfig.EnemyNormalScale * AIConfig.ChargeRadiusMul;
+
+        public float ValidateHeight => SimConfig.EnemyHeight *
+            (validateForLargeMobs ? SimConfig.EnemyLargeScale : SimConfig.EnemyNormalScale);
 
         /// <summary>슬롯이 쓸 수 있는지 — 아래 바닥이 있고 캡슐이 안 박혀야 한다.</summary>
-        public static bool SlotUsable(Vector3 slot)
+        public bool SlotUsable(Vector3 slot)
         {
             if (!Physics.Raycast(slot + Vector3.up * 1.5f, Vector3.down, out _, 4f,
                                  Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                 return false;
-            float r = MaxAgentRadius, h = MaxAgentHeight;
+            float r = ValidateRadius, h = ValidateHeight;
             Vector3 bottom = slot + Vector3.up * r;
             Vector3 top    = slot + Vector3.up * Mathf.Max(r, h - r);
             return !Physics.CheckCapsule(bottom, top, r, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
@@ -216,7 +232,7 @@ namespace Game.View
 
         /// <summary>슬롯 간격 — 자동이면 허용 몹 중 최대 반경 기준으로 겹치지 않게 잡는다.</summary>
         public float SlotSpread => slotsAuto
-            ? Mathf.Max(0.8f, MaxAgentRadius * SimConfig.TraversalSlotGapMul)
+            ? Mathf.Max(0.8f, ValidateRadius * SimConfig.TraversalSlotGapMul)
             : slotSpread;
 
         /// <summary>검증을 통과한(바닥 있고 캡슐 안 박히는) 슬롯 개수. 못 쓰는 건 자동 폐기.</summary>
@@ -264,8 +280,10 @@ namespace Game.View
 
             if (!selected) return;
 
-            // 캡슐 실루엣 — 천장과의 여유를 눈으로 확인(허용 몹 중 최대 크기 기준)
-            DrawCapsules(DescendArc, bad ? new Color(1f, 0.3f, 0.3f, 0.5f) : new Color(1f, 1f, 1f, 0.35f));
+            // 캡슐 실루엣 — 기본 꺼둠(대형몹 기준이라 크고 시야를 가림). 필요할 때만 켠다.
+            if (showCapsules)
+                DrawCapsules(DescendArc, bad ? new Color(1f, 0.3f, 0.3f, 0.5f) : new Color(1f, 1f, 1f, 0.35f),
+                             ValidateRadius, ValidateHeight);
 
             // 착지 슬롯 — 유효=초록, 못 쓰는 슬롯=빨강(자동 폐기 대상)
             DrawSlots(Low);
@@ -283,11 +301,10 @@ namespace Game.View
             }
         }
 
-        static void DrawCapsules(BallisticArc arc, Color c)
+        static void DrawCapsules(BallisticArc arc, Color c, float r, float h)
         {
             if (!arc.IsValid) return;
             Gizmos.color = c;
-            float r = MaxAgentRadius, h = MaxAgentHeight;
             const int N = 5;
             for (int i = 1; i < N; i++)
             {
