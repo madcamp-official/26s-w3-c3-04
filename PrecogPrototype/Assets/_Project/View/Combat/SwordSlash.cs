@@ -15,22 +15,27 @@ namespace Game.View
     /// </summary>
     public class SwordSlash : MonoBehaviour
     {
-        [Header("형태 (칼이 훑고 간 3D 곡면)")]
-        public float sweepAngle = 130f;
-        [Tooltip("회전축(+Z)에서 칼이 벌어진 각도. 90=납작, 작을수록 깊게 휨")]
-        [Range(5f, 90f)] public float coneAngle = 52f;
-        public float innerRadius = 0.9f;
-        public float outerRadius = 4.2f;
-        public int segmentsU = 80;
-        public int segmentsV = 3;
+        [Header("형태 (직선 방추형 입체)")]
+        [Tooltip("베는 선의 길이(로컬 +X 방향)")]
+        public float length = 9f;
+        [Tooltip("칼날이 벌어진 방향의 폭(반지름)")]
+        public float radiusWide = 0.85f;
+        [Tooltip("그와 수직인 두께(반지름). 0에 가까울수록 납작 → 크게 줘야 입체로 보임")]
+        public float radiusThick = 0.30f;
+        [Tooltip("양 끝이 뾰족해지는 정도(클수록 날카롭게)")]
+        public float taperPower = 1.4f;
+        [Tooltip("길이 방향 분할")]
+        public int segmentsLength = 72;
+        [Tooltip("단면 둘레 분할(입체감)")]
+        public int segmentsRing = 14;
 
-        [Header("볼륨 (레이어 겹치기)")]
-        [Tooltip("겹칠 레이어 수. 많을수록 두툼함")]
+        [Header("볼륨 (중첩 셸)")]
+        [Tooltip("겹칠 셸 수. 안쪽=흰 코어, 바깥=녹색 헤일로")]
         [Range(1, 6)] public int layerCount = 4;
-        [Tooltip("레이어마다 반경을 얼마나 어긋낼지")]
-        public float layerScaleSpread = 0.055f;
-        [Tooltip("바깥 레이어일수록 약하게")]
-        [Range(0f, 1f)] public float layerFalloff = 0.45f;
+        [Tooltip("가장 안쪽 셸의 크기 비율")]
+        [Range(0.05f, 1f)] public float innerShellScale = 0.28f;
+        [Tooltip("바깥 셸일수록 약하게")]
+        [Range(0f, 1f)] public float layerFalloff = 0.55f;
 
         [Header("타이밍 (fast in, slow out)")]
         public float revealTime = 0.05f;
@@ -96,16 +101,22 @@ namespace Game.View
         {
             var go = new GameObject("SwordSlash");
             var s = go.AddComponent<SwordSlash>();
+            // 로컬 +X가 베는 선. Z롤로 화면상의 사선 각도를 정한다.
             float roll;
             switch (which)
             {
-                case "2":
-                    roll = 205f; s.sweepAngle = -130f; break;
-                case "t": case "thrust":
-                    roll = 20f; s.sweepAngle = 62f; s.coneAngle = 26f; s.outerRadius = 5.2f;
-                    s.revealTime = 0.035f; s.fadeTime = 0.13f; break;
-                default:
-                    roll = 20f; s.sweepAngle = 130f; break;
+                case "2":                    // 평타2 — 좌상 → 우하
+                    roll = -35f;
+                    break;
+                case "t": case "thrust":     // 찌르기 — 짧고 가늘게, 거의 수평
+                    roll = 0f;
+                    s.length = 7f; s.radiusWide = 0.45f; s.radiusThick = 0.30f;
+                    s.taperPower = 1.9f;
+                    s.revealTime = 0.035f; s.fadeTime = 0.13f;
+                    break;
+                default:                     // 평타1 — 좌하 → 우상
+                    roll = 35f;
+                    break;
             }
             go.transform.SetPositionAndRotation(pos, rot * Quaternion.Euler(0f, 0f, roll));
             return s;
@@ -131,15 +142,17 @@ namespace Game.View
             if (n1 != null) mat.SetTexture(IdN1, n1);
             if (n2 != null) mat.SetTexture(IdN2, n2);
 
-            // 레이어 생성 — 반경을 어긋내 겹치면 가산으로 쌓여 두께감이 생긴다
+            // 중첩 셸 — 안쪽(작고 밝은 흰 코어)에서 바깥(크고 옅은 녹색 헤일로)으로.
+            // 가산으로 쌓여 "속이 찬 빛 덩어리"가 된다. 길이는 유지하고 단면만 키운다.
             int n = Mathf.Clamp(layerCount, 1, 6);
             layers = new MeshRenderer[n];
             for (int i = 0; i < n; i++)
             {
-                var lg = new GameObject("Layer" + i);
+                var lg = new GameObject("Shell" + i);
                 lg.transform.SetParent(transform, false);
-                float k = n == 1 ? 0f : (i / (float)(n - 1)) * 2f - 1f;   // -1..1
-                lg.transform.localScale = Vector3.one * (1f + k * layerScaleSpread);
+                float f = n == 1 ? 1f : i / (float)(n - 1);          // 0=안쪽, 1=바깥
+                float sc = Mathf.Lerp(innerShellScale, 1f, f);
+                lg.transform.localScale = new Vector3(Mathf.Lerp(0.94f, 1f, f), sc, sc);
 
                 lg.AddComponent<MeshFilter>().sharedMesh = mesh;
                 var r = lg.AddComponent<MeshRenderer>();
@@ -153,40 +166,52 @@ namespace Game.View
             mpb = new MaterialPropertyBlock();
         }
 
-        /// <summary>칼(축에서 coneAngle 벌어짐)을 +Z축 둘레로 sweepAngle 회전시킨 자취 면.</summary>
+        /// <summary>
+        /// 직선 방추형(spindle) 입체. 로컬 +X를 따라 뻗고, 양 끝은 점으로 모이며
+        /// 가운데가 가장 두껍다. 단면은 타원(넓은 축=칼날 방향, 짧은 축=두께).
+        /// 닫힌 입체라 어느 각도에서 봐도 형태가 있다 — 면 한 겹(2D)이 아님.
+        /// UV: u=길이 방향, v=단면을 가로지르는 폭 위치(0~1).
+        /// </summary>
         void BuildMesh()
         {
-            int nu = Mathf.Max(8, segmentsU) + 1;
-            int nv = Mathf.Max(1, segmentsV) + 1;
-            var verts = new Vector3[nu * nv];
-            var uvs   = new Vector2[nu * nv];
-            var cols  = new Color[nu * nv];
-            var tris  = new int[(nu - 1) * (nv - 1) * 6];
+            int nu = Mathf.Max(8, segmentsLength) + 1;
+            int nr = Mathf.Max(4, segmentsRing);
 
-            float cone = coneAngle * Mathf.Deg2Rad;
-            Vector3 baseDir = new Vector3(Mathf.Sin(cone), 0f, Mathf.Cos(cone));
+            var verts = new Vector3[nu * nr];
+            var uvs   = new Vector2[nu * nr];
+            var cols  = new Color[nu * nr];
+            var tris  = new int[(nu - 1) * nr * 6];
 
             for (int i = 0; i < nu; i++)
             {
-                float u = i / (float)(nu - 1);
-                Vector3 dir = Quaternion.AngleAxis(sweepAngle * u, Vector3.forward) * baseDir;
-                for (int j = 0; j < nv; j++)
+                float t = i / (float)(nu - 1);
+                float x = (t - 0.5f) * length;
+                // 양 끝 0, 가운데 1 — 뾰족한 방추형.
+                // ★ sin(π)는 부동소수점 오차로 미세한 음수가 나올 수 있고,
+                //   음수의 비정수 거듭제곱은 NaN이 되어 메시 전체가 깨진다 → Max(0)로 막는다.
+                float taper = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(Mathf.PI * t)), taperPower);
+
+                for (int j = 0; j < nr; j++)
                 {
-                    float v = j / (float)(nv - 1);
-                    int idx = i * nv + j;
-                    verts[idx] = dir * Mathf.Lerp(innerRadius, outerRadius, v);
-                    uvs[idx]   = new Vector2(u, v);
-                    cols[idx]  = Color.white;
+                    float ang = (j / (float)nr) * Mathf.PI * 2f;
+                    float cy = Mathf.Cos(ang), sz = Mathf.Sin(ang);
+                    int idx = i * nr + j;
+                    verts[idx] = new Vector3(x, radiusWide * taper * cy, radiusThick * taper * sz);
+                    // v: 단면을 가로지르는 위치(양 옆 가장자리=0, 넓은 면 중앙=1)
+                    uvs[idx]  = new Vector2(t, 0.5f + 0.5f * cy);
+                    cols[idx] = Color.white;
                 }
             }
 
             int k2 = 0;
             for (int i = 0; i < nu - 1; i++)
-                for (int j = 0; j < nv - 1; j++)
+                for (int j = 0; j < nr; j++)
                 {
-                    int a = i * nv + j, b = (i + 1) * nv + j;
-                    tris[k2++] = a; tris[k2++] = a + 1; tris[k2++] = b;
-                    tris[k2++] = b; tris[k2++] = a + 1; tris[k2++] = b + 1;
+                    int jn = (j + 1) % nr;
+                    int a = i * nr + j, b = i * nr + jn;
+                    int c = (i + 1) * nr + j, d = (i + 1) * nr + jn;
+                    tris[k2++] = a; tris[k2++] = c; tris[k2++] = b;
+                    tris[k2++] = b; tris[k2++] = c; tris[k2++] = d;
                 }
 
             mesh.Clear();
@@ -200,11 +225,11 @@ namespace Game.View
             unchecked
             {
                 int h = 17;
-                h = h * 31 + sweepAngle.GetHashCode();
-                h = h * 31 + coneAngle.GetHashCode();
-                h = h * 31 + innerRadius.GetHashCode();
-                h = h * 31 + outerRadius.GetHashCode();
-                h = h * 31 + segmentsU; h = h * 31 + segmentsV;
+                h = h * 31 + length.GetHashCode();
+                h = h * 31 + radiusWide.GetHashCode();
+                h = h * 31 + radiusThick.GetHashCode();
+                h = h * 31 + taperPower.GetHashCode();
+                h = h * 31 + segmentsLength; h = h * 31 + segmentsRing;
                 return h;
             }
         }
@@ -229,9 +254,9 @@ namespace Game.View
             {
                 var r = layers[i];
                 if (r == null) continue;
-                float k = layers.Length == 1 ? 0f : i / (float)(layers.Length - 1);
-                // 바깥 레이어일수록 약하게 + 노이즈를 어긋내 서로 다른 결이 겹치게
-                float lay = Mathf.Lerp(1f, 1f - layerFalloff, Mathf.Abs(k * 2f - 1f));
+                // 안쪽 셸일수록 밝고(흰 코어), 바깥일수록 옅게(녹색 헤일로)
+                float f = layers.Length == 1 ? 0f : i / (float)(layers.Length - 1);
+                float lay = Mathf.Lerp(1f, 1f - layerFalloff, f);
 
                 mpb.Clear();
                 mpb.SetVector(IdT1, noiseTile1); mpb.SetVector(IdS1, noiseScroll1);
