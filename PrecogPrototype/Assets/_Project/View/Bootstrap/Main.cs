@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Cinemachine;
 using Game.Sim;
 using Game.Bridge;
 
@@ -12,12 +13,14 @@ namespace Game.View
     public class Main : MonoBehaviour
     {
         [SerializeField] float eyeHeight = 1.0f;   // 줄인 키(1.15)에 맞춤
+        [SerializeField] float gameplayFov = 0f;   // 0=씬 카메라 FOV 상속, >0=강제(둠식 넓은 시야는 90~100)
         public bool useSceneGeometry;   // true=씬 지형(Synty) 사용, false=코드 큐브맵
 
         // 전투 뷰(HUD·카메라고정·히트스톱)가 sim 상태를 읽는 최소 접근자 (읽기 전용)
         public static Main Instance { get; private set; }
         public ref readonly SimWorld World => ref world;
         public Camera Cam => cam;
+        public CinemachineCamera GameplayVcam => gameplayVcam;   // 연출(FOV킥·Impulse)이 vcam을 건드리게
 
         // >>> [예측 세션 추가, 2026-07-18] Services/SpawnEnemyNear/ClearAllEnemies는 원래 없던
         // 접근자다. 예측 쪽(PredictionPreview.cs, RealRoutePreview.cs)이 실제 SimServices와
@@ -39,6 +42,16 @@ namespace Game.View
         public float LookYaw   => input.Yaw;
         public float LookPitch => input.Pitch;
 
+        /// <summary>컷신 종료 시 플레이어를 현재 시선(yaw) 정면으로 dist만큼 이동(봉인 박스 탈출).
+        /// 스크립트 텔레포트라 결정론과 무관(예측 중엔 컷신을 트리거하지 않음). prevWorld도 맞춰 보간 튐 방지.</summary>
+        public void AdvancePlayerForward(float dist)
+        {
+            float yr = input.Yaw * Mathf.Deg2Rad;
+            Vector3 fwd = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
+            world.player.pos += fwd * dist;
+            prevWorld = Snapshot.Clone(in world);
+        }
+
         SimWorld world, prevWorld;
         readonly InputReader input = new InputReader();
         readonly EntityViews views = new EntityViews();
@@ -46,6 +59,7 @@ namespace Game.View
         SimServices services;        // 평상시 = 런타임 NavMesh
         SimServices graphServices;   // 예측 검색·following 재생 = 고정 그래프
         Camera cam;
+        CinemachineCamera gameplayVcam;   // 1인칭·예측·컷신 모두 이 vcam pose에 씀 → Brain이 실제 카메라 구동(+Impulse)
         DevConsole console;
         MapSpawnConfig spawnConfig;   // 씬에 있으면 그 맵의 스폰지점·종류 세팅을 사용
         float fixedAccum;
@@ -91,7 +105,7 @@ namespace Game.View
 
             views.Init();
             SetupCamera();
-            prediction.Init(cam);
+            prediction.Init(cam, gameplayVcam.transform);
             console = gameObject.AddComponent<DevConsole>();   // ` 개발 콘솔(몹 소환 등)
             ReloadSpawnConfig();   // 씬에 MapSpawnConfig 있으면 그 맵의 스폰 세팅 채택
             input.Yaw = 180f;   // 남쪽(아레나) 바라봄
@@ -118,8 +132,8 @@ namespace Game.View
 
         void Update()
         {
-            // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능)
-            if (!prediction.Frozen && !ConsoleOpen) input.PollFrame();
+            // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능). 컷신 중엔 조작 잠금.
+            if (!prediction.Frozen && !ConsoleOpen && !Cutscene.Active) input.PollFrame();
 
             prediction.Tick(in world);   // 정지 아닐 때: F 감시 / 정지 중: 루트 표시·탑다운 카메라
 
@@ -127,13 +141,15 @@ namespace Game.View
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
             views.Sync(in world, in prevWorld, alpha);
 
-            // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔 중엔 시점 고정.
-            if (!prediction.Frozen && !ConsoleOpen)
+            // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔·컷신 중엔 시점 고정
+            // (컷신 중엔 CinemachineTrack이 컷신 vcam을 잡으므로 게임플레이 vcam pose를 덮지 않는다).
+            if (!prediction.Frozen && !ConsoleOpen && !Cutscene.Active)
             {
-                if (cam != null && views.PlayerAnchor != null)
+                if (gameplayVcam != null && views.PlayerAnchor != null)
                 {
-                    cam.transform.position = views.PlayerAnchor.position + Vector3.up * eyeHeight;
-                    cam.transform.rotation = Quaternion.Euler(input.Pitch, input.Yaw, 0f);
+                    // 실제 카메라가 아니라 vcam pose에 쓴다 — Brain이 이걸 따라가며 Impulse(쉐이킹)를 얹는다.
+                    gameplayVcam.transform.position = views.PlayerAnchor.position + Vector3.up * eyeHeight;
+                    gameplayVcam.transform.rotation = Quaternion.Euler(input.Pitch, input.Yaw, 0f);
                 }
                 if (input.EscapePressed()) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
             }
@@ -150,6 +166,13 @@ namespace Game.View
             // 실시간 입력 대신 기록된 입력을 넣어야 해서, Preview/Following을 분리했다.
             // 되돌리려면: 아래 if/else 블록을 지우고 위 두 줄로 교체 + SpawnTick() 조건도 제거.
             if (prediction.state == PredictionController.State.Preview) return;   // 미리보기 중엔 정지
+
+            // 컷신 중엔 sim 완전 정지(플레이어 이동·공격·소환 불가). 카메라는 Timeline이 잡는다.
+            if (Cutscene.Active) return;
+
+            // 히트스톱(A안): 얼린 틱만큼 sim 전진을 건너뛴다(입력 소비 전에 return → 기록 입력 보존).
+            // timeScale은 건드리지 않으므로 뷰 연출(파티클·셰이크·화면효과)은 계속 재생된다.
+            if (HitStop.FrozenTicks > 0) { HitStop.FrozenTicks--; return; }
 
             InputCmd cmd;
             if (prediction.state == PredictionController.State.Following)
@@ -252,6 +275,18 @@ namespace Game.View
                 cam = go.AddComponent<Camera>();
             }
             cam.nearClipPlane = 0.1f;   // 벽면 최소거리(≈0.25) 안쪽 → 벽에 붙어도 뒤가 안 잘림
+
+            // Cinemachine: Brain이 vcam pose를 따라 실제 카메라를 움직인다. 1인칭·예측·컷신을 vcam으로 통일.
+            var brain = cam.GetComponent<CinemachineBrain>() ?? cam.gameObject.AddComponent<CinemachineBrain>();
+            // FPS 게임플레이 카메라는 블렌드 금지 → 진입/전환 시 즉시 컷(잠깐 확대돼 보이는 블렌드 인 제거).
+            brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f);
+
+            var vgo = new GameObject("GameplayVCam");
+            gameplayVcam = vgo.AddComponent<CinemachineCamera>();
+            var lens = LensSettings.FromCamera(cam);            // 원래 카메라 렌즈(FOV·클립) 상속 → 이관 후 화면 변화 방지
+            if (gameplayFov > 0f) lens.FieldOfView = gameplayFov;
+            gameplayVcam.Lens = lens;
+            vgo.AddComponent<CinemachineImpulseListener>();   // 타격 쉐이킹(Impulse) 수신 — 발생은 Phase 3
         }
 
         void OnDrawGizmos()
