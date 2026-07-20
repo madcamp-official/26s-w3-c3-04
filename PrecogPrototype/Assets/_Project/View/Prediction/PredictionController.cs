@@ -66,11 +66,21 @@ namespace Game.View
         float cameraYawVelocity;
         PredictedRoute followingRoute;
         Texture2D rhythmRingTexture;
+        Texture2D missGlitchTexture;
+        float missGlitchStartedAt;
+        float missGlitchUntil;
         readonly Dictionary<Renderer, Color> swordOriginalColors = new Dictionary<Renderer, Color>();
         readonly Dictionary<Transform, int> swordOriginalLayers = new Dictionary<Transform, int>();
 
         LineRenderer domeLr;
         readonly List<LineRenderer> lines = new List<LineRenderer>();
+        readonly Gradient previewLineGradient = new Gradient();
+        readonly GradientColorKey[] previewLineColorKeys = new GradientColorKey[4];
+        readonly GradientAlphaKey[] previewLineAlphaKeys =
+        {
+            new GradientAlphaKey(PredictionConfig.RouteAlphaSel, 0f),
+            new GradientAlphaKey(PredictionConfig.RouteAlphaSel, 1f),
+        };
         // [예측 세션 수정, 2026-07-20] 이전엔 routes[selected] 하나만 채우는 단일 풀이라
         // Preview 중 후보를 F로 순환해야만 다음 후보가 애니메이션됐다("하나씩 나가는" 문제).
         // 경로별 풀로 바꿔서 Preview 중엔 모든 후보가 동시에 표시되게 한다. Following 중엔
@@ -512,6 +522,8 @@ namespace Game.View
                             {
                                 rhythmFeedback = "MISS";
                                 rhythmFeedbackUntil = Time.unscaledTime + 0.45f;
+                                missGlitchStartedAt = Time.unscaledTime;
+                                missGlitchUntil = missGlitchStartedAt + PredictionConfig.MissGlitchSeconds;
                                 CombatAudio.PlayerHurt();
                                 Debug.LogWarning($"[예측 리듬] Miss — 액션을 실행하지 않고 직접 조작으로 전환");
                                 Exit();
@@ -539,6 +551,7 @@ namespace Game.View
 
         public void DrawRhythmHud()
         {
+            DrawMissGlitch();
             bool feedbackActive = Time.unscaledTime < rhythmFeedbackUntil;
             if (state != State.Following || rhythmJudge == null)
             {
@@ -660,6 +673,61 @@ namespace Game.View
                 $"<color={color}>{rhythmFeedback}</color>", style);
         }
 
+        void DrawMissGlitch()
+        {
+            if (Time.unscaledTime >= missGlitchUntil) return;
+            EnsureMissGlitchTexture();
+
+            float elapsed = Time.unscaledTime - missGlitchStartedAt;
+            float life = Mathf.Clamp01(elapsed / PredictionConfig.MissGlitchSeconds);
+            float alpha = PredictionConfig.MissGlitchMaxAlpha
+                * (1f - life) * (0.7f + 0.3f * Mathf.Abs(Mathf.Sin(elapsed * 95f)));
+            Color previous = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, alpha);
+            float offsetX = Mathf.Repeat(elapsed * 17.3f, 1f);
+            float offsetY = Mathf.Repeat(elapsed * 29.7f, 1f);
+            GUI.DrawTextureWithTexCoords(
+                new Rect(0f, 0f, Screen.width, Screen.height),
+                missGlitchTexture,
+                new Rect(offsetX, offsetY, 3f, 3f));
+
+            for (int i = 0; i < 7; i++)
+            {
+                float wave = Mathf.Repeat(elapsed * (31f + i * 3.7f) + i * 0.173f, 1f);
+                float y = wave * Screen.height;
+                float h = 4f + (i % 3) * 7f;
+                float shift = Mathf.Sin(elapsed * 80f + i * 2.1f) * 0.18f;
+                GUI.color = new Color(i % 2 == 0 ? 1f : 0.2f, 0.12f, 0.14f, alpha * 0.75f);
+                GUI.DrawTextureWithTexCoords(
+                    new Rect(0f, y, Screen.width, h),
+                    missGlitchTexture,
+                    new Rect(offsetX + shift, offsetY + i * 0.11f, 3f, 0.18f));
+            }
+            GUI.color = previous;
+        }
+
+        void EnsureMissGlitchTexture()
+        {
+            if (missGlitchTexture != null) return;
+            const int size = 128;
+            missGlitchTexture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = "PredictionMissGlitch",
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Repeat,
+            };
+            var pixels = new Color32[size * size];
+            var random = new System.Random(19770421);
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                byte value = (byte)random.Next(15, 256);
+                byte pixelAlpha = (byte)random.Next(45, 210);
+                pixels[i] = new Color32(value, value, value, pixelAlpha);
+            }
+            missGlitchTexture.SetPixels32(pixels);
+            missGlitchTexture.Apply(false, true);
+        }
+
         static string InputGuide(PredictedActionType type)
         {
             switch (type)
@@ -708,8 +776,6 @@ namespace Game.View
                 (Time.unscaledTime - previewRevealStartRealTime)
                 / Mathf.Max(0.01f, PredictionConfig.PreviewRevealSeconds));
             UpdatePreviewLines(previewRevealProgress);
-            for (int i = 0; i < lines.Count && i < routes.Count; i++)
-                StyleLine(lines[i], routes[i].color, i == selected);
 
             if (startMarker != null)   // 정지된 플레이어 위치 = 루트 시작점
             {
@@ -799,8 +865,49 @@ namespace Game.View
                 bool safetyRoute = i == 0 && i < routes.Count;
                 lines[i].gameObject.SetActive(safetyRoute);
                 if (safetyRoute)
-                    SetLineReveal(lines[i], routes[i], progress);
+                    SetPreviewLineWindow(lines[i], routes[i], progress);
             }
+        }
+
+        void SetPreviewLineWindow(LineRenderer line, PredictedRoute route, float progress)
+        {
+            float headProgress = Mathf.Clamp01(progress);
+            SetLineReveal(line, route, headProgress);
+            line.widthMultiplier = PredictionConfig.RouteWidthSel;
+            ApplyPreviewLineGradient(line, headProgress);
+        }
+
+        void ApplyPreviewLineGradient(LineRenderer line, float progress)
+        {
+            float p = Mathf.Max(0.0001f, Mathf.Clamp01(progress));
+            Color end = PreviewPathColor(p);
+            previewLineColorKeys[0] = new GradientColorKey(PredictionConfig.PreviewPathGreen, 0f);
+            if (p <= 1f / 3f)
+            {
+                previewLineColorKeys[1] = new GradientColorKey(
+                    Color.Lerp(PredictionConfig.PreviewPathGreen, end, 1f / 3f), 1f / 3f);
+                previewLineColorKeys[2] = new GradientColorKey(
+                    Color.Lerp(PredictionConfig.PreviewPathGreen, end, 2f / 3f), 2f / 3f);
+            }
+            else if (p <= 2f / 3f)
+            {
+                float blueAt = (1f / 3f) / p;
+                previewLineColorKeys[1] =
+                    new GradientColorKey(PredictionConfig.PreviewPathBlue, blueAt);
+                previewLineColorKeys[2] =
+                    new GradientColorKey(Color.Lerp(PredictionConfig.PreviewPathBlue, end, 0.5f),
+                        Mathf.Lerp(blueAt, 1f, 0.5f));
+            }
+            else
+            {
+                previewLineColorKeys[1] = new GradientColorKey(
+                    PredictionConfig.PreviewPathBlue, (1f / 3f) / p);
+                previewLineColorKeys[2] = new GradientColorKey(
+                    PredictionConfig.PreviewPathPurple, (2f / 3f) / p);
+            }
+            previewLineColorKeys[3] = new GradientColorKey(end, 1f);
+            previewLineGradient.SetKeys(previewLineColorKeys, previewLineAlphaKeys);
+            line.colorGradient = previewLineGradient;
         }
 
         static void SetLineReveal(LineRenderer line, PredictedRoute route, float progress)
@@ -931,7 +1038,7 @@ namespace Game.View
 
                 float scaled = Mathf.Clamp01(progress) * Mathf.Max(0, route.path.Count - 1);
                 bool sel = ri == selected;
-                Color color = route.color;
+                Color color = PreviewPathColor(progress);
                 color.a = sel ? 0.85f : 0.4f;
                 PlaceRevealBody(ghost, route, scaled);
                 SetMarkColor(ghost, color);
@@ -948,7 +1055,7 @@ namespace Game.View
                     float afterScaled = afterProgress * Mathf.Max(0, route.path.Count - 1);
                     PlaceRevealBody(afterimage, route, afterScaled);
                     float fade = 1f - i / (float)afterimages.Count;
-                    Color afterColor = route.color;
+                    Color afterColor = PreviewPathColor(afterProgress);
                     afterColor.a = PredictionConfig.PreviewAfterimageHeadAlpha
                         * fade * fade * afterimageFade
                         * (sel ? 1f : PredictionConfig.RouteDimMul);
@@ -967,6 +1074,25 @@ namespace Game.View
             Vector3 direction = route.path[to] - route.path[from];
             if (direction.sqrMagnitude > 1e-5f)
                 body.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        }
+
+        static Color PreviewPathColor(float progress)
+        {
+            float p = Mathf.Clamp01(progress);
+            if (p < 1f / 3f)
+                return Color.Lerp(
+                    PredictionConfig.PreviewPathGreen,
+                    PredictionConfig.PreviewPathBlue,
+                    p * 3f);
+            if (p < 2f / 3f)
+                return Color.Lerp(
+                    PredictionConfig.PreviewPathBlue,
+                    PredictionConfig.PreviewPathPurple,
+                    (p - 1f / 3f) * 3f);
+            return Color.Lerp(
+                PredictionConfig.PreviewPathPurple,
+                PredictionConfig.PreviewPathRed,
+                (p - 2f / 3f) * 3f);
         }
 
         /// <summary>정지 잔상 — 고정 간격이 아니라 route.ghostFrames(RealRoutePreview가
@@ -1031,7 +1157,10 @@ namespace Game.View
             // Preview: 경로 색으로 후보를 구분하고, 선택된 후보만 또렷하게 강조한다
             // (다른 시각 요소인 라인·트레일의 RouteDimMul 감쇠와 동일한 규칙).
             bool sel = routeIndex == selected;
-            Color c = route.color;
+            float pathProgress = route.path.Count > 1
+                ? frame.tick / (float)(route.path.Count - 1)
+                : 0f;
+            Color c = PreviewPathColor(pathProgress);
             c.a = sel ? 0.62f : 0.3f;
             if (!sel) c = new Color(c.r * PredictionConfig.RouteDimMul, c.g * PredictionConfig.RouteDimMul,
                                      c.b * PredictionConfig.RouteDimMul, c.a);
