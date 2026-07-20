@@ -92,7 +92,7 @@ namespace Game.Prediction
                 events.Add(new PredictedActionEvent { tick = tick, type = PredictedActionType.Attack, targetId = -1 });
 
             if (before.player.combat.lungePhase == CombatConfig.LgNone
-                && after.player.combat.lungePhase == CombatConfig.LgWindup)
+                && after.player.combat.lungePhase == CombatConfig.LgTravel)
                 events.Add(new PredictedActionEvent
                 {
                     tick = tick,

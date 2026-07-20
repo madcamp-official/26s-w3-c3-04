@@ -83,6 +83,31 @@ namespace Game.Sim.Tests
         }
 
         [Test]
+        public void Replay_RecordsLungeEvent_AtRealTriggerTick()
+        {
+            // LungeWindupTicks=0이라 PlayerCombat.Step은 LgNone에서 곧장 LgTravel로 넘어간다
+            // (LgWindup을 절대 거치지 않는다) — DetectEvents가 이 실제 전이를 잡는지 검증.
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(new Vector3(0f, 0f, 3f));
+            SimServices services = StubServices.Create();
+
+            var candidate = new CandidatePath
+            {
+                actions = new[] { MacroAction.LungeTo(world.enemies[0].id) },
+                mapVersion = world.mapVersion,
+            };
+
+            bool ok = CandidateReplayer.Replay(in world, in services, candidate, 15);
+
+            Assert.IsTrue(ok);
+            bool hasLungeEvent = false;
+            foreach (PredictedActionEvent e in candidate.actionEvents)
+                if (e.type == PredictedActionType.Lunge) hasLungeEvent = true;
+            Assert.IsTrue(hasLungeEvent, "런지(우클릭) 발동 이벤트가 기록돼야 함 — LgNone→LgTravel 전이를 잡아야 함");
+        }
+
+        [Test]
         public void Replay_Fails_WhenMapVersionMismatches()
         {
             SimWorld world = SimWorld.Create();
