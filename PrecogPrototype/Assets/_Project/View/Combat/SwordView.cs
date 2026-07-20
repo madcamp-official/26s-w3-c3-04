@@ -192,6 +192,11 @@ namespace Game.View
 
         static float Frac(int ticks, int total) => total <= 0 ? 1f : Mathf.Clamp01((float)ticks / total);
 
+        // Magic_Sword_03 모델 실측(루트 로컬 합산 바운드): 긴 축 Z=15.036, center=(0.259,1.564,-0.235).
+        // 이미 +Z(전방)로 누워 있어 회전 불필요. 스케일로 줄이고 중심 보정 후 앞으로 내민다.
+        const float SwordModelLenZ = 15.036f;
+        static readonly Vector3 SwordModelCenter = new Vector3(0.259f, 1.564f, -0.235f);
+
         void BuildSword()
         {
             var pv = new GameObject("SwordPivot");
@@ -199,11 +204,36 @@ namespace Game.View
             pivot.SetParent(cam.transform, false);
             pivot.localPosition = IdlePos;
 
+            var model = Resources.Load<GameObject>("Magic_Sword_03");
+            if (model == null) { BuildCubeFallback(); return; }   // 에셋 없으면 구식 큐브
+
+            var sword = Object.Instantiate(model).transform;
+            sword.name = "Blade";
+            sword.SetParent(pivot, false);
+
+            float scale = 0.75f / SwordModelLenZ;                 // 날 길이 ≈0.75로
+            sword.localScale = Vector3.one * scale;
+            sword.localRotation = Quaternion.identity;            // 긴 축이 이미 +Z
+            // 바운드 중심을 원점으로 당긴 뒤 살짝 앞으로 내밀어 손에서 뻗어나오게
+            sword.localPosition = -SwordModelCenter * scale + new Vector3(0f, 0f, 0.30f);
+
+            var mat = Mat(new Color(0.82f, 0.86f, 0.95f));        // 금속 칼날 색
+            foreach (var r in sword.GetComponentsInChildren<Renderer>())
+            {
+                var mats = new Material[r.sharedMaterials.Length];
+                for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                r.sharedMaterials = mats;
+            }
+        }
+
+        /// <summary>에셋 로드 실패 시 구식 직육면체 날(안전망).</summary>
+        void BuildCubeFallback()
+        {
             var blade = GameObject.CreatePrimitive(PrimitiveType.Cube);
             blade.name = "Blade";
             Object.Destroy(blade.GetComponent<Collider>());
             blade.transform.SetParent(pivot, false);
-            blade.transform.localScale    = new Vector3(0.05f, 0.05f, 0.7f);   // 앞으로 뻗은 날
+            blade.transform.localScale    = new Vector3(0.05f, 0.05f, 0.7f);
             blade.transform.localPosition = new Vector3(0f, 0f, 0.35f);
             blade.GetComponent<Renderer>().material = Mat(new Color(0.85f, 0.9f, 1f));
         }
