@@ -246,6 +246,30 @@ namespace Game.Sim
             return bestId;
         }
 
+        /// <summary>
+        /// 런지로 targetId를 칠 수 있으면 true + 실제 착지점(대상 고도 반영)을 out으로 준다.
+        /// 실제 발동(Step)이 쓰는 IsLungeable + TryLockDestination과 <b>동일 경로</b> — 판정 규칙은 Sim 한 곳뿐.
+        /// 예측이 자기 재구현 대신 이걸 부르면 "예측 됨 → 실제 안 됨" 괴리가 사라진다.
+        ///
+        /// ※ 판정은 p.yaw/p.aimPitch(현재 조준) 기준이다. 예측은 후보 대상을 <b>향하도록 조준을 세팅한</b>
+        ///   가상 PlayerSim을 넣어야 실제와 일치한다(그냥 현재 조준으로 부르면 다른 결과가 나옴).
+        /// 순수 함수(월드+충돌 질의)라 결정론 불변.
+        /// </summary>
+        public static bool CanLunge(in SimWorld w, in PlayerSim p, in SimServices svc,
+                                    int targetId, out Vector3 destination)
+        {
+            destination = p.pos;
+            int idx = FindEnemyIndex(in w, targetId);
+            if (idx < 0) return false;
+
+            Vector3 eye = p.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
+            Vector3 dir = AimDir(p.yaw, p.aimPitch);
+            ref readonly EnemySim e = ref w.enemies[idx];
+            if (!IsLungeable(in p, in e, in svc, eye, dir, out _, out _)) return false;
+
+            return TryLockDestination(in w, in p, in svc, targetId, out destination);
+        }
+
         static Vector3 AimDir(float yaw, float pitch)
             => Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
 
