@@ -20,7 +20,7 @@ namespace Game.Sim
 
         // 플레이어 (캡슐: 발밑 pos 기준, 위로 Height). 크기는 구조 상수(런타임 변경 금지).
         public const float PlayerRadius    = 0.28f;
-        public const float PlayerHeight    = 1.15f;
+        public const float PlayerHeight    = 1.4375f;   // 1.15 × 1.25 (키 상향 실험)
 
         // ── 이동·점프 (static = F1 튜닝 패널에서 실시간 조정. 예측 중 변경 금지) ──
         //    2026-07-18 F1 튜닝으로 확정한 기본값.
@@ -42,7 +42,7 @@ namespace Game.Sim
         // 적. 크기 축소(부피 ~1/4), 튜닝 대상
         public const float EnemyMoveSpeed  = 6f;    // 근접 그런트 = 플레이어 7의 ~0.85× (원거리는 자체 4)
         public const float EnemyRadius     = 0.32f;
-        public const float EnemyHeight     = 1.15f;
+        public const float EnemyHeight     = 1.4375f;   // 1.15 × 1.25 (키 상향 실험, 모든 몹 비례 확대)
         public const float EnemyAggroRange = 40f;
         public const int   EnemyRepathTicks = 15;     // 경로 재계산 주기
         public const float EnemyArriveDist  = 0.6f;   // 코너 도달 판정
