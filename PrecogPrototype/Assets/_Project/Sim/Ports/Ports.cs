@@ -32,6 +32,13 @@ namespace Game.Sim
         public int floorId;
         public int destinationFloorId;
         public int traversalTicks;
+
+        // ── 층이동 탄도 파라미터(마커 Bake가 링크에 구워둔 값) ──
+        // 값이 아니라 파라미터를 넘겨, 평상시·예측·에디터 프리뷰가 같은 함수로 궤적을 풀게 한다.
+        public float clearance;     // 정점 여유 높이(0 = 자동)
+        public float gravity;       // 0 = SimConfig 기본
+        public int   pauseTicks;    // 도약 전 주저
+        public int   recoverTicks;  // 착지 후 멈칫
     }
 
     public interface IPathfinder

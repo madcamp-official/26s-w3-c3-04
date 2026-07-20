@@ -42,6 +42,16 @@ namespace Game.Sim
         public Vector3 landingPosition;
         public int landingSlotCount;
         public float landingSpread;
+
+        // ── 층이동 개편(탄도) — 마커 Bake가 채운다 ──
+        // 궤적은 (fromNode 위치 → landingPosition, clearance, gravity)로 재구성한다.
+        // 값을 통째로 굽지 않고 파라미터만 두는 이유: 평상시·예측이 같은 함수로 풀어 반드시 일치시키기 위해.
+        public Vector3 traversalStartPosition;  // 도약 발판(출발 좌표). NavMesh 경로 코너와 매칭해 진입을 판정한다
+        public float clearance;      // 정점 여유 높이(0이면 SimConfig 기본 비율로 자동)
+        public float gravity;        // 0이면 SimConfig.TraversalGravity
+        public int   pauseTicks;     // 도약 전 주저(길이 비례로 구워짐)
+        public int   recoverTicks;   // 착지 후 멈칫
+        public float costDistance;   // 길찾기 비용(= 소요시간을 걸은 거리로 환산). 0이면 직선거리 사용
     }
 
     [Serializable]

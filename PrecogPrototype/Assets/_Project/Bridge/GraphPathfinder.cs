@@ -48,7 +48,13 @@ namespace Game.Bridge
                 if (l.traversalType == NavTraversalType.Blocked || (l.agentMask & agentMask) == 0) continue;
                 int a = IndexOf(ns, l.fromNodeId), b = IndexOf(ns, l.toNodeId);
                 if (a < 0 || b < 0) continue;
-                int cost = Mathf.Max(1, Mathf.RoundToInt(Vector3.Distance(ns[a].position, ns[b].position) * 100f));
+                // 비용: 도약 링크는 Bake가 구워둔 "환산거리"(주저+비행+멈칫을 걸은 거리로 환산)를 쓴다.
+                // 이걸 안 쓰고 직선거리로 두면 도약이 공짜로 보여, 평상시(NavMesh, 보정됨)와
+                // 정반대 판단을 하게 된다 — 예측이 거짓말하는 상태가 된다.
+                float costMeters = l.costDistance > 0f
+                    ? l.costDistance
+                    : Vector3.Distance(ns[a].position, ns[b].position);
+                int cost = Mathf.Max(1, Mathf.RoundToInt(costMeters * 100f));
                 if (cost < dist[a, b] || (cost == dist[a, b] && (direct[a, b] < 0 || l.linkId < ls[direct[a, b]].linkId)))
                 {
                     dist[a, b] = cost;
@@ -90,7 +96,13 @@ namespace Game.Bridge
             if ((link.agentMask & agentMask) == 0) return default;
             MoveKind kind = ToMoveKind(link.traversalType);
             Vector3 target = kind == MoveKind.Drop || kind == MoveKind.Boost ? link.landingPosition : nodes[b].position;
-            return MakeStep(kind, target, a, b, destination, link.linkId, link.traversalTicks);
+            PathStep s = MakeStep(kind, target, a, b, destination, link.linkId, link.traversalTicks);
+            // 탄도 파라미터를 실어 보낸다 — 실행부가 에디터 프리뷰와 같은 함수로 궤적을 푼다.
+            s.clearance    = link.clearance;
+            s.gravity      = link.gravity;
+            s.pauseTicks   = link.pauseTicks;
+            s.recoverTicks = link.recoverTicks;
+            return s;
         }
 
         PathStep MakeStep(MoveKind kind, Vector3 target, int a, int b, int destination, int linkId, int ticks)

@@ -104,7 +104,7 @@ namespace Game.Sim
             CharacterMotor.ResolveVertical(svc.Collision, ref p.pos, ref p.vel, dt, out bool grounded,
                                            SimConfig.PlayerRadius, SimConfig.PlayerHeight);
             p.grounded = grounded;
-            if (grounded) p.jumpCount = 0;
+            if (grounded) { p.jumpCount = 0; p.lastGroundedPos = p.pos; }   // 적 추적 목표 갱신
         }
 
         static Vector3 DashVector(DashDirection d, Vector3 fwd, Vector3 right)

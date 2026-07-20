@@ -31,6 +31,9 @@ namespace Game.Sim
         public const float SeparationRadius  = 1.6f;  // 몸(반경 합) 밖으로 이만큼까지 개인공간
         public const float SeparationWeight  = 0.9f;  // 추격/이동 대비 분리 세기
         public const float SeparationMaxPush = 2.5f;  // 과밀 시 분리벡터 폭주 방지 클램프
+        // 개체 고정 개성값(EnemySim.personality 0~1)이 분리 세기를 이 값~1배 사이로 낮춘다.
+        // 전부 같은 가중치면 정면으로 마주칠 때 밀어내는 힘이 대칭이라 거울처럼 진동한다(ADR-0004 개정).
+        public const float SeparationScaleMin = 0.55f;
 
         // ── 공중 원거리 (커코데몬형) — 원거리 × Flying. 낮게 부유, 공격은 지상 원거리와 공유 ──
         //    벽은 MoveHorizontal 슬라이드, 몹끼리는 분리 스티어링이 담당(클래식 난수 우회 폐기).

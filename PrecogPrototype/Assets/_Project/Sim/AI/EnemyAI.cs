@@ -138,7 +138,7 @@ namespace Game.Sim
             }
 
             // 접근/하강/경직/idle → 기존 이동 (추격에 분리 스티어링 가중)
-            EnemyMovement.Step(ref e, in w.player, sepScratch[i], in svc, dt);
+            EnemyMovement.Step(ref w, i, sepScratch[i], in svc, dt);
         }
 
         static void AdvanceMelee(ref SimWorld w, int i, in SimServices svc, float dt)
@@ -243,7 +243,7 @@ namespace Game.Sim
                             return;
                         }
                     }
-                    EnemyMovement.Step(ref e, in w.player, sepScratch[i], in svc, dt);   // 추격 + 하강 + 분리
+                    EnemyMovement.Step(ref w, i, sepScratch[i], in svc, dt);   // 추격 + 하강 + 분리
                     break;
             }
         }

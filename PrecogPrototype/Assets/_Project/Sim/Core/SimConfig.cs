@@ -70,6 +70,26 @@ namespace Game.Sim
         // 내 둠식 도약 튜닝값(Phase C에서 traversal Airborne 곡선에 반영). 지금은 보관.
         public const float DropArcHeight      = 3f;    // 솟구침 높이(크게 뜀)
         public const float DropLaunchFrac     = 0.35f; // 상승:하강 비율(가속낙하)
+
+        // ── 층이동 개편(탄도 모델). docs/shared/층이동_개편_설계.md 참조 ──
+        // 마커(TraversalLink)가 층 전환의 유일한 권위. 궤적은 TraversalBallistics가 해석한다.
+        public const float TraversalGravity      = 22f;   // 도약 중력(클수록 스냅하게 떨어짐)
+        public const float TraversalMinClearance = 0.6f;  // 최소 여유 높이(항상 솟는 느낌 보장)
+        public const float TraversalClearanceRatio = 0.18f; // 기본 clearance = 링크 길이 × 이 값
+        public const float TraversalMaxClearance = 4f;    // clearance 상한
+
+        // 주저·멈칫 = 링크 직선 길이 비례(데드존 없음 — 짧아도 최소값). 곡선은 가속형(exponent>1).
+        public const int   TraversalPauseMin      = 3;
+        public const int   TraversalPauseMax      = 22;
+        public const int   TraversalRecoverMin    = 4;
+        public const int   TraversalRecoverMax    = 30;
+        public const float TraversalLengthRef     = 14f;   // 이 길이에서 최대치에 도달
+        public const float TraversalLengthExp     = 1.9f;  // >1 = 길수록 급격히 증가
+
+        // 착지 슬롯(동시 도약 혼잡 방지)
+        public const int   TraversalSlotMax       = 6;    // 링크당 최대 슬롯 수
+        public const float TraversalSlotGapMul    = 2.2f; // 슬롯 간격 = 최대 몹 반경 × 이 값
+        public const int   TraversalLinkCapacity  = 2;    // 동시 비행 허용 수(초과 시 발판 대기)
         // (레거시 자연낙하 상수 — NavMeshPathfinder가 참조. 그래프 전환 후 정리 예정)
         public const float DropCommitDist      = 2f;
         public const int   DropWindupTicks     = 10;

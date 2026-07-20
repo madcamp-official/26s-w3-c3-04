@@ -33,6 +33,23 @@ namespace Game.View
 
         /// <summary>디버그용: 살아있는 적 전부 제거(예측 미리보기 시나리오 리셋용).</summary>
         public void ClearAllEnemies() => world.enemyCount = 0;
+
+        /// <summary>웨이브 런타임용: 지정 위치·조합으로 스폰하고 부여된 적 id를 돌려준다(-1 = 실패).</summary>
+        public int SpawnEnemyAt(Vector3 pos, CombatType combat, MobilityType mobility, SizeClass size)
+        {
+            int id = world.nextEnemyId;   // AddEnemy가 이 값을 쓰고 증가시킨다
+            return world.AddEnemy(pos, combat, mobility, size) ? id : -1;
+        }
+
+        /// <summary>주어진 id들 중 살아있는 적 수 — 웨이브별 생존 카운트용(Sim 수정 없이 웨이브 소속 추적).</summary>
+        public int AliveCountAmong(System.Collections.Generic.HashSet<int> ids)
+        {
+            if (ids == null || ids.Count == 0) return 0;
+            int n = 0;
+            for (int i = 0; i < world.enemyCount; i++)
+                if (world.enemies[i].alive && ids.Contains(world.enemies[i].id)) n++;
+            return n;
+        }
         // <<< [예측 세션 추가 끝]
 
         // 화면연출(칼등치기 카메라 고정)이 끝날 때 최종 시선을 되돌려 써서 원복 방지.
@@ -83,8 +100,21 @@ namespace Game.View
             // 하이브리드: 평상시 = 런타임 NavMesh(연속 경로·나비 매끄러움).
             // 예측 검색·following 재생 = 고정 그래프(포크·결정론). 둘 다 EnemyMovement가 그대로 씀.
             var collision = new PhysicsCollision(Physics.DefaultRaycastLayers);
-            services      = new SimServices(collision, new NavMeshPathfinder());
-            graphServices = new SimServices(collision, GraphPathfinder.CreateArena());
+
+            // 층이동 마커 Bake — 씬의 TraversalLink를 NavMeshLink(평상시) + 그래프 링크(예측)로 굽는다.
+            // 같은 소스에서 양쪽을 만들기 때문에 평상시·예측의 층이동이 구조적으로 어긋나지 않는다.
+            var markers = FindObjectsByType<TraversalLink>(FindObjectsSortMode.None);
+            var navPathfinder = new NavMeshPathfinder();
+            var graphPathfinder = GraphPathfinder.CreateArena();
+            if (markers.Length > 0)
+            {
+                var baked = TraversalBaker.Bake(markers, System.Array.Empty<ArenaNavNode>());
+                navPathfinder.links = baked.ToArray();   // 코너 좌표 매칭으로 진입 판정
+                Debug.Log($"[층이동] 마커 {markers.Length}개 → 링크 {baked.Count}개 구움");
+            }
+
+            services      = new SimServices(collision, navPathfinder);
+            graphServices = new SimServices(collision, graphPathfinder);
 
             world = SimWorld.Create();
             world.player = PlayerSim.Spawn(map.playerSpawn);
