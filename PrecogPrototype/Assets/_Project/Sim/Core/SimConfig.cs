@@ -55,6 +55,7 @@ namespace Game.Sim
         public const int EnemyNormalHp = 2;   // 일반몹 HP
         public const int EnemyMidHp    = 3;   // 중형몹 HP
         public const int EnemyLargeHp  = 4;   // 대형몹 HP (크기 3배)
+        public const float EnemyNormalScale = 1.2f; // 일반몹 크기 배율(대형 제외)
         public const float EnemyLargeScale = 3f;   // 대형몹 크기 배율
         //  스킬 세부 틱(윈드업/액티브/스턴 등)은 combat 소유 파일에 둔다.
 

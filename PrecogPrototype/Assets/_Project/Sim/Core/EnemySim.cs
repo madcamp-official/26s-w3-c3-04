@@ -58,7 +58,7 @@ namespace Game.Sim
         public static EnemySim Spawn(int id, Vector3 at, CombatType combat, MobilityType mobility, SizeClass size)
         {
             bool large = size == SizeClass.Large;
-            float scale = large ? SimConfig.EnemyLargeScale : 1f;
+            float scale = large ? SimConfig.EnemyLargeScale : SimConfig.EnemyNormalScale;
             int hp = large ? SimConfig.EnemyLargeHp : SimConfig.EnemyNormalHp;
             float radiusMul = mobility == MobilityType.Charge ? AIConfig.ChargeRadiusMul : 1f;   // 돌진몹 반경 1.5배(높이는 그대로)
             return new EnemySim
