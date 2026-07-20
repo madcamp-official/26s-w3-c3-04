@@ -13,7 +13,7 @@ namespace Game.Sim
         public static int AttackWindupTicks   = 6;    // 0.10초
         public static int AttackActiveTicks   = 2;    // 슬래시 판정
         public static int AttackRecoveryTicks = 12;   // 0.20초 — 총 0.33초
-        public static float AttackConeRange       = 2.6f;
+        public static float AttackConeRange       = 3.25f;
         public static float AttackConeHalfAngle   = 55f;
         public static float AttackHeightTolerance = 1.0f;   // 높이차 허용
 

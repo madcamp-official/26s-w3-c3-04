@@ -12,7 +12,7 @@ namespace Game.View
     /// </summary>
     public class Main : MonoBehaviour
     {
-        [SerializeField] float eyeHeight = 1.0f;   // 줄인 키(1.15)에 맞춤
+        [SerializeField] float eyeHeight = 1.25f;   // 키 1.4375(1.15×1.25)에 맞춰 시점 상향
         [SerializeField] float gameplayFov = 0f;   // 0=씬 카메라 FOV 상속, >0=강제(둠식 넓은 시야는 90~100)
         public bool useSceneGeometry;   // true=씬 지형(Synty) 사용, false=코드 큐브맵
 

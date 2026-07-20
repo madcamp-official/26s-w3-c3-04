@@ -20,14 +20,14 @@ namespace Game.Sim
 
         // 플레이어 (캡슐: 발밑 pos 기준, 위로 Height). 크기는 구조 상수(런타임 변경 금지).
         public const float PlayerRadius    = 0.28f;
-        public const float PlayerHeight    = 1.15f;
+        public const float PlayerHeight    = 1.4375f;   // 1.15 × 1.25 (키 상향 실험)
 
         // ── 이동·점프 (static = F1 튜닝 패널에서 실시간 조정. 예측 중 변경 금지) ──
         //    2026-07-18 F1 튜닝으로 확정한 기본값.
-        public static float PlayerMoveSpeed = 8.01f;
-        public static float PlayerJumpSpeed = 10.24f;
+        public static float PlayerMoveSpeed = 9.17f;
+        public static float PlayerJumpSpeed = 11.25f;
         public static int   JumpBufferTicks = 12;    // 착지 직전 점프 선입력 허용
-        public static float AirJumpBoost    = 7.86f; // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
+        public static float AirJumpBoost    = 9.34f; // 2단 점프 시 입력 방향 수평 임펄스(추가 속도)
         public static int   AirJumpBoostTicks = 12;  // 임펄스 지속(감쇠)
 
         // ── 4방향 대시 (진짜 임펄스: 초기 속도 부여 → 매 틱 드래그로 감쇠. 이동 전용) ──
@@ -42,7 +42,7 @@ namespace Game.Sim
         // 적. 크기 축소(부피 ~1/4), 튜닝 대상
         public const float EnemyMoveSpeed  = 6f;    // 근접 그런트 = 플레이어 7의 ~0.85× (원거리는 자체 4)
         public const float EnemyRadius     = 0.32f;
-        public const float EnemyHeight     = 1.15f;
+        public const float EnemyHeight     = 1.4375f;   // 1.15 × 1.25 (키 상향 실험, 모든 몹 비례 확대)
         public const float EnemyAggroRange = 40f;
         public const int   EnemyRepathTicks = 15;     // 경로 재계산 주기
         public const float EnemyArriveDist  = 0.6f;   // 코너 도달 판정
@@ -55,6 +55,7 @@ namespace Game.Sim
         public const int EnemyNormalHp = 2;   // 일반몹 HP
         public const int EnemyMidHp    = 3;   // 중형몹 HP
         public const int EnemyLargeHp  = 4;   // 대형몹 HP (크기 3배)
+        public const float EnemyNormalScale = 1.2f; // 일반몹 크기 배율(대형 제외)
         public const float EnemyLargeScale = 3f;   // 대형몹 크기 배율
         //  스킬 세부 틱(윈드업/액티브/스턴 등)은 combat 소유 파일에 둔다.
 
