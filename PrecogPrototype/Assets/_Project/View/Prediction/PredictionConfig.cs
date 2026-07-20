@@ -37,7 +37,7 @@ namespace Game.View
         public const float RouteAlphaDim = 0.4f;    // 비선택 루트 반투명도(더 흐리게)
         // [예측 세션 수정, 2026-07-20] 1.6 → 2.8: 이동 헤드와 경로가 전개되는 과정을
         // 충분히 눈으로 따라갈 수 있게 늦춘다. 예측 계산·판정·실행 속도에는 영향이 없다.
-        public const float PreviewRevealSeconds = 4.2f;
+        public const float PreviewRevealSeconds = 5.0f;
         // 이동 트레일이 옅어져 사라지기까지 걸리는 시간(초) — 위 스윕 시간의 절반 조금 안 되게
         // 맞춰서, 트레일 꼬리 길이가 "지나온 절반 구간"처럼 보이게 한다.
         public const int PreviewAfterimageCount = 24;

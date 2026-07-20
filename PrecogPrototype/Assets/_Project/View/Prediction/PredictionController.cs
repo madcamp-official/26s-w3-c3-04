@@ -123,6 +123,7 @@ namespace Game.View
                 }
                 ghostMarksByRoute.Add(ghostPool);
 
+                if (ri != 0) continue; // 이동 잔상은 안전형 경로 하나만 생성한다.
                 Transform ghost = MakeRevealGhost();
                 ghost.gameObject.SetActive(false);
                 revealGhosts.Add(ghost);
@@ -775,6 +776,7 @@ namespace Game.View
             while (lines.Count < routes.Count)
             {
                 var go = new GameObject($"Route_{lines.Count}");
+                go.layer = PredictionAccentLayer;
                 var lr = go.AddComponent<LineRenderer>();
                 lr.useWorldSpace = true; lr.numCapVertices = 2; lr.numCornerVertices = 2;
                 lr.material = LineMat();
@@ -782,18 +784,23 @@ namespace Game.View
             }
             for (int i = 0; i < lines.Count; i++)
             {
-                bool used = i < routes.Count;
+                bool used = i == 0 && i < routes.Count;
                 lines[i].gameObject.SetActive(used);
                 if (!used) continue;
                 lines[i].positionCount = 0;
-                StyleLine(lines[i], routes[i].color, i == selected);
+                StyleLine(lines[i], PredictionConfig.RouteColors[0], true);
             }
         }
 
         void UpdatePreviewLines(float progress)
         {
-            for (int i = 0; i < lines.Count && i < routes.Count; i++)
-                SetLineReveal(lines[i], routes[i], progress);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                bool safetyRoute = i == 0 && i < routes.Count;
+                lines[i].gameObject.SetActive(safetyRoute);
+                if (safetyRoute)
+                    SetLineReveal(lines[i], routes[i], progress);
+            }
         }
 
         static void SetLineReveal(LineRenderer line, PredictedRoute route, float progress)
@@ -894,7 +901,8 @@ namespace Game.View
 
             // 보통 PreWarmRoutePools가 이미 RouteColors.Length(3)개를 다 채워둬서 여기서 자랄 일은
             // 없다 — 후보 수가 그 이상으로 늘어나는 미래 변경에 대비한 안전망만 유지한다.
-            while (revealGhosts.Count < routes.Count)
+            int revealRouteCount = routes.Count > 0 ? 1 : 0;
+            while (revealGhosts.Count < revealRouteCount)
             {
                 revealGhosts.Add(MakeRevealGhost());
                 var afterimages = new List<Transform>(PredictionConfig.PreviewAfterimageCount);
@@ -974,7 +982,8 @@ namespace Game.View
                 List<Transform> pool = ghostMarksByRoute[ri];
                 PredictedRoute r = ri < routes.Count ? routes[ri] : null;
                 bool routeVisible = r != null
-                    && (state == State.Preview || (state == State.Following && ri == selected));
+                    && ((state == State.Preview && ri == 0)
+                        || (state == State.Following && ri == selected));
                 int need = routeVisible ? r.ghostFrames.Count : 0;
                 while (pool.Count < need) pool.Add(MakeGhostMark());
 
