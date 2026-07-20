@@ -42,6 +42,16 @@ namespace Game.View
         public float LookYaw   => input.Yaw;
         public float LookPitch => input.Pitch;
 
+        /// <summary>컷신 종료 시 플레이어를 현재 시선(yaw) 정면으로 dist만큼 이동(봉인 박스 탈출).
+        /// 스크립트 텔레포트라 결정론과 무관(예측 중엔 컷신을 트리거하지 않음). prevWorld도 맞춰 보간 튐 방지.</summary>
+        public void AdvancePlayerForward(float dist)
+        {
+            float yr = input.Yaw * Mathf.Deg2Rad;
+            Vector3 fwd = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
+            world.player.pos += fwd * dist;
+            prevWorld = Snapshot.Clone(in world);
+        }
+
         SimWorld world, prevWorld;
         readonly InputReader input = new InputReader();
         readonly EntityViews views = new EntityViews();
@@ -98,8 +108,8 @@ namespace Game.View
 
         void Update()
         {
-            // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능)
-            if (!prediction.Frozen && !ConsoleOpen) input.PollFrame();
+            // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능). 컷신 중엔 조작 잠금.
+            if (!prediction.Frozen && !ConsoleOpen && !Cutscene.Active) input.PollFrame();
 
             prediction.Tick(in world);   // 정지 아닐 때: F 감시 / 정지 중: 루트 표시·탑다운 카메라
 
@@ -107,8 +117,9 @@ namespace Game.View
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
             views.Sync(in world, in prevWorld, alpha);
 
-            // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔 중엔 시점 고정.
-            if (!prediction.Frozen && !ConsoleOpen)
+            // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔·컷신 중엔 시점 고정
+            // (컷신 중엔 CinemachineTrack이 컷신 vcam을 잡으므로 게임플레이 vcam pose를 덮지 않는다).
+            if (!prediction.Frozen && !ConsoleOpen && !Cutscene.Active)
             {
                 if (gameplayVcam != null && views.PlayerAnchor != null)
                 {
@@ -131,6 +142,9 @@ namespace Game.View
             // 실시간 입력 대신 기록된 입력을 넣어야 해서, Preview/Following을 분리했다.
             // 되돌리려면: 아래 if/else 블록을 지우고 위 두 줄로 교체 + SpawnTick() 조건도 제거.
             if (prediction.state == PredictionController.State.Preview) return;   // 미리보기 중엔 정지
+
+            // 컷신 중엔 sim 완전 정지(플레이어 이동·공격·소환 불가). 카메라는 Timeline이 잡는다.
+            if (Cutscene.Active) return;
 
             // 히트스톱(A안): 얼린 틱만큼 sim 전진을 건너뛴다(입력 소비 전에 return → 기록 입력 보존).
             // timeScale은 건드리지 않으므로 뷰 연출(파티클·셰이크·화면효과)은 계속 재생된다.
