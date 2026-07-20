@@ -1,30 +1,40 @@
-// 겐지 용검식 베기 이펙트 — 칼이 3D를 훑고 지나간 "곡면(원뿔 단면)"에 그린다.
+// 베기 이펙트 — 프로 슬래시 VFX 구조를 따름.
+//   형태마스크(부드럽게 번짐) × 노이즈1(스크롤) × 노이즈2(스크롤) → 강도
+//   강도로 컬러 램프(녹색 → 노랑 → 흰색) → 가산 + Bloom
 //
-// 메시 규약(SwordSlash.cs):
-//   uv.x : 0=스윙 시작, 1=스윙 끝(선단)
-//   uv.y : 0=안쪽(손잡이 반경), 1=바깥(칼끝 반경)
+// 두께감은 기하학이 아니라 "부드러운 마스크 + 곱해진 노이즈 + 다중 레이어"에서 나온다.
+// 메시는 정적(칼이 훑고 간 3D 곡면), 움직임은 노이즈 스크롤이 만든다.
 //
-// 색: 안쪽 녹색 → 바깥으로 갈수록 노랑 → 최외곽 흰 테두리.
-// 결: 반경 방향 줄무늬(streak)가 스윙 방향으로 변주되어 너울거리는 에너지 느낌.
+// uv.x = 스윙 방향, uv.y = 반경(0=손잡이, 1=칼끝)
 Shader "Precog/SwordSlash"
 {
     Properties
     {
-        [HDR]_CoreColor ("최외곽 테두리(흰)", Color) = (3.0,3.0,2.4,1)
-        [HDR]_MidColor  ("중간(노랑)",        Color) = (1.8,1.25,0.06,1)
-        [HDR]_EdgeColor ("안쪽(녹색)",        Color) = (0.25,1.5,0.15,1)
+        _ShapeTex ("형태 마스크", 2D) = "white" {}
+        _Noise1   ("노이즈 1",    2D) = "gray" {}
+        _Noise2   ("노이즈 2",    2D) = "gray" {}
 
-        _RimStart  ("노랑 시작(반경)", Range(0,1)) = 0.45
-        _CoreStart ("흰 테두리 시작",  Range(0,1)) = 0.88
-        _InnerFade ("안쪽 페이드",     Range(0,1)) = 0.35
+        _NoiseTile1   ("노이즈1 타일(xy)",   Vector) = (2, 1, 0, 0)
+        _NoiseScroll1 ("노이즈1 스크롤(xy)", Vector) = (-0.9, 0.15, 0, 0)
+        _NoiseTile2   ("노이즈2 타일(xy)",   Vector) = (5, 1.6, 0, 0)
+        _NoiseScroll2 ("노이즈2 스크롤(xy)", Vector) = (-1.7, -0.1, 0, 0)
+        _NoiseOffset  ("노이즈 오프셋(레이어별)", Vector) = (0, 0, 0, 0)
 
-        _StreakFreq ("줄무늬 빈도", Range(0,80)) = 26
-        _StreakAmt  ("줄무늬 세기", Range(0,1))  = 0.45
+        _NoiseAmount ("노이즈 영향력(0=매끈한 면, 1=완전 부서짐)", Range(0,1)) = 0.5
+        _Contrast  ("대비",   Range(0.2, 6)) = 1.8
+        _Intensity ("강도",   Range(0, 8))   = 2.4
 
-        _Reveal     ("그어짐 진행도",  Range(0,1)) = 1
-        _RevealSoft ("선단 부드러움",  Range(0.001,1)) = 0.10
-        _TailFade   ("꼬리 페이드",    Range(0,1)) = 0.45
-        _Fade       ("전체 페이드",    Range(0,1)) = 1
+        [HDR]_ColorLow  ("낮은 강도(녹색)", Color) = (0.12, 1.0, 0.10, 1)
+        [HDR]_ColorMid  ("중간(노랑)",      Color) = (1.6, 1.15, 0.05, 1)
+        [HDR]_ColorHigh ("높은 강도(흰색)", Color) = (3.2, 3.2, 2.6, 1)
+        _Ramp1 ("램프 1", Range(0,1)) = 0.18
+        _Ramp2 ("램프 2", Range(0,1)) = 0.55
+        _Ramp3 ("램프 3", Range(0,1)) = 0.85
+
+        _Reveal     ("그어짐 진행도", Range(0,1)) = 1
+        _RevealSoft ("선단 부드러움", Range(0.001,1)) = 0.12
+        _TailFade   ("꼬리 페이드",   Range(0,1)) = 0.45
+        _Fade       ("전체 페이드",   Range(0,1)) = 1
     }
 
     SubShader
@@ -34,9 +44,9 @@ Shader "Precog/SwordSlash"
         Pass
         {
             Name "Slash"
-            Blend One One      // 가산
+            Blend One One      // 가산 — 레이어를 겹칠수록 두꺼워짐
             ZWrite Off
-            Cull Off           // 곡면이라 양면 보여야 함
+            Cull Off           // 곡면이라 양면
             ZTest LEqual
 
             HLSLPROGRAM
@@ -47,10 +57,15 @@ Shader "Precog/SwordSlash"
             struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; float4 color : COLOR; };
             struct Varyings   { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; float4 color : COLOR; };
 
+            TEXTURE2D(_ShapeTex); SAMPLER(sampler_ShapeTex);
+            TEXTURE2D(_Noise1);   SAMPLER(sampler_Noise1);
+            TEXTURE2D(_Noise2);   SAMPLER(sampler_Noise2);
+
             CBUFFER_START(UnityPerMaterial)
-                float4 _CoreColor, _MidColor, _EdgeColor;
-                float  _RimStart, _CoreStart, _InnerFade;
-                float  _StreakFreq, _StreakAmt;
+                float4 _NoiseTile1, _NoiseScroll1, _NoiseTile2, _NoiseScroll2, _NoiseOffset;
+                float  _NoiseAmount, _Contrast, _Intensity;
+                float4 _ColorLow, _ColorMid, _ColorHigh;
+                float  _Ramp1, _Ramp2, _Ramp3;
                 float  _Reveal, _RevealSoft, _TailFade, _Fade;
             CBUFFER_END
 
@@ -63,31 +78,35 @@ Shader "Precog/SwordSlash"
                 return o;
             }
 
-            float Hash(float n) { return frac(sin(n) * 43758.5453); }
-
             half4 frag(Varyings IN) : SV_Target
             {
-                float u = IN.uv.x;    // 스윙 방향
-                float v = IN.uv.y;    // 반경(0=안, 1=바깥)
+                float2 uv = IN.uv;
+                float t = _Time.y;
 
-                // 색: 녹색 → 노랑 → 흰 테두리
-                float3 col = lerp(_EdgeColor.rgb, _MidColor.rgb,  smoothstep(_RimStart, _CoreStart, v));
-                col        = lerp(col,            _CoreColor.rgb, smoothstep(_CoreStart, 1.0, v));
+                // 형태 마스크 — 경계가 넓게 번져 있어 볼륨감의 바탕
+                float shape = SAMPLE_TEXTURE2D(_ShapeTex, sampler_ShapeTex, uv).r;
 
-                // 안쪽은 옅게(손잡이 쪽이 흐려짐), 바깥 끝은 살짝 부드럽게
-                float radial = smoothstep(0.0, max(_InnerFade, 0.001), v) * (1.0 - smoothstep(0.97, 1.0, v));
+                // 노이즈 2장을 서로 다른 타일·속도로 흘려서 곱한다 → 너울거리는 결
+                float2 uv1 = uv * _NoiseTile1.xy + _NoiseScroll1.xy * t + _NoiseOffset.xy;
+                float2 uv2 = uv * _NoiseTile2.xy + _NoiseScroll2.xy * t + _NoiseOffset.zw;
+                float n1 = SAMPLE_TEXTURE2D(_Noise1, sampler_Noise1, uv1).r;
+                float n2 = SAMPLE_TEXTURE2D(_Noise2, sampler_Noise2, uv2).r;
+                // 노이즈는 "면을 부수는" 게 아니라 "결을 얹는" 정도로 — 1(매끈)과 섞는다
+                float detail = lerp(1.0, saturate(n1 * n2 * 2.2), _NoiseAmount);
 
-                // 반경 방향 줄무늬 — 스윙 방향으로 흩어져 너울거림
-                float s1 = sin(u * _StreakFreq + v * 2.3);
-                float s2 = sin(u * _StreakFreq * 0.47 + 1.7);
-                float streak = 1.0 - _StreakAmt * (0.5 - 0.5 * (s1 * 0.65 + s2 * 0.35));
+                // 최종 강도
+                float m = shape * detail;
+                m = pow(saturate(m), _Contrast) * _Intensity;
 
-                // 스윙 진행: 선단(_Reveal)보다 앞은 아직 안 나타남
-                float rev  = saturate((_Reveal - u) / _RevealSoft);
-                // 꼬리(시작쪽)는 서서히 사라짐
-                float tail = smoothstep(0.0, max(_TailFade, 0.001), _Reveal - u);
+                // 강도 기반 컬러 램프: 옅은 곳 녹색 → 진한 곳 노랑 → 가장 밝은 심 흰색
+                float3 col = lerp(_ColorLow.rgb, _ColorMid.rgb,  smoothstep(_Ramp1, _Ramp2, m));
+                col        = lerp(col,           _ColorHigh.rgb, smoothstep(_Ramp2, _Ramp3, m));
 
-                float a = radial * streak * rev * tail * _Fade * IN.color.a;
+                // 스윙 진행 + 꼬리 페이드
+                float rev  = saturate((_Reveal - uv.x) / _RevealSoft);
+                float tail = smoothstep(0.0, max(_TailFade, 0.001), _Reveal - uv.x);
+
+                float a = saturate(m) * rev * tail * _Fade * IN.color.a;
                 return half4(col * a, 1.0);
             }
             ENDHLSL
