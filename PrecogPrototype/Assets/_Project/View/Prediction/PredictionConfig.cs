@@ -83,7 +83,7 @@ namespace Game.View
         public const float RhythmComboPositionRadius = 0.9f;
         public const int RhythmComboMaxGapTicks = 24;
         public const float RhythmMinTimeScale = 0.35f;
-        public const float RhythmMaxTimeScale = 1f;
+        public const float RhythmMaxTimeScale = 1.12f;
         public const float RhythmCurveMinSeconds = 0.12f;
         public const float RhythmWaitGoodSeconds = 0.42f;
         public static readonly Color ExecutionRouteColor = new Color(0.15f, 1f, 0.55f);
@@ -94,5 +94,8 @@ namespace Game.View
         public static readonly Color ExecutionFxTint = new Color(0.52f, 1f, 0.62f);
         public static readonly Color ExecutionFxVignetteColor = new Color(0.01f, 0.22f, 0.06f);
         public static readonly Color ExecutionPlayerColor = new Color(0.25f, 1f, 0.62f);
+        public const float RhythmSidePromptAlpha = 0.38f;
+        public const float ExecutionSpeedLineAlpha = 0.13f;
+        public const float ExecutionSpeedLineRate = 2.8f;
     }
 }

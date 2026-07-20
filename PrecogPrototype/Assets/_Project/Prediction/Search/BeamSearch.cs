@@ -88,7 +88,8 @@ namespace Game.Prediction
 
             // 루트: 스냅샷 그대로.
             int rootBuffer = pool.Rent();
-            pool.CopyInto(rootBuffer, in snapshot);
+            using (PredictionProfiler.CopyWorld())
+                pool.CopyInto(rootBuffer, in snapshot);
             ScoreBreakdown rootBreakdown = ThreatEvaluator.Score(
                 in snapshot, 0, 0, 0, 0, false, in profile, includeOpportunityTerminalBonus: false);
             nodes[nodeCount] = new SearchNode
@@ -124,7 +125,9 @@ namespace Game.Prediction
                     SearchNode parentNode = nodes[parentIndex];
                     ref readonly SimWorld parentWorld = ref pool.Get(parentNode.worldBufferIndex);
 
-                    int actionCount = ActionGenerator.Generate(in parentWorld, in services, in settings, actionBuffer);
+                    int actionCount;
+                    using (PredictionProfiler.GenerateActions())
+                        actionCount = ActionGenerator.Generate(in parentWorld, in services, in settings, actionBuffer);
 
                     for (int a = 0; a < actionCount; a++)
                     {
@@ -135,16 +138,22 @@ namespace Game.Prediction
                         int childBuffer = pool.Rent();
                         if (childBuffer < 0) continue; // 풀 고갈 — 용량 산정상 발생하면 안 되지만 방어적으로 스킵
 
-                        pool.CopyInto(childBuffer, in parentWorld);
+                        using (PredictionProfiler.CopyWorld())
+                            pool.CopyInto(childBuffer, in parentWorld);
+                        PredictionProfiler.RecordExpandedNode();
                         bool survived = true;
                         int ticks = 0;
-                        for (; ticks < settings.macroTicks; ticks++)
+                        using (PredictionProfiler.Simulate())
                         {
-                            ref SimWorld childWorld = ref pool.Get(childBuffer);
-                            float yaw = actionBuffer[a].ResolveYaw(in childWorld, ComputeAimYaw(in childWorld));
-                            InputCmd cmd = actionBuffer[a].ToInputCmd(yaw, ticks);
-                            SimStep.Run(ref childWorld, in cmd, in services);
-                            if (childWorld.player.combat.hp <= 0) { survived = false; ticks++; break; }
+                            for (; ticks < settings.macroTicks; ticks++)
+                            {
+                                ref SimWorld childWorld = ref pool.Get(childBuffer);
+                                float yaw = actionBuffer[a].ResolveYaw(in childWorld, ComputeAimYaw(in childWorld));
+                                InputCmd cmd = actionBuffer[a].ToInputCmd(yaw, ticks);
+                                SimStep.Run(ref childWorld, in cmd, in services);
+                                PredictionProfiler.RecordSimulatedTick();
+                                if (childWorld.player.combat.hp <= 0) { survived = false; ticks++; break; }
+                            }
                         }
 
                         ref readonly SimWorld finalWorld = ref pool.Get(childBuffer);
@@ -178,10 +187,12 @@ namespace Game.Prediction
                             + PlayerIntentEvaluator.ActionDifficulty(
                                 in actionBuffer[a], in parentWorld, in parentNode.actionTaken, parentNode.depth > 0);
 
-                        ScoreBreakdown breakdown = ThreatEvaluator.Score(
-                            in finalWorld, childKillNormal, childKillMid, childDamageDealt, childHitsTaken,
-                            isRepeated, in profile,
-                            includeOpportunityTerminalBonus: depth + 1 == settings.macroDepth);
+                        ScoreBreakdown breakdown;
+                        using (PredictionProfiler.Evaluate())
+                            breakdown = ThreatEvaluator.Score(
+                                in finalWorld, childKillNormal, childKillMid, childDamageDealt, childHitsTaken,
+                                isRepeated, in profile,
+                                includeOpportunityTerminalBonus: depth + 1 == settings.macroDepth);
                         float salientProgress = PlayerIntentEvaluator.SalientTargetProgress(in finalWorld, in intent);
                         float terminalQuality = depth + 1 == settings.macroDepth
                             ? PlayerIntentEvaluator.TerminalPositionQuality(in finalWorld)
@@ -250,6 +261,7 @@ namespace Game.Prediction
                         }
                         else
                         {
+                            PredictionProfiler.RecordDeadCandidate();
                             if (childNode.score > bestDeadScore)
                             {
                                 bestDeadScore = childNode.score;
@@ -268,6 +280,7 @@ namespace Game.Prediction
                 // 상위 beamWidth만 결정론적으로 선별. 2-pass: 서로 다른 상태(StateDeduplicator 키)를
                 // 우선하고, 그래도 자리가 남으면 중복을 허용해 빔을 억지로 줄이지 않는다.
                 // 동률은 항상 생성 순서(=먼저 만들어진 쪽이 승리, 엄격한 > 비교로 보장).
+                var dedupScope = PredictionProfiler.Deduplicate();
                 System.Array.Clear(used, 0, expansionCount);
                 int nextBeamCount = 0;
 
@@ -307,8 +320,11 @@ namespace Game.Prediction
                 for (int e = 0; e < expansionCount; e++)
                 {
                     if (used[e]) continue;
+                    if (ContainsKey(chosenKeys, nextBeamCount, nodes[expansionIndices[e]].stateKey))
+                        PredictionProfiler.RecordDuplicateState();
                     pool.Return(nodes[expansionIndices[e]].worldBufferIndex);
                 }
+                dedupScope.Dispose();
 
                 if (nextBeamCount > 0 &&
                     IsBetterCandidate(in nodes[nextBeam[0]], in nodes[bestOverallNode]))

@@ -33,7 +33,7 @@ namespace Game.Sim
         public static int   LungeMaxStacks      = 2;     // 스택 상한(2). 처치로 +1 충전, 발동 1 소모
         public static int   LungeReserveWindow  = 10;    // 쿨 막판 이 틱 이내(≈0.17초) 클릭 → 예약
         public static float LungeMinRange       = 1.2f;
-        public static float LungeMaxRange       = 12f;
+        public static float LungeMaxRange       = 7f;
         public static float LungeAimRadius      = 2.0f;  // 조준 레이 수직 보정 반경(판정 핵심)
         public static float LungeStopDistance   = 0.9f;  // 적 앞 이 거리 지점으로 이동
         public static float LungeHeightTolerance = 6f;   // 위/아래 허용 높이차(공중 대상 포함)

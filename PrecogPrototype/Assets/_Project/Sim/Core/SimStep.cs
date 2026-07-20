@@ -26,18 +26,26 @@ namespace Game.Sim
                 pcmd.jump = pcmd.dash = pcmd.attack = pcmd.lunge = false;
             }
 
-            PlayerMovement.Step(ref w.player, in pcmd, in svc, dt);
-            PlayerCombat.Step(ref w, in pcmd, in svc, dt);   // ← combat (평타/런지/글로리킬)
+            using (SimStepProfiler.MeasurePlayerMovement())
+                PlayerMovement.Step(ref w.player, in pcmd, in svc, dt);
+            using (SimStepProfiler.MeasurePlayerCombat())
+                PlayerCombat.Step(ref w, in pcmd, in svc, dt);   // ← combat (평타/런지/글로리킬)
 
-            EnemyBrain.ComputeSeparation(in w);          // ← 이웃 회피 벡터 O(N²) 1회 산출(뭉침 방지)
-            for (int i = 0; i < w.enemyCount; i++)
-                EnemyBrain.Step(ref w, i, in svc, dt);   // ← AI 세션 (상태머신; 내부에서 이동은 EnemyMovement)
+            using (SimStepProfiler.MeasureSeparationForce())
+                EnemyBrain.ComputeSeparation(in w);          // ← 이웃 회피 벡터 O(N²) 1회 산출(뭉침 방지)
+            using (SimStepProfiler.MeasureEnemyAI(w.enemyCount))
+                for (int i = 0; i < w.enemyCount; i++)
+                    EnemyBrain.Step(ref w, i, in svc, dt);   // ← AI 세션 (상태머신; 내부에서 이동은 EnemyMovement)
 
-            ProjectileSystem.Step(ref w, in svc, dt);       // ← AI 세션 (투사체 이동·충돌 → 히트 큐)
-            CombatResolve.Run(ref w, in svc, dt);           // ← combat 세션 (대미지/스턴/처치 + 히트 큐 적용)
+            using (SimStepProfiler.MeasureProjectile(w.projectileCount))
+                ProjectileSystem.Step(ref w, in svc, dt);       // ← AI 세션 (투사체 이동·충돌 → 히트 큐)
+            using (SimStepProfiler.MeasureCombatResolve())
+                CombatResolve.Run(ref w, in svc, dt);           // ← combat 세션 (대미지/스턴/처치 + 히트 큐 적용)
 
-            Separate(ref w, in svc);
-            ClampToNavMesh(ref w, in svc);   // 틱 끝: 밀려난 지상몹을 걷기 가능 표면으로 되당김(다리 낙하 방지)
+            using (SimStepProfiler.MeasureCollisionSeparation())
+                Separate(ref w, in svc);
+            using (SimStepProfiler.MeasureNavigationClamp())
+                ClampToNavMesh(ref w, in svc);   // 틱 끝: 밀려난 지상몹을 걷기 가능 표면으로 되당김(다리 낙하 방지)
 
             w.tick++;
         }

@@ -23,7 +23,7 @@ namespace Game.Sim.Tests
     {
         /// <summary>
         /// 사람이라면 "우클릭 접근 → 좌클릭"으로 확실히 잡는 배치: 공중 원거리 1마리가
-        /// hover 고도(플레이어 y + FlyHoverOffset≈2m), 런지 사거리(1.2~12m) 안, 정면.
+        /// hover 고도(플레이어 y + FlyHoverOffset≈2m), 런지 사거리(1.2~7m) 안, 정면.
         /// StubCollision은 지면 y=0·LOS 통과·캡슐 점유 가능이라 런지 게이팅이 성립한다.
         /// </summary>
         static SimWorld BuildLoneFlyerWorld()

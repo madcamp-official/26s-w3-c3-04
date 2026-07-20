@@ -203,6 +203,53 @@ namespace Game.Sim.Tests
         /// 가정하고 판정하므로, 현재 정면과 무관하게 사거리·높이·LOS만으로 유효해야 한다.
         /// </summary>
         [Test]
+        public void Generate_DoesNotOfferLungeBeyondReducedRange()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(
+                new Vector3(0f, 0f, CombatConfig.LungeMaxRange + 3f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int count = ActionGenerator.Generate(in world, in services, in settings, buffer);
+
+            Assert.IsFalse(Contains(buffer, count, MacroActionType.Lunge),
+                "줄인 최대 사거리 밖에서는 즉시 런지 후보가 열리면 안 된다.");
+        }
+
+        [Test]
+        public void DashMacro_ClosesDistance_AndUnlocksLungeCandidate()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(
+                new Vector3(0f, 0f, CombatConfig.LungeMaxRange + 3f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            world.enemies[0].combat.bindTicks = PredictionSettings.MacroTicksPerStep + 1;
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int beforeCount = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            Assert.IsFalse(Contains(buffer, beforeCount, MacroActionType.Lunge),
+                "대시 전에는 런지 사거리 밖이어야 한다.");
+
+            MacroAction dash = MacroAction.Simple(MacroActionType.DashForward);
+            for (int tick = 0; tick < PredictionSettings.MacroTicksPerStep; tick++)
+            {
+                InputCmd input = dash.ToInputCmd(0f, tick);
+                SimStep.Run(ref world, in input, in services);
+            }
+
+            int afterCount = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            Assert.IsTrue(Contains(buffer, afterCount, MacroActionType.Lunge),
+                "한 예측 구간의 전방 대시 뒤에는 런지 후보가 열려야 한다.");
+        }
+
+        [Test]
         public void Generate_ProducesLungeCandidate_ForValidTargetBehindPlayer()
         {
             SimWorld world = SimWorld.Create();

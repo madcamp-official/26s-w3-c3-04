@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using Game.Sim;
 using Game.Prediction;
-using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Game.View
 {
@@ -16,7 +15,6 @@ namespace Game.View
     {
         public static List<PredictedRoute> Build(in SimWorld w, in SimServices services, Color[] colors)
         {
-            Stopwatch stopwatch = Stopwatch.StartNew();
             var routes = new List<PredictedRoute>();
             if (w.player.combat.hp <= 0) return routes;
 
@@ -24,12 +22,16 @@ namespace Game.View
             // 이번 세션에 만든 동적 축소(PredictionSettings.Degrade)를 실제 적 수에 맞춰 적용한다.
             // PlanByProfile은 안전형/기회형/공격형이 월드 확장을 공유하고 점수만 따로 계산한다.
             PredictionSettings settings = PredictionSettings.Degrade(PredictionSettings.Full, w.enemyCount);
+            PredictionProfiler.Begin(w.enemyCount, in settings);
+            PredictionProfiler.TotalMarker.Begin();
             CandidatePath[] plans = PredictionPlanner.PlanByProfile(in w, in services, settings);
 
             for (int i = 0; i < plans.Length; i++)
             {
                 CandidatePath plan = plans[i];
-                bool ok = CandidateReplayer.Replay(in w, in services, plan, settings.macroTicks);
+                bool ok;
+                using (PredictionProfiler.FinalResimulation())
+                    ok = CandidateReplayer.Replay(in w, in services, plan, settings.macroTicks);
                 if (!ok || plan.predictedFrames.Length == 0) continue;
 
                 var route = new PredictedRoute
@@ -70,9 +72,8 @@ namespace Game.View
                     route.kills.Add(plan.defeatEvents[e].worldPosition);
                 routes.Add(route);
             }
-            stopwatch.Stop();
-            Debug.Log($"[예측 성능] 적 {w.enemyCount}마리, 경로 {routes.Count}개 생성: " +
-                      $"{stopwatch.Elapsed.TotalMilliseconds:0.0}ms");
+            PredictionProfiler.TotalMarker.End();
+            Debug.Log(PredictionProfiler.Finish(routes.Count));
             return routes;
         }
 

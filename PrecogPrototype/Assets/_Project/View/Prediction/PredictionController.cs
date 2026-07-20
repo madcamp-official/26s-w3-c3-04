@@ -236,7 +236,15 @@ namespace Game.View
                 Debug.LogWarning("[예측] 유효한 경로를 만들지 못해 미리보기를 취소했습니다.");
                 return;
             }
+            // PlanByProfile의 출력 순서나 일부 프로필의 재생 실패 여부와 무관하게
+            // 공격형 대표 경로를 기본 강조/확정 대상으로 삼는다.
             selected = 0;
+            for (int i = 0; i < routes.Count; i++)
+            {
+                if (routes[i].profileLabel != "공격형") continue;
+                selected = i;
+                break;
+            }
             previewRevealProgress = 0f;
             state = State.Preview;
             fx.SetExecution(false);
@@ -596,7 +604,8 @@ namespace Game.View
             GUI.Label(new Rect(centerX - 230f, centerY - 42f, 460f, 84f),
                 $"<color=white>{prompt}</color>", centerStyle);
 
-            DrawComboRail(current);
+            DrawRhythmSequence(current, centerX, centerY);
+            DrawExecutionSpeedFx(progress);
             if (feedbackActive) DrawRhythmFeedback();
         }
 
@@ -626,33 +635,70 @@ namespace Game.View
             rhythmRingTexture.Apply(false, true);
         }
 
-        void DrawComboRail(int current)
+        void DrawRhythmSequence(int current, float centerX, float centerY)
         {
-            float width = Mathf.Min(880f, Screen.width - 30f);
-            float x = (Screen.width - width) * 0.5f;
-            float y = Mathf.Max(18f, Screen.height * 0.045f);
-            GUI.Box(new Rect(x, y, width, 92f), GUIContent.none);
-            var style = new GUIStyle(GUI.skin.label)
+            float sideOffset = Mathf.Clamp(Screen.width * 0.19f, 190f, 320f);
+            float sideWidth = Mathf.Clamp(Screen.width * 0.16f, 150f, 230f);
+            const float sideHeight = 82f;
+            var sideStyle = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 28,
+                fontSize = Mathf.RoundToInt(Mathf.Clamp(Screen.height * 0.03f, 24f, 36f)),
                 fontStyle = FontStyle.Bold,
                 richText = true,
             };
 
-            string rail = "";
-            int shown = 0;
-            for (int i = current; i < rhythmJudge.Count && shown < 3; i++)
-            {
-                if (rhythmJudge.GetJudgement(i) != RhythmJudgement.Pending) continue;
-                string color = shown == 0 ? "#FFFFFF" : shown == 1 ? "#7FFFEA" : "#6D887F";
-                if (shown > 0) rail += "   →   ";
-                rail += $"<color={color}>{ShortInputGuide(rhythmJudge.GetEvent(i).type)}</color>";
-                shown++;
-            }
+            Rect left = new Rect(centerX - sideOffset - sideWidth * 0.5f,
+                centerY - sideHeight * 0.5f, sideWidth, sideHeight);
+            Rect right = new Rect(centerX + sideOffset - sideWidth * 0.5f,
+                centerY - sideHeight * 0.5f, sideWidth, sideHeight);
+            Color old = GUI.color;
+            GUI.color = new Color(0.08f, 0.18f, 0.16f, PredictionConfig.RhythmSidePromptAlpha);
+            GUI.Box(left, GUIContent.none);
+            GUI.Box(right, GUIContent.none);
+            GUI.color = old;
+
+            string previous = current > 0
+                ? ShortInputGuide(rhythmJudge.GetEvent(current - 1).type)
+                : "—";
+            string next = current + 1 < rhythmJudge.Count
+                ? ShortInputGuide(rhythmJudge.GetEvent(current + 1).type)
+                : "—";
+            GUI.Label(left,
+                $"<size=15><color=#74A99A80>PREV</color></size>\n<color=#B7D8CE88>{previous}</color>",
+                sideStyle);
+            GUI.Label(right,
+                $"<size=15><color=#74A99A80>NEXT</color></size>\n<color=#B7D8CE88>{next}</color>",
+                sideStyle);
+
             string label = IsSamePositionCombo(current) ? "RAPID COMBO" : "NEXT BEAT";
-            GUI.Label(new Rect(x, y + 4f, width, 30f), $"<color=#50FF9A>{label}</color>", style);
-            GUI.Label(new Rect(x, y + 34f, width, 52f), rail, style);
+            sideStyle.fontSize = 22;
+            GUI.Label(new Rect(centerX - 180f, centerY - 116f, 360f, 34f),
+                $"<color=#50FF9A>{label}</color>", sideStyle);
+        }
+
+        void DrawExecutionSpeedFx(float beatProgress)
+        {
+            float pulse = 0.55f + 0.45f * Mathf.Sin(
+                (Time.unscaledTime * PredictionConfig.ExecutionSpeedLineRate + beatProgress)
+                * Mathf.PI * 2f);
+            Color old = GUI.color;
+            GUI.color = new Color(0.25f, 1f, 0.72f,
+                PredictionConfig.ExecutionSpeedLineAlpha * pulse);
+            Texture2D white = Texture2D.whiteTexture;
+            const int streaks = 9;
+            for (int i = 0; i < streaks; i++)
+            {
+                float lane = (i + 0.5f) / streaks;
+                float travel = Mathf.Repeat(
+                    Time.unscaledTime * PredictionConfig.ExecutionSpeedLineRate + i * 0.137f, 1f);
+                float y = Mathf.Lerp(Screen.height * 0.1f, Screen.height * 0.9f, lane);
+                float width = Mathf.Lerp(42f, 150f, travel);
+                float edgeInset = Mathf.Lerp(12f, Screen.width * 0.12f, travel);
+                GUI.DrawTexture(new Rect(edgeInset, y, width, 2f), white);
+                GUI.DrawTexture(new Rect(Screen.width - edgeInset - width, y, width, 2f), white);
+            }
+            GUI.color = old;
         }
 
         void DrawRhythmFeedback()
