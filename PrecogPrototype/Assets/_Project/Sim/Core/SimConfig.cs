@@ -119,6 +119,6 @@ namespace Game.Sim
 
         // 소환 (지정 지점 + 일정 간격)
         public const int SpawnIntervalTicks = 45;   // 0.75초마다 한 마리
-        public const int SpawnCap           = 40;   // 최대 동시 적 수
+        public const int SpawnCap           = 12;   // 최대 동시 적 수
     }
 }

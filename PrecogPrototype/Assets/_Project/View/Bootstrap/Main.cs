@@ -78,6 +78,7 @@ namespace Game.View
         public void SetLookPitch(float pitch) => input.Pitch = pitch;
         public float LookYaw   => input.Yaw;
         public float LookPitch => input.Pitch;
+        public void SetPredictionSpawnLocked(bool locked) => world.spawnLocked = locked;
 
         /// <summary>컷신 종료 시 플레이어를 현재 시선(yaw) 정면으로 dist만큼 이동(봉인 박스 탈출).
         /// 스크립트 텔레포트라 결정론과 무관(예측 중엔 컷신을 트리거하지 않음). prevWorld도 맞춰 보간 튐 방지.</summary>
@@ -206,6 +207,10 @@ namespace Game.View
             fixedAccum += Time.deltaTime;
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
             views.Sync(in world, in prevWorld, alpha);
+            if (prediction.state == PredictionController.State.Following
+                && views.PlayerAnchor != null)
+                prediction.UpdateFollowingCameraRenderPose(
+                    views.PlayerAnchor.position, views.PlayerAnchor.eulerAngles.y);
 
             // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔·컷신 중엔 시점 고정
             // (컷신 중엔 CinemachineTrack이 컷신 vcam을 잡으므로 게임플레이 vcam pose를 덮지 않는다).
@@ -219,6 +224,25 @@ namespace Game.View
                 }
                 if (input.EscapePressed()) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
             }
+        }
+
+        void OnGUI()
+        {
+            int previousDepth = GUI.depth;
+            GUI.depth = -200;
+            try
+            {
+                prediction.DrawRhythmHud();
+            }
+            finally
+            {
+                GUI.depth = previousDepth;
+            }
+        }
+
+        void OnDisable()
+        {
+            prediction.RestoreNormalTimeScale();
         }
 
         void FixedUpdate()
@@ -268,6 +292,8 @@ namespace Game.View
             // 아니면 예측이 못 본 적이 재생 중에 끼어들어 결과가 어긋난다.
             if (prediction.state != PredictionController.State.Following)
                 SpawnTick();
+            if (prediction.state == PredictionController.State.Following)
+                prediction.AfterFollowingStep();
             // <<< [예측 세션 변경 끝]
 
             // 고정 그래프 층이동 시작 감지
@@ -289,7 +315,8 @@ namespace Game.View
             if (!AutoSpawn) return;   // 콘솔에서 autospawn off 하면 멈춤
 
             int interval = spawnConfig != null ? spawnConfig.intervalTicks : SimConfig.SpawnIntervalTicks;
-            int cap      = spawnConfig != null ? spawnConfig.cap           : SimConfig.SpawnCap;
+            int configuredCap = spawnConfig != null ? spawnConfig.cap : SimConfig.SpawnCap;
+            int cap = Mathf.Min(configuredCap, SimConfig.SpawnCap);
 
             spawnTimer++;
             if (spawnTimer < interval) return;
@@ -299,14 +326,15 @@ namespace Game.View
             if (spawnConfig != null && spawnConfig.entries != null && spawnConfig.entries.Length > 0)
             {
                 SpawnEntry e = spawnConfig.entries[nextSpawn % spawnConfig.entries.Length];
+                var (c, m, s) = SimWorld.ExperimentalAutoSpawn(nextSpawn);
                 nextSpawn++;
                 if (e.point == null) return;
-                var (c, m, s) = MapSpawnConfig.Axes(e.kind);
-                world.AddEnemy(e.point.position, c, m, s);   // 지점별 지정 종류
+                world.AddEnemy(e.point.position, c, m, s);   // 실험 분포, entries는 위치만 사용
             }
             else if (spawnPoints != null && spawnPoints.Count > 0)
             {
-                world.AddEnemy(spawnPoints[nextSpawn % spawnPoints.Count]);   // 폴백: 3축 분포
+                var (c, m, s) = SimWorld.ExperimentalAutoSpawn(nextSpawn);
+                world.AddEnemy(spawnPoints[nextSpawn % spawnPoints.Count], c, m, s);
                 nextSpawn++;
             }
         }
@@ -322,6 +350,11 @@ namespace Game.View
         /// <summary>플레이어 정면에 지정 조합 몹 한 마리 소환.</summary>
         public void DevSpawn(CombatType combat, MobilityType mobility, SizeClass size)
         {
+            if (world.AliveCount() >= SimConfig.SpawnCap)
+            {
+                Debug.LogWarning($"[Spawn] 동시 몬스터 상한 {SimConfig.SpawnCap}마리 — 추가 소환을 거부합니다.");
+                return;
+            }
             float yr = input.Yaw * Mathf.Deg2Rad;
             Vector3 fwd = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
             Vector3 at = world.player.pos + fwd * DevSpawnDistance;

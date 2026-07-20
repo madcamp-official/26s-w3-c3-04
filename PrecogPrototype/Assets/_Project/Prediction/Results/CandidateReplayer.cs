@@ -27,6 +27,7 @@ namespace Game.Prediction
                 candidate.predictedFrames = System.Array.Empty<PredictedFrame>();
                 candidate.controls = System.Array.Empty<InputCmd>();
                 candidate.actionEvents = System.Array.Empty<PredictedActionEvent>();
+                candidate.defeatEvents = System.Array.Empty<PredictedDefeatEvent>();
                 return false;
             }
 
@@ -34,6 +35,10 @@ namespace Game.Prediction
             var frames = new List<PredictedFrame>(candidate.actions.Length * macroTicks + 1);
             var controls = new List<InputCmd>(candidate.actions.Length * macroTicks);
             var events = new List<PredictedActionEvent>();
+            var defeatEvents = new List<PredictedDefeatEvent>();
+            var defeated = new bool[world.enemyCount];
+            for (int i = 0; i < world.enemyCount; i++)
+                defeated[i] = IsDefeated(in world.enemies[i]);
             frames.Add(MakeFrame(0, in world, in services));
 
             bool ok = true;
@@ -45,7 +50,7 @@ namespace Game.Prediction
                 for (int t = 0; t < macroTicks; t++)
                 {
                     SimWorld before = world;
-                    float yaw = BeamSearch.ComputeAimYaw(in world);
+                    float yaw = action.ResolveYaw(in world, BeamSearch.ComputeAimYaw(in world));
                     InputCmd cmd = action.ToInputCmd(yaw, t);
                     controls.Add(cmd);
 
@@ -53,6 +58,7 @@ namespace Game.Prediction
                     tick++;
 
                     DetectEvents(tick - 1, in before, in world, in cmd, events);
+                    DetectDefeatEvents(tick - 1, in world, defeated, defeatEvents);
                     frames.Add(MakeFrame(tick, in world, in services));
 
                     if (!IsPhysicallyValid(in world))
@@ -70,7 +76,30 @@ namespace Game.Prediction
             candidate.predictedFrames = frames.ToArray();
             candidate.controls = controls.ToArray();
             candidate.actionEvents = events.ToArray();
+            candidate.defeatEvents = defeatEvents.ToArray();
             return ok;
+        }
+
+        static bool IsDefeated(in EnemySim enemy) =>
+            !enemy.alive || enemy.combat.gloryStage > 0;
+
+        static void DetectDefeatEvents(
+            int tick, in SimWorld world, bool[] defeated, List<PredictedDefeatEvent> events)
+        {
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                bool nowDefeated = IsDefeated(in world.enemies[i]);
+                if (!defeated[i] && nowDefeated)
+                {
+                    events.Add(new PredictedDefeatEvent
+                    {
+                        tick = tick,
+                        enemyId = world.enemies[i].id,
+                        worldPosition = world.enemies[i].pos,
+                    });
+                }
+                defeated[i] = nowDefeated;
+            }
         }
 
         static bool IsPhysicallyValid(in SimWorld world)

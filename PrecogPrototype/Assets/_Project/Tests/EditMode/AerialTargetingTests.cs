@@ -170,6 +170,34 @@ namespace Game.Sim.Tests
                 "JumpStrike 한 매크로로 얼어붙은 공중 슈터에게 좌클릭 피해를 줘야 함");
         }
 
+        [Test]
+        public void AerialPursuit_LocksFlyingTarget_AndSequencesDoubleJumpThenLunge()
+        {
+            SimWorld world = BuildLoneFlyerWorld();
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int count = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            MacroAction pursuit = default;
+            bool found = false;
+            for (int i = 0; i < count; i++)
+            {
+                if (buffer[i].type != MacroActionType.AerialPursuit) continue;
+                pursuit = buffer[i];
+                found = true;
+                break;
+            }
+
+            Assert.IsTrue(found);
+            Assert.AreEqual(world.enemies[0].id, pursuit.lungeTargetId);
+            Assert.IsTrue(pursuit.ToInputCmd(0f, 0).jump);
+            Assert.IsTrue(pursuit.ToInputCmd(0f, 7).jump);
+            InputCmd lunge = pursuit.ToInputCmd(0f, 11);
+            Assert.IsTrue(lunge.lunge);
+            Assert.AreEqual(world.enemies[0].id, lunge.lungeTargetId);
+        }
+
         static bool Contains(MacroAction[] actions, int count, MacroActionType type)
         {
             for (int i = 0; i < count; i++) if (actions[i].type == type) return true;

@@ -49,7 +49,7 @@ namespace Game.Prediction
             // 이동4 + Jump + 대시4 + Attack + 런지 최대 2 + Wait = 13. 여기에 공중 마무리 콤보
             // (LungeStrike는 런지 슬롯을 재사용하지만, JumpStrike는 얼어붙은 공중 슈터 상황에서만
             // 추가로 1개 생성)까지 잘려나가지 않도록 +1.
-            maxActionsPerNode = 14,
+            maxActionsPerNode = 16,
         };
 
         /// <summary>
@@ -70,7 +70,7 @@ namespace Game.Prediction
                 macroTicks = MacroTicksPerStep,
                 macroDepth = depth,
                 beamWidth = 12,
-                maxActionsPerNode = 14,   // Full과 동일(공중 마무리 콤보 후보 여유 포함)
+                maxActionsPerNode = 16,   // Full과 동일(공중 추격/지형 도약 후보 여유 포함)
             };
         }
 

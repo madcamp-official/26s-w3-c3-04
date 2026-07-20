@@ -100,6 +100,76 @@ namespace Game.Sim.Tests
             Assert.Greater(world.player.vel.y, 0f);
         }
 
+        [Test]
+        public void TerrainLeap_IsGeneratedOnlyForJumpUpEscapeStep()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+            var jumpServices = new SimServices(new StubCollision(), new JumpEscapePathfinder());
+
+            int jumpCount = ActionGenerator.Generate(in world, in jumpServices, in settings, buffer);
+            Assert.IsTrue(Contains(buffer, jumpCount, MacroActionType.TerrainLeap));
+
+            SimServices walkServices = StubServices.Create();
+            int walkCount = ActionGenerator.Generate(in world, in walkServices, in settings, buffer);
+            Assert.IsFalse(Contains(buffer, walkCount, MacroActionType.TerrainLeap));
+        }
+
+        [Test]
+        public void TerrainLeap_QueriesGraphAwayFromNearbyEnemyPressure()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(
+                new Vector3(6f, 0f, 0f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            var pathfinder = new CapturingJumpPathfinder();
+            var services = new SimServices(new StubCollision(), pathfinder);
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            ActionGenerator.Generate(in world, in services, in settings, buffer);
+
+            Assert.Less(pathfinder.lastGoal.x, world.player.pos.x);
+        }
+
+        [Test]
+        public void TerrainLeap_PulsesFirstAndDoubleJump_WhileMovingTowardLink()
+        {
+            MacroAction leap = MacroAction.TerrainLeapAt(90f);
+            InputCmd first = leap.ToInputCmd(leap.targetYaw, 0);
+            InputCmd second = leap.ToInputCmd(leap.targetYaw, 7);
+
+            Assert.IsTrue(first.jump);
+            Assert.IsTrue(second.jump);
+            Assert.AreEqual(Vector2.up, first.move);
+            Assert.AreEqual(90f, leap.targetYaw);
+        }
+
+        sealed class JumpEscapePathfinder : IPathfinder
+        {
+            public PathStep NextStep(Vector3 from, Vector3 to, int agentMask) =>
+                new PathStep { kind = MoveKind.JumpUp, next = from + Vector3.left * 3f + Vector3.up * 2f };
+            public int FloorIdAt(Vector3 position) => 0;
+            public bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh)
+            { onMesh = pos; return true; }
+        }
+
+        sealed class CapturingJumpPathfinder : IPathfinder
+        {
+            public Vector3 lastGoal;
+            public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
+            {
+                lastGoal = to;
+                return new PathStep { kind = MoveKind.JumpUp, next = from + Vector3.left + Vector3.up };
+            }
+            public int FloorIdAt(Vector3 position) => 0;
+            public bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh)
+            { onMesh = pos; return true; }
+        }
+
         static bool Contains(MacroAction[] actions, int count, MacroActionType type)
         {
             for (int i = 0; i < count; i++) if (actions[i].type == type) return true;

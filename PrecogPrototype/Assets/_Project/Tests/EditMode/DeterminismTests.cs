@@ -189,5 +189,30 @@ namespace Game.Sim.Tests
             Assert.AreEqual(WorldHash.Compute(in first), WorldHash.Compute(in second));
             Assert.AreEqual(1f, first.projectiles[0].pos.x, 1e-5f);
         }
+
+        [Test]
+        public void ExperimentalAutoSpawn_IsAerialBiased_AndNeverLarge()
+        {
+            int flying = 0;
+            int groundMelee = 0;
+            int charge = 0;
+            int groundRanged = 0;
+
+            for (int i = 0; i < 10; i++)
+            {
+                var (combat, mobility, size) = SimWorld.ExperimentalAutoSpawn(i);
+                Assert.AreEqual(SizeClass.Normal, size, $"sequence {i} spawned a large enemy");
+
+                if (mobility == MobilityType.Flying) flying++;
+                else if (mobility == MobilityType.Charge) charge++;
+                else if (combat == CombatType.Ranged) groundRanged++;
+                else groundMelee++;
+            }
+
+            Assert.AreEqual(7, flying);
+            Assert.AreEqual(1, groundMelee);
+            Assert.AreEqual(1, charge);
+            Assert.AreEqual(1, groundRanged);
+        }
     }
 }

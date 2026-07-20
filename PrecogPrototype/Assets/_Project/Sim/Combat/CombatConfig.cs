@@ -21,7 +21,7 @@ namespace Game.Sim
         public const int Damage = 1;
 
         // 플레이어 체력·피격
-        public static int PlayerMaxHp        = 1000000;   // 임시: 테스트용 무한 체력(원래 3)
+        public static int PlayerMaxHp        = 3;
         public static int PlayerHitStunTicks = 0;   // 임시: 피격 경직 0(원래 30). 구조는 유지
 
         // ── 타깃 런지 (우클릭): 둠 글로리킬식. 순간이동급 블링크 → 아래→위 베기. 블링크 틱만 잠금 ──

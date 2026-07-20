@@ -74,7 +74,7 @@ namespace Game.View
                 for (int t = 0; t < settings.macroTicks; t++)
                 {
                     float aimYaw = AimAtNearestEnemy(in replay);
-                    InputCmd cmd = action.ToInputCmd(aimYaw, t);
+                    InputCmd cmd = action.ToInputCmd(action.ResolveYaw(in replay, aimYaw), t);
                     SimStep.Run(ref replay, in cmd, in services);
                     if (replay.player.combat.hp <= 0) break;
                 }

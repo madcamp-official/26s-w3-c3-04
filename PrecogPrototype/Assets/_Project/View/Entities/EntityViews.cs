@@ -32,7 +32,8 @@ namespace Game.View
         {
             Vector3 pp = Vector3.Lerp(prev.player.pos, w.player.pos, alpha);
             PlayerAnchor.position = pp;
-            PlayerAnchor.rotation = Quaternion.Euler(0f, w.player.yaw, 0f);
+            PlayerAnchor.rotation = Quaternion.Euler(
+                0f, Mathf.LerpAngle(prev.player.yaw, w.player.yaw, alpha), 0f);
 
             while (enemyViews.Count < w.enemyCount)
                 enemyViews.Add(MakeCapsule($"Enemy_{enemyViews.Count}"));

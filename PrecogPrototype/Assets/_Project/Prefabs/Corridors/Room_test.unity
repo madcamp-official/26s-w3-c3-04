@@ -808,7 +808,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.View::Game.View.MapSpawnConfig
   autoSpawnOnStart: 0
   intervalTicks: 45
-  cap: 40
+  cap: 12
   entries: []
 --- !u!4 &1514070339
 Transform:

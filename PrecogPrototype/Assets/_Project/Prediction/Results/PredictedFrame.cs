@@ -1,4 +1,5 @@
 using UnityEngine;
+using Game.Sim;
 
 namespace Game.Prediction
 {
@@ -39,5 +40,114 @@ namespace Game.Prediction
 
         /// <summary>Lunge 전용 대상 적 id. 그 외는 -1.</summary>
         public int targetId;
+    }
+
+    /// <summary>
+    /// 최종 후보 정밀 재생 중 적의 결과가 처음 확정된 순간. 일반 사망뿐 아니라
+    /// 글로리킬처럼 gloryStage가 시작되어 결과가 잠긴 경우도 포함한다.
+    /// </summary>
+    public struct PredictedDefeatEvent
+    {
+        public int tick;
+        public int enemyId;
+        public Vector3 worldPosition;
+    }
+
+    public enum RhythmJudgement : byte
+    {
+        Pending,
+        Perfect,
+        Good,
+        Miss
+    }
+
+    /// <summary>
+    /// 액션 이벤트 틱만 판정하는 결정론적 리듬 판정기. View 입력 프레임이나 VFX를 참조하지 않는다.
+    /// </summary>
+    public sealed class RhythmJudge
+    {
+        public const int PerfectWindowTicks = 3;
+        public const int GoodWindowTicks = 8;
+
+        readonly PredictedActionEvent[] events;
+        readonly RhythmJudgement[] judgements;
+        int firstPending;
+
+        public RhythmJudge(PredictedActionEvent[] events)
+        {
+            this.events = events ?? System.Array.Empty<PredictedActionEvent>();
+            judgements = new RhythmJudgement[this.events.Length];
+        }
+
+        public int Count => events.Length;
+        public int FirstPendingIndex => firstPending < events.Length ? firstPending : -1;
+        public RhythmJudgement GetJudgement(int index) => judgements[index];
+        public PredictedActionEvent GetEvent(int index) => events[index];
+
+        /// <summary>
+        /// 화면 리듬 마커와 같은 실제 시간축의 입력을 결정론적 판정 틱으로 변환한다.
+        /// 목표보다 이른 쪽은 60Hz 틱 간격, 늦은 쪽은 View가 제공하는 대기 창 전체를
+        /// GoodWindowTicks로 매핑한다. 정확히 목표 시각이면 반드시 이벤트 틱이다.
+        /// </summary>
+        public static int MapDisplayTimeToTick(
+            float inputRealTime, float targetRealTime, int eventTick, float lateGoodSeconds)
+        {
+            float delta = inputRealTime - targetRealTime;
+            if (delta <= 0f)
+                return eventTick + UnityEngine.Mathf.RoundToInt(delta * SimConfig.TickRate);
+
+            int lateTicks = UnityEngine.Mathf.RoundToInt(
+                delta / UnityEngine.Mathf.Max(0.001f, lateGoodSeconds) * GoodWindowTicks);
+            return eventTick + UnityEngine.Mathf.Clamp(lateTicks, 0, GoodWindowTicks + 1);
+        }
+
+        public RhythmJudgement Submit(PredictedActionType type, int inputTick)
+        {
+            int best = -1;
+            int bestDistance = int.MaxValue;
+            for (int i = firstPending; i < events.Length; i++)
+            {
+                if (judgements[i] != RhythmJudgement.Pending || events[i].type != type) continue;
+                int delta = inputTick - events[i].tick;
+                int distance = System.Math.Abs(delta);
+                if (distance > GoodWindowTicks) continue;
+                if (distance < bestDistance
+                    || (distance == bestDistance && (best < 0 || events[i].tick < events[best].tick)))
+                {
+                    best = i;
+                    bestDistance = distance;
+                }
+            }
+            if (best < 0) return RhythmJudgement.Pending;
+
+            RhythmJudgement result = bestDistance <= PerfectWindowTicks
+                ? RhythmJudgement.Perfect
+                : RhythmJudgement.Good;
+            judgements[best] = result;
+            AdvancePending();
+            return result;
+        }
+
+        /// <summary>해당 틱 입력을 모두 제출한 뒤 호출한다. +8틱은 입력 허용 후 Miss로 닫힌다.</summary>
+        public int CompleteTick(int tick)
+        {
+            int missed = -1;
+            for (int i = firstPending; i < events.Length; i++)
+            {
+                if (judgements[i] != RhythmJudgement.Pending) continue;
+                if (tick < events[i].tick + GoodWindowTicks) break;
+                judgements[i] = RhythmJudgement.Miss;
+                if (missed < 0) missed = i;
+            }
+            AdvancePending();
+            return missed;
+        }
+
+        void AdvancePending()
+        {
+            while (firstPending < events.Length
+                   && judgements[firstPending] != RhythmJudgement.Pending)
+                firstPending++;
+        }
     }
 }

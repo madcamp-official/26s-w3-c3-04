@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Game.Sim;
 using Game.Prediction;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Game.View
 {
@@ -15,13 +16,15 @@ namespace Game.View
     {
         public static List<PredictedRoute> Build(in SimWorld w, in SimServices services, Color[] colors)
         {
+            Stopwatch stopwatch = Stopwatch.StartNew();
             var routes = new List<PredictedRoute>();
             if (w.player.combat.hp <= 0) return routes;
 
             // F 입력 순간 동기적으로 도는 검색이라 적이 많으면 그만큼 체감 끊김이 생긴다 —
             // 이번 세션에 만든 동적 축소(PredictionSettings.Degrade)를 실제 적 수에 맞춰 적용한다.
+            // PlanByProfile은 안전형/기회형/공격형이 월드 확장을 공유하고 점수만 따로 계산한다.
             PredictionSettings settings = PredictionSettings.Degrade(PredictionSettings.Full, w.enemyCount);
-            CandidatePath[] plans = PredictionPlanner.Plan(in w, in services, settings);
+            CandidatePath[] plans = PredictionPlanner.PlanByProfile(in w, in services, settings);
 
             for (int i = 0; i < plans.Length; i++)
             {
@@ -34,24 +37,21 @@ namespace Game.View
                     color = colors[i % colors.Length],
                     seconds = plan.durationTicks / (float)SimConfig.TickRate,
                     controls = plan.controls,   // 확정 시 실제 플레이어 자동 재생용(계약 11장 controls)
+                    profileLabel = plan.profileLabel ?? "",
                 };
                 for (int f = 0; f < plan.predictedFrames.Length; f++)
                     route.path.Add(plan.predictedFrames[f].playerPosition);
 
-                // 계약 3.1.1절: 0.5초(30틱) 간격 정지 잔상, 시작·종료 포함.
-                const int ghostIntervalTicks = 30;
-                for (int f = 0; f < plan.predictedFrames.Length; f += ghostIntervalTicks)
-                    route.ghostFrames.Add(plan.predictedFrames[f]);
-                PredictedFrame last = plan.predictedFrames[plan.predictedFrames.Length - 1];
-                if (route.ghostFrames.Count == 0 || route.ghostFrames[route.ghostFrames.Count - 1].tick != last.tick)
-                    route.ghostFrames.Add(last);
-
-                // 계약 3.1/3.1.1절: 0.5초 격자와 무관하게, 실제 행동이 시작된 정확한 틱마다
-                // 별도 액션 잔상 — 판정 대상은 이것뿐이다(일반 잔상은 가독성용).
+                // [예측 세션 수정, 2026-07-20] 정지 잔상은 더 이상 고정 0.5초(30틱) 격자가
+                // 아니라 실제 행동이 시작되는 ActionEvent 틱마다 찍는다 — PREDICTION_CONTRACT.md
+                // §3.1.1의 "30틱 간격" 서술과는 달라졌다(팀 합의 전이라 문서는 그대로 둠).
+                // 이동만 하는 구간은 정지 스탬프 없이 View의 이동 트레일(UpdateRevealTrails)로만
+                // 표현한다. ghostFrames·actionMarkers를 같은 순회에서 함께 채운다.
                 foreach (PredictedActionEvent evt in plan.actionEvents)
                 {
                     if (evt.tick < 0 || evt.tick >= plan.predictedFrames.Length) continue;
                     PredictedFrame f = plan.predictedFrames[evt.tick];
+                    route.ghostFrames.Add(f);
                     route.actionMarkers.Add(new ActionMarker
                     {
                         tick = evt.tick,
@@ -61,48 +61,20 @@ namespace Game.View
                         targetId = evt.targetId,
                     });
                 }
+                // 마지막 프레임(경로 종료 자세)은 행동이 없어도 항상 표시.
+                PredictedFrame last = plan.predictedFrames[plan.predictedFrames.Length - 1];
+                if (route.ghostFrames.Count == 0 || route.ghostFrames[route.ghostFrames.Count - 1].tick != last.tick)
+                    route.ghostFrames.Add(last);
 
-                CollectKillPositions(in w, in services, plan, settings.macroTicks, route.kills);
+                for (int e = 0; e < plan.defeatEvents.Length; e++)
+                    route.kills.Add(plan.defeatEvents[e].worldPosition);
                 routes.Add(route);
             }
+            stopwatch.Stop();
+            Debug.Log($"[예측 성능] 적 {w.enemyCount}마리, 경로 {routes.Count}개 생성: " +
+                      $"{stopwatch.Elapsed.TotalMilliseconds:0.0}ms");
             return routes;
         }
 
-        /// <summary>
-        /// 같은 행동열을 한 번 더 재생해서 처치(글로리킬 트리거 포함, BeamSearch와 같은 기준)
-        /// 위치만 뽑는다. 결정론이 보장되므로 CandidateReplayer와 항상 같은 결과가 나온다 —
-        /// 재생 두 번은 낭비지만, Prediction 쪽 공개 계약(PredictedFrame 등)에 적 처치 위치를
-        /// 새로 얹지 않기 위해 View 쪽에서 따로 뽑는 쪽을 택했다.
-        /// </summary>
-        static void CollectKillPositions(
-            in SimWorld initialSnapshot, in SimServices services, CandidatePath candidate,
-            int macroTicks, List<Vector3> kills)
-        {
-            SimWorld world = Snapshot.Clone(in initialSnapshot);
-            var wasDefeated = new bool[world.enemyCount];
-            for (int i = 0; i < world.enemyCount; i++)
-                wasDefeated[i] = !world.enemies[i].alive || world.enemies[i].combat.gloryStage > 0;
-
-            for (int m = 0; m < candidate.actions.Length; m++)
-            {
-                MacroAction action = candidate.actions[m];
-                for (int t = 0; t < macroTicks; t++)
-                {
-                    float yaw = BeamSearch.ComputeAimYaw(in world);
-                    InputCmd cmd = action.ToInputCmd(yaw, t);
-                    SimStep.Run(ref world, in cmd, in services);
-
-                    for (int i = 0; i < world.enemyCount; i++)
-                    {
-                        bool isDefeated = !world.enemies[i].alive || world.enemies[i].combat.gloryStage > 0;
-                        if (!wasDefeated[i] && isDefeated)
-                            kills.Add(world.enemies[i].pos);
-                        wasDefeated[i] = isDefeated;
-                    }
-
-                    if (world.player.combat.hp <= 0) return;
-                }
-            }
-        }
     }
 }

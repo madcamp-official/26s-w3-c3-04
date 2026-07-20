@@ -21,11 +21,13 @@ namespace Game.Prediction
             MacroActionType.MoveRight,
             MacroActionType.Retreat,
             MacroActionType.Jump,
+            MacroActionType.TerrainLeap,
             MacroActionType.DashForward,
             MacroActionType.DashBackward,
             MacroActionType.DashLeft,
             MacroActionType.DashRight,
             MacroActionType.JumpStrike,
+            MacroActionType.AerialPursuit,
             MacroActionType.Attack,
             MacroActionType.Lunge,
             MacroActionType.Wait,
@@ -51,6 +53,11 @@ namespace Game.Prediction
             {
                 switch (Priority[p])
                 {
+                    case MacroActionType.TerrainLeap:
+                        if (TryBuildTerrainLeap(in world, in services, out MacroAction leap))
+                            buffer[count++] = leap;
+                        break;
+
                     case MacroActionType.Jump:
                         // 동일 jump 입력을 실제 Sim이 grounded/jumpCount로 1단·2단 점프로 구분한다.
                         // 대시 중 입력 버퍼로 뒤늦게 발동하는 후보는 행동 의미가 불명확하므로 제외한다.
@@ -67,6 +74,13 @@ namespace Game.Prediction
                         if (canStartAction && player.grounded && player.dashTicks == 0
                             && player.jumpCount < 2 && HasJumpStrikeTarget(in world))
                             buffer[count++] = MacroAction.JumpStrikeAction();
+                        break;
+
+                    case MacroActionType.AerialPursuit:
+                        if (canStartAction && player.grounded && player.jumpCount == 0
+                            && player.dashTicks == 0 && player.combat.lungeCooldown == 0
+                            && TryFindAerialPursuitTarget(in world, in services, out int pursuitTarget))
+                            buffer[count++] = MacroAction.AerialPursuitTo(pursuitTarget);
                         break;
 
                     case MacroActionType.Attack:
@@ -93,6 +107,76 @@ namespace Game.Prediction
                 }
             }
             return count;
+        }
+
+        static bool TryBuildTerrainLeap(in SimWorld world, in SimServices services, out MacroAction action)
+        {
+            action = default;
+            ref readonly PlayerSim player = ref world.player;
+            if (player.combat.hp <= 0 || player.jumpCount != 0 || !player.grounded
+                || player.dashTicks != 0 || player.combat.hitStunTicks != 0)
+                return false;
+
+            Vector3 escape = ComputeEscapeDirection(in world);
+            PathStep step = services.Pathfinder.NextStep(player.pos, player.pos + escape * 12f, -1);
+            if (step.kind != MoveKind.JumpUp) return false;
+            Vector3 delta = step.next - player.pos;
+            if (delta.sqrMagnitude <= 1e-6f) return false;
+            float yaw = Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg;
+            action = MacroAction.TerrainLeapAt(yaw);
+            return true;
+        }
+
+        static Vector3 ComputeEscapeDirection(in SimWorld world)
+        {
+            Vector3 pressure = Vector3.zero;
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                ref readonly EnemySim enemy = ref world.enemies[i];
+                if (!enemy.alive) continue;
+                Vector3 delta = enemy.pos - world.player.pos;
+                delta.y = 0f;
+                float distanceSq = delta.sqrMagnitude;
+                if (distanceSq <= 1e-6f) continue;
+                pressure += delta.normalized / Mathf.Max(1f, distanceSq);
+            }
+
+            if (pressure.sqrMagnitude > 1e-6f)
+                return -pressure.normalized;
+            return -CombatMath.Forward(world.player.yaw);
+        }
+
+        static bool TryFindAerialPursuitTarget(
+            in SimWorld world, in SimServices services, out int targetId)
+        {
+            targetId = -1;
+            float bestDistance = float.MaxValue;
+            ref readonly PlayerSim player = ref world.player;
+            Vector3 eye = player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
+
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                ref readonly EnemySim enemy = ref world.enemies[i];
+                if (!enemy.alive || enemy.combat.gloryStage > 0 || enemy.ai.mobility != MobilityType.Flying)
+                    continue;
+
+                float height = enemy.pos.y - player.pos.y;
+                float flat = CombatMath.FlatDistance(player.pos, enemy.pos);
+                if (height <= CombatConfig.AttackHeightTolerance
+                    || height > CombatConfig.LungeHeightTolerance
+                    || flat > CombatConfig.LungeMaxRange + enemy.radius)
+                    continue;
+
+                Vector3 center = enemy.pos + Vector3.up * (enemy.height * 0.5f);
+                if (!services.Collision.HasLineOfSight(eye, center)) continue;
+                if (flat < bestDistance - 1e-5f
+                    || (Mathf.Abs(flat - bestDistance) <= 1e-5f && enemy.id < targetId))
+                {
+                    bestDistance = flat;
+                    targetId = enemy.id;
+                }
+            }
+            return targetId >= 0;
         }
 
         static bool HasAttackTarget(in SimWorld world)
