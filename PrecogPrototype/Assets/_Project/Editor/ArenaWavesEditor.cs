@@ -47,21 +47,26 @@ namespace Game.EditorTools
             const int   MobsPerPipe = 2;      // 배관당 방출 수(≥2여야 간격이 의미를 가짐)
             const float PipeInterval = 1.5f;  // 배관 안 방출 간격(초)
 
-            int MobsPerWave = 0;
-            foreach (MobKind k in kinds) MobsPerWave += QuotaOf(k);      // 지정 마리 수 합계
-            int pipeCount = Mathf.Clamp(MobsPerWave / MobsPerPipe, 1, markers.Count);
-
             aw.waves = new Wave[3];
+            int lastPipeCount = 0, lastTotal = 0;
             for (int w = 0; w < aw.waves.Length; w++)
             {
-                MobKind[] pool = BuildPool(MobsPerWave, kinds, w);   // 종류 배분(공중 적게)
+                // 웨이브마다 구성이 다르다 → 그 웨이브의 쿼터 합으로 총 마리 수·배관 수를 낸다.
+                int MobsPerWave = 0;
+                foreach (MobKind k in kinds) MobsPerWave += QuotaOf(w, k);
+                // 배관당 수로 안 나눠떨어져도 누락되지 않게 올림 — 마지막 배관이 나머지를 맡는다.
+                int pipeCount = Mathf.Clamp(Mathf.CeilToInt(MobsPerWave / (float)MobsPerPipe), 1, markers.Count);
+                lastPipeCount = pipeCount; lastTotal = MobsPerWave;
+
+                MobKind[] pool = BuildPool(MobsPerWave, kinds, w);
                 var pipes = new PipeEmission[pipeCount];
                 int cursor = 0;
                 for (int i = 0; i < pipeCount; i++)
                 {
-                    var mobs = new MobEmit[MobsPerPipe];
-                    for (int k = 0; k < MobsPerPipe; k++)
-                        mobs[k] = new MobEmit { kind = pool[cursor++ % pool.Length], intervalOverride = -1f };
+                    int take = Mathf.Min(MobsPerPipe, MobsPerWave - cursor);   // 마지막 배관은 나머지만
+                    var mobs = new MobEmit[Mathf.Max(0, take)];
+                    for (int k = 0; k < take; k++)
+                        mobs[k] = new MobEmit { kind = pool[cursor++], intervalOverride = -1f };
 
                     pipes[i] = new PipeEmission
                     {
@@ -84,20 +89,45 @@ namespace Game.EditorTools
 
             EditorUtility.SetDirty(aw);
             Selection.activeGameObject = aw.gameObject;
-            Debug.Log($"[테스트 웨이브] 3웨이브 생성 완료 → '{aw.name}'. 배관 {pipeCount}개 × {MobsPerPipe}마리 = {MobsPerWave}마리/웨이브. " +
+            Debug.Log($"[테스트 웨이브] 3웨이브 생성 완료 → '{aw.name}'. (마지막 웨이브: 배관 {lastPipeCount}개 · {lastTotal}마리) " +
                       "플레이 후 콘솔(`)에서 'wave start' 로 실행하십시오.");
         }
 
-        /// <summary>웨이브당 종류별 지정 마리 수. 여기 숫자만 고치면 구성이 바뀐다.</summary>
-        static int QuotaOf(MobKind k)
+        /// <summary>
+        /// 웨이브별·종류별 지정 마리 수. **여기 숫자만 고치면 구성이 바뀐다.**
+        /// wave는 0부터(= 화면상 W1). 적지 않은 종류는 0마리.
+        /// </summary>
+        static int QuotaOf(int wave, MobKind k)
         {
-            switch (k)
+            switch (wave)
             {
-                case MobKind.Grunt:   return 5;    // 근접
-                case MobKind.Pinky:   return 2;    // 돌진
-                case MobKind.Soldier: return 3;    // 원거리
-                case MobKind.Caco:    return 10;   // 공중
-                default:              return 0;    // 대형(Large) 등 제외
+                case 0:   // W1 — 근 7 · 근층 7 · 돌 6
+                    switch (k)
+                    {
+                        case MobKind.Grunt:  return 7;
+                        case MobKind.GruntT: return 7;
+                        case MobKind.Pinky:  return 6;
+                        default:             return 0;
+                    }
+
+                case 1:   // W2 — 근 4 · 근층 4 · 돌 2 · 원 3 · 원층 3 · 공 4
+                    switch (k)
+                    {
+                        case MobKind.Grunt:    return 4;
+                        case MobKind.GruntT:   return 4;
+                        case MobKind.Pinky:    return 2;
+                        case MobKind.Soldier:  return 3;
+                        case MobKind.SoldierT: return 3;
+                        case MobKind.Caco:     return 4;
+                        default:               return 0;
+                    }
+
+                default:  // W3 — 공 7
+                    switch (k)
+                    {
+                        case MobKind.Caco: return 7;
+                        default:           return 0;
+                    }
             }
         }
 
@@ -105,10 +135,10 @@ namespace Game.EditorTools
         /// 지정 마리 수(QuotaOf)대로 종류 목록을 만든다.
         /// 남은 수가 가장 많은 종류를 계속 뽑아 고르게 섞는다(Random 미사용, 결정론).
         /// </summary>
-        static MobKind[] BuildPool(int total, MobKind[] kinds, int waveOffset)
+        static MobKind[] BuildPool(int total, MobKind[] kinds, int wave)
         {
             var remain = new int[kinds.Length];
-            for (int i = 0; i < kinds.Length; i++) remain[i] = QuotaOf(kinds[i]);
+            for (int i = 0; i < kinds.Length; i++) remain[i] = QuotaOf(wave, kinds[i]);
 
             var pool = new MobKind[total];
             for (int n = 0; n < total; n++)
@@ -116,7 +146,7 @@ namespace Game.EditorTools
                 int best = -1;
                 for (int i = 0; i < kinds.Length; i++)
                 {
-                    int idx = (i + waveOffset) % kinds.Length;   // 웨이브마다 동점 처리 순서를 옮겨 배치를 다르게
+                    int idx = (i + wave) % kinds.Length;   // 웨이브마다 동점 처리 순서를 옮겨 배치를 다르게
                     if (remain[idx] <= 0) continue;
                     if (best < 0 || remain[idx] > remain[best]) best = idx;
                 }

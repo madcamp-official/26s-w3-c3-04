@@ -41,6 +41,26 @@ namespace Game.View
             return world.AddEnemy(pos, combat, mobility, size) ? id : -1;
         }
 
+        /// <summary>
+        /// 웨이브 배관용: 스폰과 동시에 **펄스**(초기 속도)를 주고 발사 상태로 만든다(설계 §4).
+        /// 발사 중엔 AI·공격이 멈추고 탄도로 날아가며, 지상몹은 착지 시 · 공중몹은 타이머로 해제된다.
+        /// </summary>
+        public int SpawnEnemyLaunched(Vector3 pos, CombatType combat, MobilityType mobility, SizeClass size,
+                                      Vector3 launchVel)
+        {
+            int id = SpawnEnemyAt(pos, combat, mobility, size);
+            if (id < 0) return -1;
+            for (int i = 0; i < world.enemyCount; i++)
+                if (world.enemies[i].id == id)
+                {
+                    world.enemies[i].vel = launchVel;
+                    world.enemies[i].launchTicks = 1;   // >0 = 발사 중
+                    world.enemies[i].grounded = false;
+                    break;
+                }
+            return id;
+        }
+
         /// <summary>주어진 id들 중 살아있는 적 수 — 웨이브별 생존 카운트용(Sim 수정 없이 웨이브 소속 추적).</summary>
         public int AliveCountAmong(System.Collections.Generic.HashSet<int> ids)
         {

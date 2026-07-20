@@ -83,8 +83,9 @@ namespace Game.View
             {
                 case "help":
                     Print("spawn <종류> · solo <종류> · clear · autospawn on|off|reload · count");
-                    Print("종류: grunt pinky soldier caco large");
-                    Print("wave list · wave start [n] · wave only <n> · wave stop · wave status");
+                    Print("종류: grunt pinky soldier caco large gruntt(근층) soldiert(원층)");
+                    Print("wave list · wave start [n] · wave only <n> · wave stop · wave status  (n은 1부터)");
+                    Print("  예) wave only 2 = 웨이브2만 실행 · wave start 2 = 웨이브2부터 순차");
                     break;
 
                 case "wave":
@@ -150,7 +151,7 @@ namespace Game.View
                     ArenaWaves a = arenas[i];
                     int wc = a.waves != null ? a.waves.Length : 0;
                     var sb = new StringBuilder($"  [{i}] {a.name} — 웨이브 {wc}개");
-                    for (int w = 0; w < wc; w++) sb.Append($" / W{w}:{a.SpawnCountOf(w)}마리");
+                    for (int w = 0; w < wc; w++) sb.Append($" / W{w + 1}:{a.SpawnCountOf(w)}마리");
                     Print(sb.ToString());
                 }
                 return;
@@ -162,18 +163,20 @@ namespace Game.View
 
             switch (sub)
             {
+                // 번호는 1부터(표시 이름 W1·W2·W3과 일치). 내부 인덱스는 0부터라 -1 한다.
                 case "start":
                 {
-                    int n = 0;
+                    int n = 1;
                     if (p.Length >= 3) int.TryParse(p[2], out n);
-                    Print(runner.StartFrom(n, true));
+                    Print(runner.StartFrom(n - 1, true));
                     break;
                 }
                 case "only":
+                case "go":
                 {
-                    if (p.Length < 3) { Print("사용: wave only <번호>"); break; }
+                    if (p.Length < 3) { Print("사용: wave only <번호>  (1부터)"); break; }
                     int n; if (!int.TryParse(p[2], out n)) { Print("번호가 숫자가 아닙니다"); break; }
-                    Print(runner.StartFrom(n, false));
+                    Print(runner.StartFrom(n - 1, false));
                     break;
                 }
                 case "stop":

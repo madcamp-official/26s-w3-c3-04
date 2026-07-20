@@ -50,11 +50,11 @@ namespace Game.View
             if (config == null) config = GetComponent<ArenaWaves>();
             if (config == null) return "ArenaWaves 컴포넌트가 없습니다";
             int count = config.waves != null ? config.waves.Length : 0;
-            if (!config.HasWave(index)) return $"웨이브 {index} 없음 (유효: 0~{count - 1})";
+            if (!config.HasWave(index)) return $"웨이브 {index + 1} 없음 (유효: 1~{count})";
 
             sequential = runAll;
             BeginWave(index);
-            return $"[{name}] 웨이브 {index} 시작" + (runAll ? " (이후 순차 진행)" : " (단일)");
+            return $"[{name}] 웨이브 {index + 1} 시작" + (runAll ? " (이후 순차 진행)" : " (이 웨이브만)");
         }
 
         public void Stop()
@@ -70,7 +70,7 @@ namespace Game.View
                 return $"[{name}] 대기 중 (웨이브 {(config.waves != null ? config.waves.Length : 0)}개)";
             int alive = AliveOfWave(CurrentWave);
             int total = config.SpawnCountOf(CurrentWave);
-            return $"[{name}] 웨이브 {CurrentWave} · {CurrentState} · 배관 {config.PipeCountOf(CurrentWave)}개 · " +
+            return $"[{name}] 웨이브 {CurrentWave + 1} · {CurrentState} · 배관 {config.PipeCountOf(CurrentWave)}개 · " +
                    $"스폰 {spawnedSoFar}/{total} · 생존 {alive}";
         }
 
@@ -160,15 +160,18 @@ namespace Game.View
 
             var (c, m, s) = MapSpawnConfig.Axes(emit.kind);
 
-            // 【임시방편】 마커가 벽·천장에 붙어 있어 몹이 끼는 것을 피하려고 아래로 조금 내려서 스폰한다.
-            // 근본 해결(마커를 벽면에서 띄우기 / 스폰 시 충돌 밀어내기 / §4 펄스 도입) 후 0으로 되돌릴 것.
-            Vector3 at = pipe.marker.position + Vector3.down * config.spawnDropOffset;
+            // 설계 §4: 배관 바깥(마커 forward)으로 펄스를 받고 튀어나온다.
+            // 출발점을 배관 면에서 조금 앞으로 빼야 첫 틱에 지오메트리와 겹쳐 캐스트가 막히지 않는다.
+            Vector3 dir = pipe.marker.forward;
+            Vector3 at  = pipe.marker.position
+                        + dir * SimConfig.SpawnLaunchStartGap
+                        + Vector3.down * config.spawnDropOffset;   // 【임시방편】 펄스 정착되면 0으로
+            Vector3 vel = dir * SimConfig.SpawnLaunchSpeed + Vector3.up * SimConfig.SpawnLaunchUp;
 
-            int id = main.SpawnEnemyAt(at, c, m, s);
+            int id = main.SpawnEnemyLaunched(at, c, m, s, vel);
             if (id >= 0) { spawnedIds[CurrentWave].Add(id); spawnedSoFar++; }
 
             SpawnPipeFx.Play(pipe.marker);   // 배관 꿀렁 연출(View 전용)
-            // TODO(설계 §4): 여기서 marker.forward 방향 펄스 + 착지까지 무공격 상태를 부여한다(Sim 확장 후).
         }
 
         void TickWatching()
@@ -195,13 +198,13 @@ namespace Game.View
             int next = CurrentWave + 1;
             if (sequential && config.HasWave(next))
             {
-                Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave} 조건 충족(생존 {alive}/{total}) → 웨이브 {next}");
+                Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave + 1} 조건 충족(생존 {alive}/{total}) → 웨이브 {next + 1}");
                 BeginWave(next);
             }
             else
             {
                 CurrentState = State.Done;
-                Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave} 완료 — 아레나 클리어(문 해제 훅 자리).");
+                Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave + 1} 완료 — 아레나 클리어(문 해제 훅 자리).");
                 // TODO(설계 §5): 마무리 정리(시야각+LOS·거리·지속) 및 문 해제 훅.
             }
         }
