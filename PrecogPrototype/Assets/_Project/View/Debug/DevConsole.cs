@@ -86,6 +86,9 @@ namespace Game.View
                     Print("종류: grunt pinky soldier caco large gruntt(근층) soldiert(원층)");
                     Print("wave list · wave start [n] · wave only <n> · wave stop · wave status  (n은 1부터)");
                     Print("  예) wave only 2 = 웨이브2만 실행 · wave start 2 = 웨이브2부터 순차");
+                    Print("[이펙트] swing 1|2|t [loop] · swing stop   (칼 애니메이션 재생)");
+                    Print("[이펙트] vfx list · vfx <이름> [here] · vfx reload");
+                    Print("[이펙트] timescale 0.15  (슬로우모션. 1로 원복)");
                     break;
 
                 case "wave":
@@ -125,6 +128,60 @@ namespace Game.View
 
                 case "count":
                     Print("생존: " + main.AliveEnemyCount());
+                    break;
+
+                // ── 이펙트 튜닝용 ──
+                case "swing":
+                {
+                    var sv = SwordView.Instance;
+                    if (sv == null) { Print("SwordView 없음"); break; }
+                    if (p.Length >= 2 && p[1] == "stop") { sv.StopPreview(); Print("스윙 프리뷰 중지"); break; }
+                    if (p.Length < 2) { Print("사용: swing 1|2|t [loop] · swing stop"); break; }
+                    bool loop = p.Length >= 3 && p[2] == "loop";
+                    if (sv.PreviewSwing(p[1], loop)) Print("스윙 재생: " + p[1] + (loop ? " (반복)" : ""));
+                    else Print("사용: swing 1|2|t [loop]");
+                    break;
+                }
+
+                case "slash":
+                {
+                    if (p.Length < 2) { Print("사용: slash 1|2|t [hold]   (베기 이펙트. 칼 움직임과 무관)"); break; }
+                    float syr = main.LookYaw * Mathf.Deg2Rad;
+                    Vector3 sfwd = new Vector3(Mathf.Sin(syr), 0f, Mathf.Cos(syr));
+                    Vector3 spos = main.World.player.pos + Vector3.up * 1.3f + sfwd * 3f;
+                    var sl = SwordSlash.Spawn(spos, Quaternion.LookRotation(sfwd), p[1]);
+                    bool shold = p.Length >= 3 && p[2] == "hold";
+                    if (sl != null && shold) sl.hold = true;
+                    Print("베기: " + p[1] + (shold ? " (hold — Hierarchy의 SwordSlash 선택해 튜닝)" : ""));
+                    break;
+                }
+
+                case "vfx":
+                {
+                    if (p.Length >= 2 && p[1] == "list")
+                    {
+                        var names = VfxLibrary.Names();
+                        if (names.Count == 0) Print("VFX 없음 — Resources/VFX/ 에 프리팹을 넣으십시오");
+                        else foreach (var n in names) Print("  " + n);
+                        break;
+                    }
+                    if (p.Length >= 2 && p[1] == "reload") { VfxLibrary.Reload(); Print("VFX 폴더 다시 읽음"); break; }
+                    if (p.Length < 2) { Print("사용: vfx list | vfx reload | vfx <이름> [here]"); break; }
+
+                    float yr = main.LookYaw * Mathf.Deg2Rad;
+                    Vector3 fwd = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
+                    Vector3 at = main.World.player.pos + Vector3.up * 1.2f;
+                    if (!(p.Length >= 3 && p[2] == "here")) at += fwd * 3f;   // 기본: 정면 3m
+                    var inst = VfxLibrary.Play(p[1], at, Quaternion.LookRotation(-fwd));
+                    Print(inst != null ? "재생: " + p[1] : "없는 VFX: " + p[1] + "  (vfx list 로 확인)");
+                    break;
+                }
+
+                case "ts":
+                case "timescale":
+                    if (p.Length < 2) { Print("현재 timescale=" + Time.timeScale + " (사용: timescale 0.15)"); break; }
+                    if (float.TryParse(p[1], out float tsv)) { Time.timeScale = Mathf.Clamp(tsv, 0f, 4f); Print("timescale=" + Time.timeScale); }
+                    else Print("숫자를 입력하십시오");
                     break;
 
                 default:
