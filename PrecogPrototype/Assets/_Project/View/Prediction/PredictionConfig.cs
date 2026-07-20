@@ -40,10 +40,10 @@ namespace Game.View
         public const float PreviewRevealSeconds = 4.2f;
         // 이동 트레일이 옅어져 사라지기까지 걸리는 시간(초) — 위 스윕 시간의 절반 조금 안 되게
         // 맞춰서, 트레일 꼬리 길이가 "지나온 절반 구간"처럼 보이게 한다.
-        public const int PreviewAfterimageCount = 16;
-        public const float PreviewAfterimageSpacing = 0.013f;
+        public const int PreviewAfterimageCount = 24;
+        public const float PreviewAfterimageSpacing = 0.0085f;
         public const float PreviewAfterimageHeadAlpha = 0.38f;
-        public const float PreviewAfterimageFadeSeconds = 0.55f;
+        public const float PreviewAfterimageFadeSeconds = 1.2f;
         // <<< [예측 세션 추가 끝]
         public const float DomeWidth     = 0.18f;
         public static readonly Color DomeColor  = new Color(0.3f, 0.9f, 1f, 0.9f);
