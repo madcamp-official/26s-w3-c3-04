@@ -51,10 +51,18 @@ namespace Game.Prediction
                 return s;
             }
 
+            // 미래 위험/기회 관측은 한 번만 계산해 감점·가점 양쪽에 재사용한다.
+            FutureThreatObservation obs = FutureThreatObserver.Observe(in world);
+
             s.safety = world.player.combat.hp * PredictionScoreConfig.HpWeight
                      + SafetyBonus(in world) * PredictionScoreConfig.SafeDistanceWeight
                      - SurroundedExcess(in world) * PredictionScoreConfig.SurroundedWeight
-                     - ProjectileThreatPenalty(in world);
+                     - SpecialThreatPenalty(in obs);
+
+            // 공중 적 마무리 기회(형태 유도): 아직 피해가 없는 접근/점프 중간 스텝이 Beam에서
+            // 살아남아 실제 처치까지 이어지도록만 돕는 작은 가점. 실제 피해/처치가 항상 더 크다.
+            s.kill += obs.strikeableFlyingEnemyCount * PredictionScoreConfig.AerialOpportunityWeight;
+
             // difficulty는 이번 롤백에서 비움(계약의 대시 보존/반복 페널티가 회귀 원인이라 제외).
             return s;
         }
@@ -79,13 +87,23 @@ namespace Game.Prediction
         /// 원거리 솔저 투사체가 명중 궤도(FutureThreatObserver 기준)면, 임박할수록 커지는 감점을 준다.
         /// 명중이 이번 매크로 스텝 시야 밖(더 뒤)이어도 미리 피하도록 유도 — 새 원거리 적 인지용 항목.
         /// </summary>
-        static float ProjectileThreatPenalty(in SimWorld world)
+        static float SpecialThreatPenalty(in FutureThreatObservation obs)
         {
-            FutureThreatObservation obs = FutureThreatObserver.Observe(in world);
-            if (obs.nearestProjectileImpactTicks >= PredictionScoreConfig.ProjectileImpactHorizonTicks)
-                return 0f;
-            int urgency = PredictionScoreConfig.ProjectileImpactHorizonTicks - obs.nearestProjectileImpactTicks;
-            return urgency * PredictionScoreConfig.ProjectileImpactWeight;
+            float penalty = 0f;
+            if (obs.nearestProjectileImpactTicks < PredictionScoreConfig.ProjectileImpactHorizonTicks)
+            {
+                int urgency = PredictionScoreConfig.ProjectileImpactHorizonTicks - obs.nearestProjectileImpactTicks;
+                penalty += urgency * PredictionScoreConfig.ProjectileImpactWeight;
+            }
+            if (obs.nearestChargeImpactTicks < PredictionScoreConfig.ChargeImpactHorizonTicks)
+            {
+                int urgency = PredictionScoreConfig.ChargeImpactHorizonTicks - obs.nearestChargeImpactTicks;
+                penalty += urgency * PredictionScoreConfig.ChargeImpactWeight;
+            }
+            // 조준/발사 중인 공중 적만 감점 — 단순 부유는 회피가 아니라 처치 대상(위 kill 가점 참고).
+            penalty += obs.aimingFlyingEnemyCount * PredictionScoreConfig.FlyingThreatWeight;
+            penalty += obs.activeTraversalCount * PredictionScoreConfig.TraversalCommitmentWeight;
+            return penalty;
         }
 
         static int SurroundedExcess(in SimWorld world)

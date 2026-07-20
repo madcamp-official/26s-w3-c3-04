@@ -14,6 +14,10 @@ namespace Game.Prediction
         public const float MinDurationSeconds = 1f;
         public const float MaxDurationSeconds = 5f;
 
+        /// <summary>매크로 1스텝 = 15틱(0.25초, 60Hz). Full·Mini·ForDuration 공통 — 서브틱 콤보
+        /// (LungeStrike/JumpStrike)의 좌클릭 타이밍이 이 길이를 기준으로 맞춰져 있으니 함께 본다.</summary>
+        public const int MacroTicksPerStep = 15;
+
         /// <summary>매크로 행동 1개가 유지되는 틱 수.</summary>
         public int macroTicks;
 
@@ -39,10 +43,13 @@ namespace Game.Prediction
 
         public static PredictionSettings Full => new PredictionSettings
         {
-            macroTicks = 15,
+            macroTicks = MacroTicksPerStep,
             macroDepth = 12,
             beamWidth = 12,
-            maxActionsPerNode = 13, // Jump + 런지 최대 2명 + Wait까지 포함(계약 10장)
+            // 이동4 + Jump + 대시4 + Attack + 런지 최대 2 + Wait = 13. 여기에 공중 마무리 콤보
+            // (LungeStrike는 런지 슬롯을 재사용하지만, JumpStrike는 얼어붙은 공중 슈터 상황에서만
+            // 추가로 1개 생성)까지 잘려나가지 않도록 +1.
+            maxActionsPerNode = 14,
         };
 
         /// <summary>
@@ -54,17 +61,16 @@ namespace Game.Prediction
         /// </summary>
         public static PredictionSettings ForDuration(float seconds)
         {
-            const int macroTicksPerStep = 15;
             float clamped = Mathf.Clamp(seconds, MinDurationSeconds, MaxDurationSeconds);
             int totalTicks = Mathf.RoundToInt(clamped * SimConfig.TickRate);
-            int depth = Mathf.Max(1, Mathf.RoundToInt((float)totalTicks / macroTicksPerStep));
+            int depth = Mathf.Max(1, Mathf.RoundToInt((float)totalTicks / MacroTicksPerStep));
 
             return new PredictionSettings
             {
-                macroTicks = macroTicksPerStep,
+                macroTicks = MacroTicksPerStep,
                 macroDepth = depth,
                 beamWidth = 12,
-                maxActionsPerNode = 13,
+                maxActionsPerNode = 14,   // Full과 동일(공중 마무리 콤보 후보 여유 포함)
             };
         }
 

@@ -14,19 +14,22 @@ namespace Game.Bridge
         readonly int[,] next;
         readonly int[,] distance;
         readonly int[,] directLink;
+        public int MapVersion { get; }
 
-        GraphPathfinder(ArenaNavNode[] nodes, ArenaNavLink[] links, int[,] next, int[,] distance, int[,] directLink)
+        GraphPathfinder(ArenaNavNode[] nodes, ArenaNavLink[] links, int[,] next, int[,] distance, int[,] directLink, int mapVersion)
         {
             this.nodes = nodes;
             this.links = links;
             this.next = next;
             this.distance = distance;
             this.directLink = directLink;
+            MapVersion = mapVersion;
         }
 
         public static GraphPathfinder FromBake(ArenaMapBake bake, int agentMask = -1)
         {
             if (bake == null) throw new ArgumentNullException(nameof(bake));
+            ValidateBake(bake);
             ArenaNavNode[] ns = (ArenaNavNode[])bake.nodes.Clone();
             ArenaNavLink[] ls = (ArenaNavLink[])bake.links.Clone();
             Array.Sort(ns, (a, b) => a.nodeId.CompareTo(b.nodeId));
@@ -73,7 +76,31 @@ namespace Game.Bridge
                     first[i, j] = hop;
                 }
             }
-            return new GraphPathfinder(ns, ls, first, dist, direct);
+            return new GraphPathfinder(ns, ls, first, dist, direct, bake.mapVersion);
+        }
+
+        static void ValidateBake(ArenaMapBake bake)
+        {
+            if (bake.mapVersion <= 0)
+                throw new ArgumentException("ArenaMapBake.mapVersion must be positive.", nameof(bake));
+            if (bake.nodes == null || bake.nodes.Length == 0)
+                throw new ArgumentException("ArenaMapBake must contain at least one node.", nameof(bake));
+            if (bake.links == null)
+                throw new ArgumentException("ArenaMapBake.links cannot be null.", nameof(bake));
+
+            for (int i = 0; i < bake.nodes.Length; i++)
+            {
+                for (int j = i + 1; j < bake.nodes.Length; j++)
+                    if (bake.nodes[i].nodeId == bake.nodes[j].nodeId)
+                        throw new ArgumentException($"Duplicate arena node id {bake.nodes[i].nodeId}.", nameof(bake));
+            }
+
+            for (int i = 0; i < bake.links.Length; i++)
+            {
+                ArenaNavLink link = bake.links[i];
+                if (IndexOf(bake.nodes, link.fromNodeId) < 0 || IndexOf(bake.nodes, link.toNodeId) < 0)
+                    throw new ArgumentException($"Arena link {link.linkId} references a missing node.", nameof(bake));
+            }
         }
 
         public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
@@ -188,7 +215,7 @@ namespace Game.Bridge
 
         /// <summary>실제 3층 아레나 그래프(17노드). 경사로·2F·3F·반층 Walk(양방향) + 다리→1F북 절벽 드롭.
         /// 손 authoring(기본). corridor 폭·agentMask 정밀 튜닝은 후속(전부 -1=모든 몹, Walk).</summary>
-        public static GraphPathfinder CreateArena()
+        public static ArenaMapBake CreateArenaBake()
         {
             var nodes = new[]
             {
@@ -216,8 +243,10 @@ namespace Game.Bridge
             links.Add(new ArenaNavLink { linkId = id++, fromNodeId = 13, toNodeId = 16,
                 traversalType = NavTraversalType.DropDown, traversalTicks = 30, agentMask = -1,
                 landingPosition = nodes[16].position, landingSlotCount = 1 });   // 다리→1F북 절벽
-            return FromBake(new ArenaMapBake { nodes = nodes, links = links.ToArray() });
+            return new ArenaMapBake { mapVersion = 2, nodes = nodes, links = links.ToArray() };
         }
+
+        public static GraphPathfinder CreateArena() => FromBake(CreateArenaBake());
 
         static ArenaNavNode N(int id,float x,float y,float z,int floor) => new ArenaNavNode { nodeId=id, position=new Vector3(x,y,z), floorId=floor, areaFlags=MapAreaFlags.Playable };
         static ArenaNavLink L(int id,int a,int b,NavTraversalType t) => new ArenaNavLink { linkId=id, fromNodeId=a, toNodeId=b, traversalType=t, traversalTicks=30, agentMask=-1, landingPosition=default };

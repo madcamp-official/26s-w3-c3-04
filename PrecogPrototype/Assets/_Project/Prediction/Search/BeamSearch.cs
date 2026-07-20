@@ -139,7 +139,7 @@ namespace Game.Prediction
                         int childDamageDealt = parentNode.damageDealt + damageThisStep;
                         int childHitsTaken = parentNode.hitsTaken + hitsThisStep;
                         int childDashCount = parentNode.dashCount + (IsDash(actionBuffer[a].type) ? 1 : 0);
-                        int childLungeCount = parentNode.lungeCount + (actionBuffer[a].type == MacroActionType.Lunge ? 1 : 0);
+                        int childLungeCount = parentNode.lungeCount + (IsLunge(actionBuffer[a].type) ? 1 : 0);
                         int childWaitCount = parentNode.waitCount + (isWait ? 1 : 0);
                         int childConsecutiveWaitCount = isWait ? parentNode.consecutiveWaitCount + 1 : 0;
 
@@ -327,6 +327,10 @@ namespace Game.Prediction
         static bool IsDash(MacroActionType type) =>
             type == MacroActionType.DashForward || type == MacroActionType.DashBackward ||
             type == MacroActionType.DashLeft || type == MacroActionType.DashRight;
+
+        /// <summary>런지 계열(단일 런지 + 공중 마무리 콤보) — 통계(lungeCount)에 함께 집계한다.</summary>
+        static bool IsLunge(MacroActionType type) =>
+            type == MacroActionType.Lunge || type == MacroActionType.LungeStrike;
 
         static bool IsBetterCandidate(in SearchNode candidate, in SearchNode current)
         {

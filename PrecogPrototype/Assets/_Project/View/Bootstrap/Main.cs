@@ -66,13 +66,23 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
+            ArenaMapBake predictionMap = map.predictionMap;
+            if (predictionMap == null || predictionMap.nodes == null || predictionMap.nodes.Length == 0)
+            {
+                predictionMap = GraphPathfinder.CreateArenaBake();
+                Debug.LogWarning("[Prediction] ArenaMapAuthoring이 없어 내장 아레나 그래프를 사용합니다. 씬 지형 변경 시 authoring과 mapVersion을 갱신하세요.");
+            }
+
             // 하이브리드: 평상시 = 런타임 NavMesh(연속 경로·나비 매끄러움).
             // 예측 검색·following 재생 = 고정 그래프(포크·결정론). 둘 다 EnemyMovement가 그대로 씀.
             var collision = new PhysicsCollision(Physics.DefaultRaycastLayers);
-            services      = new SimServices(collision, new NavMeshPathfinder());
-            graphServices = new SimServices(collision, GraphPathfinder.CreateArena());
+            var runtimePathfinder = new NavMeshPathfinder();
+            ValidatePredictionMapAgainstNavMesh(predictionMap, runtimePathfinder);
+            services      = new SimServices(collision, runtimePathfinder);
+            graphServices = new SimServices(collision, GraphPathfinder.FromBake(predictionMap));
 
             world = SimWorld.Create();
+            world.mapVersion = predictionMap.mapVersion;
             world.player = PlayerSim.Spawn(map.playerSpawn);
             spawnPoints = map.spawns;
             spawnTimer = SimConfig.SpawnIntervalTicks;   // 첫 틱부터 소환 시작
@@ -90,6 +100,20 @@ namespace Game.View
 
             Debug.Log($"[Main] 시작. 스폰지점 {spawnPoints.Count}개, {SimConfig.SpawnIntervalTicks}틱마다 소환(최대 {SimConfig.SpawnCap}).\n" +
                       "  WASD 이동 · 마우스 시점 · Space 더블점프 · Shift+WASD 4방향 대시 · 좌클릭 평타 · 우클릭 런지 · F 예측 · F1 튜닝 · Esc 커서");
+        }
+
+        static void ValidatePredictionMapAgainstNavMesh(ArenaMapBake bake, NavMeshPathfinder runtimePathfinder)
+        {
+            int offMesh = 0;
+            for (int i = 0; i < bake.nodes.Length; i++)
+            {
+                Vector3 authored = bake.nodes[i].position;
+                if (!runtimePathfinder.ClampToWalkable(authored, 1.5f, out Vector3 sampled) ||
+                    Vector3.Distance(authored, sampled) > 1.5f)
+                    offMesh++;
+            }
+            if (offMesh > 0)
+                Debug.LogWarning($"[Prediction] mapVersion {bake.mapVersion}: 그래프 노드 {offMesh}/{bake.nodes.Length}개가 런타임 NavMesh와 맞지 않습니다. ArenaMapAuthoring을 다시 베이크하세요.");
         }
 
         void Update()

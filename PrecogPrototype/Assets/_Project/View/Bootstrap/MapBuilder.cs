@@ -11,6 +11,7 @@ namespace Game.View
     {
         public List<Vector3> spawns = new();
         public Vector3 playerSpawn;
+        public ArenaMapBake predictionMap;
     }
 
     /// <summary>
@@ -30,6 +31,7 @@ namespace Game.View
             var gLedge= Mat(new Color(0.60f, 0.52f, 0.40f));   // mantle 계단·엄폐(갈색기)
             var gCont = Mat(new Color(0.16f, 0.38f, 0.68f));   // 컨테이너(파랑)
             var r = new MapResult();
+            r.predictionMap = Game.Bridge.GraphPathfinder.CreateArenaBake();
 
             // 높이: 1F 0 · 반층 3.0 · 2F 4.5 · 3F 9 (단차 1.5배). mantle 1.5(3단=한 층).
             // ── 바닥 + 외벽 (3층 담을 높이 12) ──
@@ -126,6 +128,9 @@ namespace Game.View
                 : "[Map] 씬 지형 NavMesh 실패 — 콜라이더 확인");
 
             var r = new MapResult();
+            ArenaMapAuthoring authored = Object.FindFirstObjectByType<ArenaMapAuthoring>();
+            if (authored != null)
+                r.predictionMap = authored.BuildBake();
             if (NavMesh.SamplePosition(refPoint, out var p, 80f, NavMesh.AllAreas))
                 r.playerSpawn = p.position;
             for (int i = 0; i < 5; i++)

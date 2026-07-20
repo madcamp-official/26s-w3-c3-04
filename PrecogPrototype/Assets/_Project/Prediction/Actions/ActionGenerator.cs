@@ -25,10 +25,16 @@ namespace Game.Prediction
             MacroActionType.DashBackward,
             MacroActionType.DashLeft,
             MacroActionType.DashRight,
+            MacroActionType.JumpStrike,
             MacroActionType.Attack,
             MacroActionType.Lunge,
             MacroActionType.Wait,
         };
+
+        /// <summary>JumpStrike가 닿는 최대 높이차(플레이어 발밑 → 공중 적). 단일 점프가 매크로 안에서
+        /// 오르는 정점(≈1.8m) + 좌클릭 높이차 허용(1m)보다 약간 보수적으로 잡아, 판정 시점에 확실히
+        /// 사거리 안이게 한다. 표준 부유 고도(FlyHoverOffset=2m)를 넉넉히 포함.</summary>
+        const float JumpStrikeReachHeight = 2.6f;
 
         /// <summary>buffer에 후보를 채우고 개수를 반환한다. buffer는 호출자가 재사용(풀링)한다.</summary>
         public static int Generate(in SimWorld world, in SimServices services, in PredictionSettings settings, MacroAction[] buffer)
@@ -53,6 +59,14 @@ namespace Game.Prediction
                             && player.combat.lungePhase != CombatConfig.LgTravel
                             && player.jumpCount < 2)
                             buffer[count++] = MacroAction.Simple(MacroActionType.Jump);
+                        break;
+
+                    case MacroActionType.JumpStrike:
+                        // 얼어붙은 공중 슈터를 런지 없이 점프+좌클릭으로. 지상에서 솟구쳐 만나므로
+                        // 점프 가능(지상·미대시·미경직·점프잔량) + 좌클릭 개시 가능 + 사거리 대상 필요.
+                        if (canStartAction && player.grounded && player.dashTicks == 0
+                            && player.jumpCount < 2 && HasJumpStrikeTarget(in world))
+                            buffer[count++] = MacroAction.JumpStrikeAction();
                         break;
 
                     case MacroActionType.Attack:
@@ -97,6 +111,31 @@ namespace Game.Prediction
         }
 
         /// <summary>
+        /// JumpStrike 대상: 조준/발사로 고도가 고정된(=점프로 따라잡을 수 있는) 공중 슈터가,
+        /// 지상 평타 사거리보다 위(높이차 > AttackHeightTolerance)이면서 단일 점프 도달 높이 안에,
+        /// 이미 좌클릭 부채꼴(수평) 안에 들어와 있는 경우. 점프는 수직이라 수평 접근은 못 한다 —
+        /// 수평 진입은 일반 이동 후보가 담당하고, 이 후보는 "바로 위로 뛰어 치는" 순간만 만든다.
+        /// </summary>
+        static bool HasJumpStrikeTarget(in SimWorld world)
+        {
+            ref readonly PlayerSim player = ref world.player;
+            Vector3 forward = CombatMath.Forward(player.yaw);
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                ref readonly EnemySim enemy = ref world.enemies[i];
+                if (!enemy.alive || enemy.combat.gloryStage > 0) continue;
+                if (enemy.ai.mobility != MobilityType.Flying) continue;
+                if (enemy.ai.state != EnemyState.Aim && enemy.ai.state != EnemyState.Fire) continue;
+                float gap = enemy.pos.y - player.pos.y;
+                if (gap <= CombatConfig.AttackHeightTolerance || gap > JumpStrikeReachHeight) continue;
+                if (CombatMath.InCone(player.pos, forward, enemy.pos,
+                        CombatConfig.AttackConeRange + enemy.radius, CombatConfig.AttackConeHalfAngle))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// 계약(PREDICTION_CONTRACT.md 10장) "런지 후보 가까운 유효 대상 최대 2" 반영.
         /// 상위 2명을 각도→거리→id로 뽑은 뒤, 버퍼 삽입 순서는 계약이 명시한 대로
         /// targetId 오름차순으로 정렬한다(선정 우선순위와 삽입 순서는 별개).
@@ -110,9 +149,29 @@ namespace Game.Prediction
             {
                 int swap = first; first = second; second = swap;
             }
-            if (first >= 0 && count < cap) buffer[count++] = MacroAction.LungeTo(first);
-            if (second >= 0 && count < cap) buffer[count++] = MacroAction.LungeTo(second);
+            if (first >= 0 && count < cap) buffer[count++] = MakeLungeAction(in world, first);
+            if (second >= 0 && count < cap) buffer[count++] = MakeLungeAction(in world, second);
             return count;
+        }
+
+        /// <summary>
+        /// 공중(Flying) 대상이면 복합 콤보(LungeStrike: 우클릭 접근 → 착지 직후 좌클릭)를,
+        /// 지상 대상이면 기존 단일 런지를 만든다. 공중 대상은 런지 임팩트 피해 1만으론 못 죽이고
+        /// 착지 직후 낙하·bind 해제로 후속 좌클릭 창이 매크로 경계를 넘어가 닫히므로, 한 매크로
+        /// 안에서 좌클릭까지 묶어야 실제 처치가 성립한다(원인 분석 B). 지상 대상은 착지 후 다음
+        /// 매크로의 Attack 후보로 충분해 굳이 콤보로 묶지 않는다(후보 폭증 방지).
+        /// </summary>
+        static MacroAction MakeLungeAction(in SimWorld world, int targetId)
+        {
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                ref readonly EnemySim enemy = ref world.enemies[i];
+                if (enemy.id != targetId) continue;
+                return enemy.ai.mobility == MobilityType.Flying
+                    ? MacroAction.LungeStrikeTo(targetId)
+                    : MacroAction.LungeTo(targetId);
+            }
+            return MacroAction.LungeTo(targetId);
         }
 
         static void FindTopLungeTargets(
@@ -160,8 +219,17 @@ namespace Game.Prediction
         /// <summary>
         /// PlayerCombat.CanTarget(Sim, private)과 동일한 규칙의 독립 구현.
         /// 알려진 한계: 런지 유효성 판정이 Sim과 Prediction 두 곳에 존재한다 — 실제 판정
-        /// 규칙이 바뀌면 양쪽을 함께 고쳐야 한다. 근본 해결(Sim 쪽 공개 API 추가)은
-        /// 게임 개발자 승인이 필요해 별도 요청 사항으로 남긴다.
+        /// 규칙이 바뀌면 양쪽을 함께 고쳐야 한다. 근본 해결(Sim 쪽 공개 CanLunge API로 통합)은
+        /// 게임 개발자 승인이 필요해 docs/shared/AERIAL_LUNGE_SIM_API_PROPOSAL.md로 남긴다.
+        ///
+        /// 예전엔 여기서 착지점을 "지면 스냅+캡슐 점유 가능"으로 추가 검증했는데, 실제 Sim
+        /// (PlayerCombat.TryLockDestination/IsLungeable)엔 그런 조건이 아예 없다 — 항상
+        /// "대상 고도(enemy.y+LungeAimUp)"에 무조건 붙는다. 그 결과 표준 hover 고도
+        /// (AIConfig.FlyHoverOffset=2m)에 뜬 공중 적조차, 지면까지의 하향 레이가 딱 그
+        /// 한계치(SampleGround의 maxDown=2f+원점오프셋0.5=2.5m ≈ 필요거리 2.5m)에 걸려
+        /// 실전에서 거의 항상 실패해 런지 후보 자체가 생성되지 않는 버그였다(공중 유닛
+        /// 타겟팅이 접근 시도조차 안 되는 원인). 실제 규칙에 없는 조건이라 삭제하고,
+        /// 착지 높이도 real Sim과 동일하게 계산한다.
         /// </summary>
         static bool CanTargetForLunge(in PlayerSim player, in EnemySim enemy, in SimServices services, out Vector3 destination)
         {
@@ -187,10 +255,8 @@ namespace Game.Prediction
 
             Vector3 direction = CombatMath.FlatDirection(player.pos, enemy.pos);
             destination = enemy.pos - direction * (CombatConfig.LungeStopDistance + enemy.radius);
-            if (!services.Collision.SampleGround(destination, 2f, out float groundY)) return false;
-            destination.y = groundY;
-            return services.Collision.CanOccupyCapsule(
-                destination, SimConfig.PlayerRadius, SimConfig.PlayerHeight);
+            destination.y = enemy.pos.y + CombatConfig.LungeAimUp;   // real Sim과 동일: 대상 고도에 붙음
+            return true;
         }
     }
 }

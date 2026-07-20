@@ -17,6 +17,8 @@ namespace Game.Prediction
         DashRight,
         Attack,
         Lunge,
+        LungeStrike,   // 공중 마무리 콤보: 우클릭 접근 → (착지 직후) 좌클릭. 한 매크로 안에서 서브틱 시퀀싱.
+        JumpStrike,    // 대공 콤보(런지 없이): 점프로 솟구쳐 얼어붙은(조준/발사 중) 공중 슈터 고도에서 좌클릭.
     }
 
     /// <summary>
@@ -34,6 +36,28 @@ namespace Game.Prediction
         public static MacroAction Simple(MacroActionType type) => new MacroAction { type = type, lungeTargetId = -1 };
 
         public static MacroAction LungeTo(int targetId) => new MacroAction { type = MacroActionType.Lunge, lungeTargetId = targetId };
+
+        public static MacroAction LungeStrikeTo(int targetId) => new MacroAction { type = MacroActionType.LungeStrike, lungeTargetId = targetId };
+
+        /// <summary>
+        /// LungeStrike 콤보에서 좌클릭을 넣는 서브틱. 우클릭 블링크(LungeTravelTicks)가 끝나고
+        /// LgRecovery까지 해제된 다음 틱이어야 좌클릭이 실제로 개시된다(그 전엔 StepLunge가 틱을
+        /// 소비해 무시됨). +2 여유 = Travel + Recovery 종료 직후. 실전 규칙(CombatConfig)에서 파생해
+        /// 런지 튜닝이 바뀌어도 따라가게 한다.
+        /// </summary>
+        public static int LungeStrikeAttackTick =>
+            CombatConfig.LungeTravelTicks + CombatConfig.LungeRecoveryTicks + 2;
+
+        public static MacroAction JumpStrikeAction() => new MacroAction { type = MacroActionType.JumpStrike, lungeTargetId = -1 };
+
+        /// <summary>
+        /// JumpStrike에서 좌클릭 서브틱. 점프는 t0, 좌클릭 판정(윈드업 후 Active)이 매크로 안에서
+        /// 가장 높은 지점(단일 점프는 매크로 끝에 apex 근처)에 떨어지도록 역산한다:
+        /// (매크로 마지막 틱) − 윈드업 = 판정이 마지막 틱에 걸리는 개시 틱. 얼어붙은 공중 슈터의
+        /// 고도(플레이어+FlyHoverOffset)에 가장 가깝게 붙는다.
+        /// </summary>
+        public static int JumpStrikeAttackTick =>
+            Mathf.Max(1, (PredictionSettings.MacroTicksPerStep - 1) - CombatConfig.AttackWindupTicks);
 
         public InputCmd ToInputCmd(float yaw, int tickWithinMacro)
         {
@@ -76,6 +100,17 @@ namespace Game.Prediction
                     break;
                 case MacroActionType.Lunge:
                     if (first) { cmd.lunge = true; cmd.lungeTargetId = lungeTargetId; }
+                    break;
+                case MacroActionType.LungeStrike:
+                    // 우클릭으로 대상 고도(enemy.y+LungeAimUp)에 붙은 뒤, 착지 직후 좌클릭으로 마무리.
+                    // 공중 적을 좌클릭 사거리·높이차(1m) 안에서 실제로 처치하는 유일한 원자적 콤보.
+                    if (first) { cmd.lunge = true; cmd.lungeTargetId = lungeTargetId; }
+                    else if (tickWithinMacro == LungeStrikeAttackTick) cmd.attack = true;
+                    break;
+                case MacroActionType.JumpStrike:
+                    // 점프로 솟구쳐 얼어붙은 공중 슈터 고도까지 올라간 뒤, 매크로 정점 근처에서 좌클릭.
+                    if (first) cmd.jump = true;
+                    else if (tickWithinMacro == JumpStrikeAttackTick) cmd.attack = true;
                     break;
             }
             return cmd;

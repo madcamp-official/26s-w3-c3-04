@@ -223,7 +223,7 @@ namespace Game.Prediction.Editor
             {
                 MacroAction a = plan.actions[i];
                 string label = a.type.ToString();
-                if (a.type == MacroActionType.Lunge) label += $" -> 적 id={a.lungeTargetId}";
+                if (a.type == MacroActionType.Lunge || a.type == MacroActionType.LungeStrike) label += $" -> 적 id={a.lungeTargetId}";
                 sb.AppendLine($"  [{i}] {label}");
             }
 
@@ -240,7 +240,7 @@ namespace Game.Prediction.Editor
             for (int m = 0; m < plan.actions.Length; m++)
             {
                 MacroAction action = plan.actions[m];
-                sb.AppendLine($"  매크로 {m}: {action.type}{(action.type == MacroActionType.Lunge ? " (id=" + action.lungeTargetId + ")" : "")}");
+                sb.AppendLine($"  매크로 {m}: {action.type}{((action.type == MacroActionType.Lunge || action.type == MacroActionType.LungeStrike) ? " (id=" + action.lungeTargetId + ")" : "")}");
                 for (int t = 0; t < settings.macroTicks; t++)
                 {
                     float yaw = AimAtNearestEnemy(in world);
