@@ -159,21 +159,45 @@ namespace Game.View
             return true;
         }
 
+        /// <summary>
+        /// 궤적 충돌 검사. ★ 점만 찍어보면 <b>점 사이의 얇은 벽을 그냥 지나친다</b> —
+        /// 그래서 각 구간을 <b>캡슐 스윕</b>으로 쓸어 검사한다(연속 검사).
+        /// 양 끝은 바닥에 붙어 있어 반드시 걸리므로 일부만 건너뛴다.
+        /// </summary>
         static bool SweepArcClear(BallisticArc arc, float radius, float height, out Vector3 hitAt)
         {
             hitAt = Vector3.zero;
             if (!arc.IsValid) return true;
-            const int Samples = 20;
-            const float EndSkip = 0.12f;   // 양 끝 12%는 바닥과 겹치므로 제외
+
+            const int Samples = 32;        // 촘촘하게
+            const float EndSkip = 0.06f;   // 끝 6%만 제외(이전 12%는 너무 관대해 벽을 놓쳤다)
+            float halfH = Mathf.Max(radius, height - radius);
+
+            Vector3 prev = Vector3.zero; bool hasPrev = false;
             for (int i = 0; i <= Samples; i++)
             {
                 float f = (float)i / Samples;
-                if (f < EndSkip || f > 1f - EndSkip) continue;
+                if (f < EndSkip || f > 1f - EndSkip) { hasPrev = false; continue; }
+
                 Vector3 p = arc.At(Mathf.RoundToInt(arc.flightTicks * f));
-                Vector3 bottom = p + Vector3.up * radius;
-                Vector3 top    = p + Vector3.up * Mathf.Max(radius, height - radius);
-                if (Physics.CheckCapsule(bottom, top, radius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+
+                // 그 자리에 캡슐이 들어가는가
+                if (Physics.CheckCapsule(p + Vector3.up * radius, p + Vector3.up * halfH, radius,
+                                         Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                 { hitAt = p; return false; }
+
+                // 직전 표본 → 지금 표본 구간을 쓸어서 사이에 낀 벽까지 잡는다
+                if (hasPrev)
+                {
+                    Vector3 seg = p - prev;
+                    float dist = seg.magnitude;
+                    if (dist > 1e-4f &&
+                        Physics.CapsuleCast(prev + Vector3.up * radius, prev + Vector3.up * halfH, radius,
+                                            seg / dist, out RaycastHit hit, dist,
+                                            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    { hitAt = hit.point; return false; }
+                }
+                prev = p; hasPrev = true;
             }
             return true;
         }

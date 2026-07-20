@@ -37,8 +37,13 @@ namespace Game.EditorTools
         float maxHoriz = 11f;
         float edgeProbe   = 0.9f;     // 가장자리 판정: 이만큼 나가서
         float edgeDropMin = 0.5f;     // 이만큼 꺼지면 가장자리
-        float minLinkSpacing = 3f;
-        int   maxLinks = 120;
+        float minLinkSpacing = 2f;
+        int   maxLinks = 250;
+
+        // ── 다양성(비슷한 링크 난립 방지) ──
+        float clusterSize   = 4.5f;   // 이 반경 안의 출발점들은 "같은 발판"으로 묶는다
+        int   maxPerCluster = 2;      // 한 발판에서 뽑을 최대 링크 수
+        float minDirSpread  = 55f;    // 같은 발판이면 방향이 이 각도 이상 달라야 함
 
         // ── 진단 표시 ──
         bool showSurfaces = true;     // 샘플된 면을 Scene 뷰에 점으로
@@ -114,7 +119,14 @@ namespace Game.EditorTools
             edgeProbe   = EditorGUILayout.Slider("가장자리 탐침 거리(m)", edgeProbe, 0.3f, 3f);
             edgeDropMin = EditorGUILayout.Slider("가장자리로 볼 낙차(m)", edgeDropMin, 0.2f, 3f);
             minLinkSpacing = EditorGUILayout.Slider("링크 최소 간격(m)", minLinkSpacing, 1f, 12f);
-            maxLinks = EditorGUILayout.IntSlider("최대 개수", maxLinks, 5, 300);
+            maxLinks = EditorGUILayout.IntSlider("최대 개수", maxLinks, 5, 400);
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("다양성 (비슷한 링크 난립 방지)", EditorStyles.boldLabel);
+            clusterSize   = EditorGUILayout.Slider("같은 발판으로 볼 반경(m)", clusterSize, 1f, 12f);
+            maxPerCluster = EditorGUILayout.IntSlider("한 발판당 최대 링크", maxPerCluster, 1, 6);
+            minDirSpread  = EditorGUILayout.Slider("같은 발판 방향 최소차(도)", minDirSpread, 0f, 120f);
+            EditorGUILayout.LabelField(" ", "패턴이 반복되면 반경↑ / 최대↓ / 각도↑", EditorStyles.miniLabel);
 
             EditorGUILayout.Space(4);
             EditorGUILayout.LabelField("종류 분류", EditorStyles.boldLabel);
@@ -374,6 +386,7 @@ namespace Game.EditorTools
             return (from.y - hit.point.y) >= edgeDropMin;
         }
 
+        /// <summary>궤적이 지형을 뚫는가. 점만 보면 사이의 얇은 벽을 놓치므로 <b>구간 스윕</b>까지 한다.</summary>
         static bool ArcClear(Vector3 hi, Vector3 lo)
         {
             float len = Vector3.Distance(hi, lo);
@@ -381,25 +394,63 @@ namespace Game.EditorTools
                                           SimConfig.TraversalMinClearance, SimConfig.TraversalMaxClearance);
             var arc = TraversalBallistics.Solve(hi, lo, clearance);
             if (!arc.IsValid) return false;
+
             float r = SimConfig.EnemyRadius * SimConfig.EnemyNormalScale;
             float h = SimConfig.EnemyHeight * SimConfig.EnemyNormalScale;
-            const int S = 16;
+            float halfH = Mathf.Max(r, h - r);
+            const int S = 28;
+
+            Vector3 prev = Vector3.zero; bool hasPrev = false;
             for (int i = 0; i <= S; i++)
             {
                 float f = (float)i / S;
-                if (f < 0.15f || f > 0.85f) continue;
+                if (f < 0.08f || f > 0.92f) { hasPrev = false; continue; }
                 Vector3 p = arc.At(Mathf.RoundToInt(arc.flightTicks * f));
-                if (Physics.CheckCapsule(p + Vector3.up * r, p + Vector3.up * Mathf.Max(r, h - r), r,
+                if (Physics.CheckCapsule(p + Vector3.up * r, p + Vector3.up * halfH, r,
                                          Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+                if (hasPrev)
+                {
+                    Vector3 seg = p - prev; float d = seg.magnitude;
+                    if (d > 1e-4f && Physics.CapsuleCast(prev + Vector3.up * r, prev + Vector3.up * halfH, r,
+                                                        seg / d, d, Physics.DefaultRaycastLayers,
+                                                        QueryTriggerInteraction.Ignore)) return false;
+                }
+                prev = p; hasPrev = true;
             }
             return true;
         }
 
+        /// <summary>
+        /// 비슷한 링크를 걸러낸다. 양 끝이 다 가까운 "사실상 같은 링크"뿐 아니라,
+        /// <b>같은 발판에서 비슷한 방향으로 뻗는 것</b>도 막는다 —
+        /// 이게 없으면 한 가장자리에서 조금씩 다른 착지점으로 뻗는 거의 같은 링크가 잔뜩 생긴다.
+        /// </summary>
         bool TooClose(List<Cand> placed, Cand c)
         {
+            Vector3 cd = c.low - c.high; cd.y = 0f;
+            if (cd.sqrMagnitude < 1e-4f) return true;
+            cd.Normalize();
+
+            int sameCluster = 0;
             foreach (var p in placed)
+            {
+                // ① 양 끝이 다 가까움 = 같은 링크
                 if (Vector3.Distance(p.high, c.high) < minLinkSpacing &&
                     Vector3.Distance(p.low,  c.low)  < minLinkSpacing) return true;
+
+                // ② 같은 발판(클러스터)이면 개수 제한 + 방향 다양성 요구
+                if (Vector3.Distance(p.high, c.high) < clusterSize)
+                {
+                    if (++sameCluster >= maxPerCluster) return true;
+                    Vector3 pd = p.low - p.high; pd.y = 0f;
+                    if (pd.sqrMagnitude > 1e-4f && Vector3.Angle(pd.normalized, cd) < minDirSpread)
+                        return true;
+                }
+
+                // ③ 착지점이 같은 자리에 몰리는 것도 막는다(여러 발판에서 한 곳으로 쏠림 방지)
+                if (Vector3.Distance(p.low, c.low) < minLinkSpacing * 0.8f &&
+                    Vector3.Angle((p.low - p.high).normalized, cd) < minDirSpread * 0.6f) return true;
+            }
             return false;
         }
 

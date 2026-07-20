@@ -141,6 +141,14 @@ namespace Game.View
             GUILayout.Label($"→ 길이 8m 링크 기준 주저 {Preview(SimConfig.TraversalPauseMin, SimConfig.TraversalPauseMax)}틱 · " +
                             $"멈칫 {Preview(SimConfig.TraversalRecoverMin, SimConfig.TraversalRecoverMax)}틱", Rich());
 
+            GUILayout.Label("<b>몹 분산(뭉치기 방지)</b>", Rich());
+            GUILayout.Label("개성값(개체 고정 0~1)이 분리 세기를 '최소배율~1배'로 갈라 놓습니다.", Rich());
+            AIConfig.SeparationWeight   = FSlider("분리 세기", AIConfig.SeparationWeight, 0f, 3f);
+            AIConfig.SeparationRadius   = FSlider("개인공간 반경(m)", AIConfig.SeparationRadius, 0.2f, 4f);
+            AIConfig.SeparationMaxPush  = FSlider("분리 상한", AIConfig.SeparationMaxPush, 0.5f, 6f);
+            AIConfig.SeparationScaleMin = FSlider("개체차 최소배율(1=개체차 없음)", AIConfig.SeparationScaleMin, 0.1f, 1f);
+            GUILayout.Label($"→ 실효 세기 범위 {AIConfig.SeparationWeight * AIConfig.SeparationScaleMin:0.00} ~ {AIConfig.SeparationWeight:0.00}", Rich());
+
             GUILayout.Label("<b>플레이어</b>", Rich());
             CombatConfig.PlayerMaxHp = ISlider("최대 HP(다음 스폰부터)", CombatConfig.PlayerMaxHp, 1, 20);
             CombatConfig.PlayerHitStunTicks = ISlider("피격 경직(틱)", CombatConfig.PlayerHitStunTicks, 0, 60);

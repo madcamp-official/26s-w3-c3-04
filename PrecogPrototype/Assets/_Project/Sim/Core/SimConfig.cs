@@ -92,8 +92,9 @@ namespace Game.Sim
 
         // 도약 속도 배분(연출). 궤적 모양은 그대로 두고 그 위를 지나는 속도만 바꾼다.
         // 1 = 등속(순수 물리), 클수록 치우침이 강해진다. static = F1에서 조절.
-        public static float TraversalAscendShape  = 2.2f; // 상승: 초반을 크게 가속(박차고 오름)
-        public static float TraversalDescendShape = 2.4f; // 하강: 막판을 크게 가속(쿵 내리꽂힘)
+        // 2.2는 과했다 — 마지막 20% 시간에 경로의 3%만 가서 끝에서 기어간다. 1.5 근처가 적당.
+        public static float TraversalAscendShape  = 1.5f; // 상승: 초반을 크게 가속(박차고 오름)
+        public static float TraversalDescendShape = 1.9f; // 하강: 막판을 크게 가속(쿵 내리꽂힘)
 
         // 주저·멈칫 = 링크 직선 길이 비례(데드존 없음 — 짧아도 최소값). 곡선은 가속형(exponent>1).
         // static = F1 튜닝 패널에서 실시간 조정(0으로 내려 "주저·멈칫 없음"도 시험 가능). 예측 중 변경 금지.
