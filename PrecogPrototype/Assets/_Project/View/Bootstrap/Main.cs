@@ -125,7 +125,24 @@ namespace Game.View
             // 같은 소스에서 양쪽을 만들기 때문에 평상시·예측의 층이동이 구조적으로 어긋나지 않는다.
             var markers = FindObjectsByType<TraversalLink>(FindObjectsSortMode.None);
             var navPathfinder = new NavMeshPathfinder();
-            var graphPathfinder = GraphPathfinder.CreateArena();
+
+            // 예측 그래프: 이 씬용으로 구운 에셋이 있으면 그걸 쓰고, 없으면 코드 그래프로 폴백.
+            // 폴백 덕분에 SampleScene(하드코딩 그래프)은 굽지 않아도 그대로 동작한다.
+            string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            var graphAsset = Resources.Load<PredictionGraphAsset>(PredictionGraphAsset.ResourceName(sceneName));
+            GraphPathfinder graphPathfinder;
+            if (graphAsset != null && graphAsset.HasData)
+            {
+                graphPathfinder = GraphPathfinder.FromBake(graphAsset.ToBake());
+                Debug.Log($"[예측 그래프] '{sceneName}' 구운 그래프 사용 — 노드 {graphAsset.nodeCount} · 링크 {graphAsset.linkCount} " +
+                          $"(구운 시각 {graphAsset.bakedAt}, 마커 {graphAsset.markerCount}개)");
+            }
+            else
+            {
+                graphPathfinder = GraphPathfinder.CreateArena();
+                Debug.LogWarning($"[예측 그래프] '{sceneName}'용 구운 그래프가 없어 코드 그래프(SampleScene 전용)로 폴백합니다.\n" +
+                                 "  이 씬에서 예측을 쓰려면 Tools/층이동 링크/예측 그래프 굽기 를 실행하십시오.");
+            }
             if (markers.Length > 0)
             {
                 var baked = TraversalBaker.Bake(markers, System.Array.Empty<ArenaNavNode>());
