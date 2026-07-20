@@ -44,17 +44,7 @@ namespace Game.EditorTools
         {
             // 속 빈 통: 바닥·천장·좌우벽 4장을 '하나의 메시'로 결합 → 단일 부속(자식 없음).
             // 앞뒤(±Z) 개방 → 관통. 배치 후 회전하면 방향 자유.
-            const float length = 6f, width = 2.6f, height = 2.8f, thk = 0.2f;
-            float wallH = height - thk;                 // 천장 아래까지
-            float wx    = width * 0.5f - thk * 0.5f;    // 좌우 벽 안쪽면이 폭 경계에 맞음
-
-            var boxes = new (Vector3 pos, Vector3 size)[]
-            {
-                (new Vector3(0f, -thk * 0.5f, 0f),         new Vector3(width, thk, length)),  // 바닥(윗면 flush)
-                (new Vector3(0f, height - thk * 0.5f, 0f), new Vector3(width, thk, length)),  // 천장(위=발판)
-                (new Vector3(-wx, wallH * 0.5f, 0f),       new Vector3(thk, wallH, length)),  // 좌벽
-                (new Vector3( wx, wallH * 0.5f, 0f),       new Vector3(thk, wallH, length)),  // 우벽
-            };
+            var boxes = ContainerBoxes();
 
             // 박스별로 단위큐브 정점을 복사·배치하고, 각 정점의 원래 단위좌표(±0.5)를 UV2에 저장.
             // → 셰이더가 _EDGE_FROM_UV로 판마다 모서리 외곽선을 낸다(결합 메시라도 외곽선 정상).
@@ -92,11 +82,65 @@ namespace Game.EditorTools
             var go = new GameObject("Container");
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial = GridMatEdgeUV();
-            go.AddComponent<MeshCollider>().sharedMesh = mesh;   // 정적 non-convex
+            // 콜리전은 판별 BoxCollider 4개(결합 MeshCollider 금지).
+            // 이유: 하나의 결합 콜라이더면 안쪽에서 바닥에 얹히는 순간 캡슐이 그 콜라이더와 겹쳐
+            // CapsuleCast가 '겹친 콜라이더는 무시' → 옆벽까지 통째로 무시돼 관통했다.
+            // 판을 분리하면 바닥 박스만 겹치고 옆벽 박스는 계속 유효 → 정상 차단.
+            foreach (var b in boxes)
+            {
+                var bc = go.AddComponent<BoxCollider>();
+                bc.center = b.pos;
+                bc.size   = b.size;
+            }
             go.transform.position = SpawnPos();
 
             Undo.RegisterCreatedObjectUndo(go, "맵 부속 생성");
             Selection.activeGameObject = go;
+        }
+
+        /// <summary>컨테이너 4판(바닥·천장·좌벽·우벽)의 로컬 center/size. 생성·수리가 공유한다.</summary>
+        static (Vector3 pos, Vector3 size)[] ContainerBoxes()
+        {
+            const float length = 6f, width = 2.6f, height = 2.8f, thk = 0.2f;
+            float wallH = height - thk;                 // 천장 아래까지
+            float wx    = width * 0.5f - thk * 0.5f;    // 좌우 벽 안쪽면이 폭 경계에 맞음
+            return new (Vector3, Vector3)[]
+            {
+                (new Vector3(0f, -thk * 0.5f, 0f),         new Vector3(width, thk, length)),  // 바닥(윗면 flush)
+                (new Vector3(0f, height - thk * 0.5f, 0f), new Vector3(width, thk, length)),  // 천장(위=발판)
+                (new Vector3(-wx, wallH * 0.5f, 0f),       new Vector3(thk, wallH, length)),  // 좌벽
+                (new Vector3( wx, wallH * 0.5f, 0f),       new Vector3(thk, wallH, length)),  // 우벽
+            };
+        }
+
+        [MenuItem("Tools/맵 부속/컨테이너 콜라이더 수리 (Mesh→Box)")]
+        static void RepairContainerColliders()
+        {
+            // 이미 배치된 컨테이너의 결합 MeshCollider를 판별 BoxCollider 4개로 교체.
+            // Transform(위치·회전·스케일)·렌더 메시는 안 건드림 → 보이는 모양·크기 그대로.
+            var boxes = ContainerBoxes();
+            int n = 0;
+            for (int s = 0; s < UnityEngine.SceneManagement.SceneManager.sceneCount; s++)
+            {
+                var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(s);
+                if (!scene.isLoaded) continue;
+                foreach (var root in scene.GetRootGameObjects())
+                    foreach (var mc in root.GetComponentsInChildren<MeshCollider>(true))
+                    {
+                        if (mc == null || mc.sharedMesh == null || mc.sharedMesh.name != "ContainerMesh") continue;
+                        var go = mc.gameObject;
+                        Undo.DestroyObjectImmediate(mc);
+                        foreach (var b in boxes)
+                        {
+                            var bc = Undo.AddComponent<BoxCollider>(go);
+                            bc.center = b.pos;
+                            bc.size   = b.size;
+                        }
+                        n++;
+                    }
+            }
+            if (n == 0) Debug.LogWarning("[맵 부속] 수리 대상(ContainerMesh MeshCollider)을 못 찾았습니다. 이미 수리됐거나 씬이 안 열렸을 수 있습니다.");
+            else Debug.Log($"[맵 부속] 컨테이너 콜라이더 수리: {n}개 (MeshCollider → BoxCollider 4개, 크기·위치 유지). 씬 저장 필요.");
         }
 
         // ── 스폰 마커 방향표시 ──
