@@ -12,6 +12,8 @@ namespace Game.EditorTools
     public static class MapPartsTool
     {
         const string GridMatPath = "Assets/_Project/Editor/GridMaterial.mat";
+        const string MarkerMatPath = "Assets/_Project/View/Spawn/SpawnMarkerMat.mat";
+        const string MarkerShaderName = "Precog/SpawnMarkerDir";
 
         [MenuItem("Tools/맵 부속/바닥 타일 (10x0.5x10)")]
         static void Floor() => Box("Floor", new Vector3(10f, 0.5f, 10f));
@@ -95,6 +97,93 @@ namespace Game.EditorTools
 
             Undo.RegisterCreatedObjectUndo(go, "맵 부속 생성");
             Selection.activeGameObject = go;
+        }
+
+        // ── 스폰 마커 방향표시 ──
+        [MenuItem("Tools/맵 부속/선택 큐브에 방향표시 적용")]
+        static void ApplyMarkerMaterial()
+        {
+            // 선택한 오브젝트들의 MeshRenderer 머티리얼만 방향표시 머티리얼로 교체.
+            // Transform(위치·회전·스케일)·콜라이더는 일절 안 건드림 → 기존 크기 그대로 유지.
+            var mat = SpawnMarkerMat();
+            if (mat == null) return;
+            // 선택 오브젝트 + 그 자식들까지 (부모 _SpawnBox 하나만 선택해도 하위 마커 전부 적용).
+            var done = new HashSet<MeshRenderer>();
+            foreach (var go in Selection.gameObjects)
+                foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+                    if (done.Add(r))
+                    {
+                        Undo.RecordObject(r, "방향표시 적용");
+                        r.sharedMaterial = mat;
+                    }
+            Debug.Log($"[맵 부속] 방향표시 머티리얼 적용: {done.Count}개 (자식 포함, 크기·위치 유지). 노란 면(로컬 +Z)이 몹 출구 방향.");
+        }
+
+        [MenuItem("Tools/맵 부속/_SpawnBox 전체 방향표시 적용")]
+        static void ApplyMarkerToAllSpawnBoxes()
+        {
+            // 선택과 무관하게: 열린 씬에서 이름이 '_SpawnBox'인 오브젝트를 찾아
+            // 그 하위(손자·증손자 포함) 모든 MeshRenderer에 방향표시 머티리얼 적용.
+            var mat = SpawnMarkerMat();
+            if (mat == null) return;
+            var done = new HashSet<MeshRenderer>();
+            int boxes = 0;
+            for (int s = 0; s < UnityEngine.SceneManagement.SceneManager.sceneCount; s++)
+            {
+                var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(s);
+                if (!scene.isLoaded) continue;
+                foreach (var root in scene.GetRootGameObjects())
+                    foreach (var tr in root.GetComponentsInChildren<Transform>(true))
+                        if (tr.name == "_SpawnBox")
+                        {
+                            boxes++;
+                            foreach (var r in tr.GetComponentsInChildren<MeshRenderer>(true))
+                                if (done.Add(r))
+                                {
+                                    Undo.RecordObject(r, "방향표시 적용");
+                                    r.sharedMaterial = mat;
+                                }
+                        }
+            }
+            if (boxes == 0)
+                Debug.LogWarning("[맵 부속] '_SpawnBox' 이름의 오브젝트를 못 찾았습니다. 열린 씬·이름을 확인하십시오.");
+            else
+                Debug.Log($"[맵 부속] _SpawnBox {boxes}개, 하위 MeshRenderer {done.Count}개에 방향표시 적용(크기 유지). 노란 면(+Z)=출구.");
+        }
+
+        [MenuItem("Tools/맵 부속/스폰 마커 큐브 생성")]
+        static void SpawnMarkerCube()
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = "SpawnMarker";
+            go.transform.position = SpawnPos() + Vector3.up * 0.5f;
+            go.transform.localScale = new Vector3(2f, 2f, 1f);   // 기존 마커 규격(얇은 판, Z가 두께=출구 방향)
+            go.GetComponent<MeshRenderer>().sharedMaterial = SpawnMarkerMat();
+            // 마커는 장애물이 아니므로 콜라이더 제거(이동·NavMesh 방해 방지).
+            var col = go.GetComponent<Collider>();
+            if (col != null) Object.DestroyImmediate(col);
+
+            Undo.RegisterCreatedObjectUndo(go, "스폰 마커 생성");
+            Selection.activeGameObject = go;
+        }
+
+        /// <summary>방향표시 머티리얼을 로드하거나 없으면 셰이더로 생성해 에셋으로 저장.</summary>
+        static Material SpawnMarkerMat()
+        {
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(MarkerMatPath);
+            if (mat != null) return mat;
+
+            var sh = Shader.Find(MarkerShaderName);
+            if (sh == null)
+            {
+                Debug.LogError($"[맵 부속] 셰이더 '{MarkerShaderName}'를 찾지 못했습니다. " +
+                               "SpawnMarkerDir.shader 임포트/컴파일을 확인하십시오.");
+                return null;
+            }
+            mat = new Material(sh) { name = "SpawnMarkerMat" };
+            AssetDatabase.CreateAsset(mat, MarkerMatPath);
+            AssetDatabase.SaveAssets();
+            return mat;
         }
 
         // ── 생성 헬퍼 ──
