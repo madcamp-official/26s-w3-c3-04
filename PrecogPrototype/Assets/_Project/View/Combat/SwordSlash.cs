@@ -4,46 +4,53 @@ namespace Game.View
 {
     /// <summary>
     /// 겐지 용검식 베기 이펙트. ★ 칼의 실제 움직임과 무관한 독립 이펙트.
-    /// 아주 긴 쐐기(한쪽 두껍고 반대로 갈수록 뾰족) 메시를 절차 생성하고,
-    /// 길이 방향으로 훑고 지나가며 나타났다가 사라진다.
     ///
-    /// 로컬 축: +X = 길이 방향, ±Y = 폭, +Z = 앞(카메라를 향하게 배치).
-    /// 셰이더 Precog/SwordSlash 와 짝(uv.x=길이, uv.y=폭, 0.5=중심선).
+    /// 형태: 평면이 아니라 <b>칼이 3D 공간을 훑고 지나간 곡면</b>(원뿔 단면)이다.
+    ///   스윙 축(로컬 +Z)을 중심으로, 축과 coneAngle만큼 벌어진 칼을 sweepAngle만큼 회전시킨
+    ///   자취 면을 만든다. → 3인칭에서 보면 휘어진 부채꼴로 깊이감이 생기고,
+    ///     1인칭에서는 화면을 가로지르며 훑고 지나간다.
+    ///
+    /// 로컬 축: +Z = 스윙 회전축(대략 시선 방향), 칼은 축에서 coneAngle 벌어져 회전.
+    /// 셰이더 Precog/SwordSlash 와 짝 (uv.x=스윙, uv.y=반경).
     ///
     /// 적중 이펙트(방사형 스트릭·링·섬광)는 별도입니다 — 여기 없음.
     /// </summary>
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
     public class SwordSlash : MonoBehaviour
     {
-        [Header("형태")]
-        [Tooltip("길이(월드 단위). 화면을 가로지를 만큼 길게")]
-        public float length = 14f;
-        [Tooltip("가장 두꺼운 쪽 폭")]
-        public float maxWidth = 2.2f;
-        [Tooltip("휨(도). 0=직선, 클수록 곡선")]
-        public float bend = 22f;
-        [Tooltip("끝으로 갈수록 얇아지는 정도(클수록 빨리 뾰족해짐)")]
-        public float taper = 1.35f;
-        [Tooltip("시작쪽도 살짝 둥글게 좁힘(0=안 좁힘)")]
-        [Range(0f, 0.5f)] public float startRound = 0.08f;
-        public int segments = 64;
+        [Header("형태 (3D 곡면)")]
+        [Tooltip("스윙이 훑는 각도(도)")]
+        public float sweepAngle = 115f;
+        [Tooltip("회전축(+Z)에서 칼이 벌어진 각도(도). 90=납작한 원판, 작을수록 깊게 휜 원뿔")]
+        [Range(5f, 90f)] public float coneAngle = 48f;
+        [Tooltip("안쪽 반경(손잡이 쪽)")]
+        public float innerRadius = 1.1f;
+        [Tooltip("바깥 반경(칼끝)")]
+        public float outerRadius = 4.4f;
+        [Tooltip("스윙 방향 분할(곡면 매끄러움)")]
+        public int segmentsU = 72;
+        [Tooltip("반경 분할(원뿔은 직선이라 2로 충분)")]
+        public int segmentsV = 3;
 
         [Header("타이밍 (fast in, slow out)")]
-        public float revealTime = 0.045f;   // 훑고 지나가는 시간
-        public float holdTime   = 0.035f;
-        public float fadeTime   = 0.16f;
+        public float revealTime = 0.05f;
+        public float holdTime   = 0.03f;
+        public float fadeTime   = 0.17f;
 
-        // ※ 가산 합성이라 "배경이 밝으면" 전부 흰색으로 클램프된다(겐지도 동일).
-        //    어두운~중간 톤 환경에서 색이 제대로 읽힌다. 값은 어두운 배경 기준으로 맞춤.
         [Header("색 (HDR — Bloom이 물어감)")]
-        [ColorUsage(true, true)] public Color coreColor = new Color(2.6f, 2.6f, 2.1f, 1f);    // 흰 코어(과노출)
-        [ColorUsage(true, true)] public Color midColor  = new Color(1.7f, 1.10f, 0.04f, 1f);  // 노랑 (파랑 죽여야 노랑으로 읽힘)
-        [ColorUsage(true, true)] public Color edgeColor = new Color(0.22f, 1.5f, 0.12f, 1f);  // 녹색
-        [Range(0f, 1f)] public float coreSize = 0.06f;
-        [Range(0f, 1f)] public float midSize  = 0.28f;
-        [Range(0f, 1f)] public float edgeSoft = 0.12f;
-        [Range(0.001f, 1f)] public float revealSoft = 0.12f;
-        [Range(0f, 1f)] public float tailFade = 0.25f;
+        [ColorUsage(true, true)] public Color coreColor = new Color(3.0f, 3.0f, 2.4f, 1f);    // 최외곽 흰 테두리
+        [ColorUsage(true, true)] public Color midColor  = new Color(1.8f, 1.25f, 0.06f, 1f);  // 노랑
+        [ColorUsage(true, true)] public Color edgeColor = new Color(0.25f, 1.5f, 0.15f, 1f);  // 안쪽 녹색
+        [Range(0f, 1f)] public float rimStart  = 0.38f;
+        [Range(0f, 1f)] public float coreStart = 0.88f;
+        [Range(0f, 1f)] public float innerFade = 0.50f;
+
+        [Header("결(줄무늬)")]
+        [Range(0f, 80f)] public float streakFreq = 44f;
+        [Range(0f, 1f)]  public float streakAmt  = 0.72f;
+
+        [Range(0.001f, 1f)] public float revealSoft = 0.10f;
+        [Range(0f, 1f)]     public float tailFade   = 0.45f;
 
         [Header("튜닝")]
         [Tooltip("켜면 다 그어진 상태로 남아 사라지지 않음 → Inspector로 조절")]
@@ -58,37 +65,43 @@ namespace Game.View
         static readonly int IdCore = Shader.PropertyToID("_CoreColor");
         static readonly int IdMid  = Shader.PropertyToID("_MidColor");
         static readonly int IdEdge = Shader.PropertyToID("_EdgeColor");
-        static readonly int IdCoreS = Shader.PropertyToID("_CoreSize");
-        static readonly int IdMidS  = Shader.PropertyToID("_MidSize");
-        static readonly int IdEdgeS = Shader.PropertyToID("_EdgeSoft");
+        static readonly int IdRimS = Shader.PropertyToID("_RimStart");
+        static readonly int IdCoreS = Shader.PropertyToID("_CoreStart");
+        static readonly int IdInner = Shader.PropertyToID("_InnerFade");
+        static readonly int IdSFreq = Shader.PropertyToID("_StreakFreq");
+        static readonly int IdSAmt  = Shader.PropertyToID("_StreakAmt");
         static readonly int IdRev   = Shader.PropertyToID("_Reveal");
         static readonly int IdRevS  = Shader.PropertyToID("_RevealSoft");
         static readonly int IdTail  = Shader.PropertyToID("_TailFade");
         static readonly int IdFade  = Shader.PropertyToID("_Fade");
 
-        /// <summary>베기 하나 생성. which: 1=평타1, 2=평타2(반대 방향), t=찌르기(가늘고 김).</summary>
+        /// <summary>베기 하나 생성. which: 1=평타1, 2=평타2(반대), t=찌르기(좁게).</summary>
         public static SwordSlash Spawn(Vector3 pos, Quaternion rot, string which)
         {
             var go = new GameObject("SwordSlash");
-            go.transform.SetPositionAndRotation(pos, rot);
             var s = go.AddComponent<SwordSlash>();
 
+            // rot의 +Z를 스윙 축으로 삼는다. Z축 롤로 스윙이 시작되는 각도를 정함.
+            float roll;
             switch (which)
             {
-                case "2":   // 평타2 — 반대로 휘고 반대 방향으로 기울임
-                    s.bend = -22f;
-                    go.transform.rotation = rot * Quaternion.Euler(0f, 0f, 205f);
+                case "2":                   // 평타2 — 반대 방향(우상 → 좌하)
+                    roll = 200f;
+                    s.sweepAngle = -150f;
                     break;
-                case "t": case "thrust":   // 찌르기 — 가늘고 더 김
-                    s.maxWidth = 1.1f; s.length = 18f; s.bend = 6f; s.taper = 1.8f;
-                    s.revealTime = 0.03f; s.fadeTime = 0.12f;
-                    go.transform.rotation = rot * Quaternion.Euler(0f, 0f, 15f);
+                case "t": case "thrust":    // 찌르기 — 좁고 깊게 찌르는 원뿔
+                    roll = 20f;
+                    s.sweepAngle = 70f;
+                    s.coneAngle  = 26f;
+                    s.outerRadius = 5.0f;
+                    s.revealTime = 0.035f; s.fadeTime = 0.12f;
                     break;
-                default:    // 평타1 — 좌하 → 우상 대각선
-                    s.bend = 22f;
-                    go.transform.rotation = rot * Quaternion.Euler(0f, 0f, 25f);
+                default:                    // 평타1 — 좌하 → 우상
+                    roll = 20f;
+                    s.sweepAngle = 150f;
                     break;
             }
+            go.transform.SetPositionAndRotation(pos, rot * Quaternion.Euler(0f, 0f, roll));
             return s;
         }
 
@@ -111,46 +124,50 @@ namespace Game.View
             BuildMesh();
         }
 
-        /// <summary>중심선을 호로 그리고, 끝으로 갈수록 좁아지는 쐐기 리본을 만든다.</summary>
+        /// <summary>
+        /// 칼(축에서 coneAngle 벌어진 방향)을 +Z축 둘레로 sweepAngle만큼 돌린 자취 면.
+        /// coneAngle=90이면 납작한 원판, 작을수록 앞으로 휜 원뿔이 되어 3D 깊이감이 생긴다.
+        /// </summary>
         void BuildMesh()
         {
-            int n = Mathf.Max(4, segments) + 1;
-            var verts = new Vector3[n * 2];
-            var uvs   = new Vector2[n * 2];
-            var cols  = new Color[n * 2];
-            var tris  = new int[(n - 1) * 6];
+            int nu = Mathf.Max(8, segmentsU) + 1;
+            int nv = Mathf.Max(1, segmentsV) + 1;
 
-            for (int i = 0; i < n; i++)
+            var verts = new Vector3[nu * nv];
+            var uvs   = new Vector2[nu * nv];
+            var cols  = new Color[nu * nv];
+            var tris  = new int[(nu - 1) * (nv - 1) * 6];
+
+            float cone = coneAngle * Mathf.Deg2Rad;
+            // 축(+Z)에서 cone만큼 벌어진 기준 칼 방향
+            Vector3 baseDir = new Vector3(Mathf.Sin(cone), 0f, Mathf.Cos(cone));
+
+            for (int i = 0; i < nu; i++)
             {
-                float t = i / (float)(n - 1);
-                Vector2 p  = CenterAt(t);
-                Vector2 tg = (CenterAt(Mathf.Min(1f, t + 0.001f)) - CenterAt(Mathf.Max(0f, t - 0.001f)));
-                if (tg.sqrMagnitude < 1e-8f) tg = Vector2.right;
-                tg.Normalize();
-                Vector2 nrm = new Vector2(-tg.y, tg.x);
+                float u = i / (float)(nu - 1);
+                float ang = sweepAngle * u;
+                Vector3 dir = Quaternion.AngleAxis(ang, Vector3.forward) * baseDir;
 
-                // 끝으로 갈수록 뾰족 + 시작쪽도 살짝 둥글게
-                float w = maxWidth * Mathf.Pow(Mathf.Clamp01(1f - t), taper);
-                if (startRound > 0f) w *= Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / startRound));
-                w *= 0.5f;
-
-                Vector2 a = p - nrm * w;
-                Vector2 b = p + nrm * w;
-
-                int v0 = i * 2, v1 = v0 + 1;
-                verts[v0] = new Vector3(a.x, a.y, 0f);
-                verts[v1] = new Vector3(b.x, b.y, 0f);
-                uvs[v0] = new Vector2(t, 0f);
-                uvs[v1] = new Vector2(t, 1f);
-                cols[v0] = Color.white; cols[v1] = Color.white;
+                for (int j = 0; j < nv; j++)
+                {
+                    float v = j / (float)(nv - 1);
+                    float r = Mathf.Lerp(innerRadius, outerRadius, v);
+                    int idx = i * nv + j;
+                    verts[idx] = dir * r;
+                    uvs[idx]   = new Vector2(u, v);
+                    cols[idx]  = Color.white;
+                }
             }
 
-            for (int i = 0; i < n - 1; i++)
-            {
-                int k = i * 6, v = i * 2;
-                tris[k + 0] = v;     tris[k + 1] = v + 1; tris[k + 2] = v + 2;
-                tris[k + 3] = v + 1; tris[k + 4] = v + 3; tris[k + 5] = v + 2;
-            }
+            int k = 0;
+            for (int i = 0; i < nu - 1; i++)
+                for (int j = 0; j < nv - 1; j++)
+                {
+                    int a = i * nv + j;
+                    int b = (i + 1) * nv + j;
+                    tris[k++] = a;     tris[k++] = a + 1; tris[k++] = b;
+                    tris[k++] = b;     tris[k++] = a + 1; tris[k++] = b + 1;
+                }
 
             mesh.Clear();
             mesh.vertices  = verts;
@@ -161,27 +178,17 @@ namespace Game.View
             builtHash = ShapeHash();
         }
 
-        /// <summary>중심선: bend가 0이면 직선, 아니면 호.</summary>
-        Vector2 CenterAt(float t)
-        {
-            float br = bend * Mathf.Deg2Rad;
-            if (Mathf.Abs(br) < 1e-4f) return new Vector2(t * length, 0f);
-            float R = length / br;
-            float a = br * t;
-            return new Vector2(R * Mathf.Sin(a), R * (1f - Mathf.Cos(a)));
-        }
-
         int ShapeHash()
         {
             unchecked
             {
                 int h = 17;
-                h = h * 31 + length.GetHashCode();
-                h = h * 31 + maxWidth.GetHashCode();
-                h = h * 31 + bend.GetHashCode();
-                h = h * 31 + taper.GetHashCode();
-                h = h * 31 + startRound.GetHashCode();
-                h = h * 31 + segments;
+                h = h * 31 + sweepAngle.GetHashCode();
+                h = h * 31 + coneAngle.GetHashCode();
+                h = h * 31 + innerRadius.GetHashCode();
+                h = h * 31 + outerRadius.GetHashCode();
+                h = h * 31 + segmentsU;
+                h = h * 31 + segmentsV;
                 return h;
             }
         }
@@ -189,7 +196,7 @@ namespace Game.View
         void Update()
         {
             if (mesh == null) return;
-            if (ShapeHash() != builtHash) BuildMesh();   // Inspector에서 형태 바꾸면 즉시 반영
+            if (ShapeHash() != builtHash) BuildMesh();   // Inspector로 형태 바꾸면 즉시 반영
 
             float reveal, fade;
             if (hold) { reveal = 1f; fade = 1f; }
@@ -205,9 +212,11 @@ namespace Game.View
             mpb.SetColor(IdCore, coreColor);
             mpb.SetColor(IdMid,  midColor);
             mpb.SetColor(IdEdge, edgeColor);
-            mpb.SetFloat(IdCoreS, coreSize);
-            mpb.SetFloat(IdMidS,  midSize);
-            mpb.SetFloat(IdEdgeS, edgeSoft);
+            mpb.SetFloat(IdRimS,  rimStart);
+            mpb.SetFloat(IdCoreS, coreStart);
+            mpb.SetFloat(IdInner, innerFade);
+            mpb.SetFloat(IdSFreq, streakFreq);
+            mpb.SetFloat(IdSAmt,  streakAmt);
             mpb.SetFloat(IdRev,   reveal);
             mpb.SetFloat(IdRevS,  revealSoft);
             mpb.SetFloat(IdTail,  tailFade);
