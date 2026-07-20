@@ -62,7 +62,8 @@ namespace Game.View
         /// <summary>상승이 Traversal 특성 몹으로 제한되는가.</summary>
         public bool AscendTraversalOnly => kind == TraversalLinkKind.AscendRestricted;
 
-        public float EffectiveClearance
+        /// <summary>저작자가 원한 clearance(자동=길이 비례 / 수동=지정값). 충돌은 아직 고려 안 함.</summary>
+        public float DesiredClearance
         {
             get
             {
@@ -70,6 +71,120 @@ namespace Game.View
                 float auto = Length * SimConfig.TraversalClearanceRatio;
                 return Mathf.Clamp(auto, SimConfig.TraversalMinClearance, SimConfig.TraversalMaxClearance);
             }
+        }
+
+        /// <summary>
+        /// 실제로 쓰는 clearance = min(희망값, 공간이 허용하는 값).
+        /// 궤적이 구조물을 뚫으면 <b>뚫리지 않는 최대치까지 자동으로 낮춘다.</b>
+        /// 최소치로도 안 되면 <see cref="IsBlocked"/>가 true가 되고 마커가 무효(빨강)로 표시된다.
+        /// </summary>
+        public float EffectiveClearance { get { EnsureFit(); return fittedClearance; } }
+
+        /// <summary>최소 clearance로도 궤적이 막히는가(마커 무효).</summary>
+        public bool IsBlocked { get { EnsureFit(); return blocked; } }
+        /// <summary>막힌 지점(표시용).</summary>
+        public Vector3 BlockPoint { get { EnsureFit(); return blockPoint; } }
+
+        // ── 충돌 자동 맞춤 캐시 (에디터에서 매 프레임 물리질의를 반복하지 않도록) ──
+        [System.NonSerialized] float fittedClearance;
+        [System.NonSerialized] bool  blocked;
+        [System.NonSerialized] Vector3 blockPoint;
+        [System.NonSerialized] int   fitKey = int.MinValue;
+
+        /// <summary>입력이 바뀌었을 때만 다시 맞춘다.</summary>
+        void EnsureFit()
+        {
+            int key = FitKey();
+            if (key == fitKey) return;
+            fitKey = key;
+            fittedClearance = FitClearance(out blocked, out blockPoint);
+        }
+
+        int FitKey()
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + PointA.GetHashCode();
+                h = h * 31 + PointB.GetHashCode();
+                h = h * 31 + DesiredClearance.GetHashCode();
+                h = h * 31 + gravity.GetHashCode();
+                h = h * 31 + (int)kind;
+                return h;
+            }
+        }
+
+        /// <summary>희망 clearance부터 내려가며 "뚫리지 않는 최대치"를 찾는다(이분 탐색).</summary>
+        float FitClearance(out bool isBlocked, out Vector3 hitAt)
+        {
+            float radius = MaxAgentRadius, height = MaxAgentHeight;
+            float desired = DesiredClearance;
+            float min = SimConfig.TraversalMinClearance;
+
+            if (SweepClear(desired, radius, height, out hitAt)) { isBlocked = false; return desired; }
+            if (!SweepClear(min, radius, height, out hitAt)) { isBlocked = true; return min; }   // 최소로도 막힘 → 무효
+
+            float lo = min, hi = desired;
+            for (int i = 0; i < 8; i++)   // 8회면 충분히 수렴
+            {
+                float mid = (lo + hi) * 0.5f;
+                if (SweepClear(mid, radius, height, out _)) lo = mid; else hi = mid;
+            }
+            isBlocked = false; hitAt = Vector3.zero;
+            return lo;
+        }
+
+        /// <summary>
+        /// 주어진 clearance의 궤적을 <b>몹 캡슐로 쓸어</b> 정적 지오메트리와 충돌하는지 검사.
+        /// 양 끝은 바닥에 붙어 있어 반드시 걸리므로 앞뒤 일부 구간은 건너뛴다.
+        /// 하강·상승 궤적을 모두 본다(양방향 마커는 둘 다 안전해야 한다).
+        /// </summary>
+        public bool SweepClear(float testClearance, float radius, float height, out Vector3 hitAt)
+        {
+            hitAt = Vector3.zero;
+            if (!SweepArcClear(TraversalBallistics.Solve(High, Low, testClearance, gravity), radius, height, out hitAt))
+                return false;
+            if (AscendAllowed &&
+                !SweepArcClear(TraversalBallistics.Solve(Low, High, testClearance, gravity), radius, height, out hitAt))
+                return false;
+            return true;
+        }
+
+        static bool SweepArcClear(BallisticArc arc, float radius, float height, out Vector3 hitAt)
+        {
+            hitAt = Vector3.zero;
+            if (!arc.IsValid) return true;
+            const int Samples = 20;
+            const float EndSkip = 0.12f;   // 양 끝 12%는 바닥과 겹치므로 제외
+            for (int i = 0; i <= Samples; i++)
+            {
+                float f = (float)i / Samples;
+                if (f < EndSkip || f > 1f - EndSkip) continue;
+                Vector3 p = arc.At(Mathf.RoundToInt(arc.flightTicks * f));
+                Vector3 bottom = p + Vector3.up * radius;
+                Vector3 top    = p + Vector3.up * Mathf.Max(radius, height - radius);
+                if (Physics.CheckCapsule(bottom, top, radius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                { hitAt = p; return false; }
+            }
+            return true;
+        }
+
+        /// <summary>허용된 몹 중 가장 큰 캡슐 — "그런트는 통과하는데 대형몹은 박히는" 상황 방지.</summary>
+        public static float MaxAgentRadius =>
+            Mathf.Max(SimConfig.EnemyRadius * SimConfig.EnemyLargeScale,
+                      SimConfig.EnemyRadius * SimConfig.EnemyNormalScale * AIConfig.ChargeRadiusMul);
+        public static float MaxAgentHeight => SimConfig.EnemyHeight * SimConfig.EnemyLargeScale;
+
+        /// <summary>슬롯이 쓸 수 있는지 — 아래 바닥이 있고 캡슐이 안 박혀야 한다.</summary>
+        public static bool SlotUsable(Vector3 slot)
+        {
+            if (!Physics.Raycast(slot + Vector3.up * 1.5f, Vector3.down, out _, 4f,
+                                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                return false;
+            float r = MaxAgentRadius, h = MaxAgentHeight;
+            Vector3 bottom = slot + Vector3.up * r;
+            Vector3 top    = slot + Vector3.up * Mathf.Max(r, h - r);
+            return !Physics.CheckCapsule(bottom, top, r, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
         }
 
         public int PauseTicks => pauseTicksOverride >= 0 ? pauseTicksOverride
@@ -85,18 +200,32 @@ namespace Game.View
         /// <summary>상승 궤적(Low→High). 종류가 허용할 때만 의미 있다.</summary>
         public BallisticArc AscendArc  => TraversalBallistics.Solve(Low, High, EffectiveClearance, gravity);
 
-        /// <summary>착지 슬롯 위치들. 착지점 둘레 링에 균등 배치(개수 0이면 착지점 하나).</summary>
+        /// <summary>착지 슬롯 위치들(검증 전). 착지점 둘레 링에 균등 배치.</summary>
         public void GetSlots(Vector3 landing, System.Collections.Generic.List<Vector3> outSlots)
         {
             outSlots.Clear();
             int n = Mathf.Clamp(slotsAuto ? 3 : slotCount, 1, SimConfig.TraversalSlotMax);
             if (n == 1) { outSlots.Add(landing); return; }
-            float r = slotsAuto ? Mathf.Max(0.8f, SimConfig.EnemyRadius * SimConfig.TraversalSlotGapMul) : slotSpread;
+            float r = SlotSpread;
             for (int i = 0; i < n; i++)
             {
                 float ang = (360f / n) * i * Mathf.Deg2Rad;
                 outSlots.Add(landing + new Vector3(Mathf.Sin(ang), 0f, Mathf.Cos(ang)) * r);
             }
+        }
+
+        /// <summary>슬롯 간격 — 자동이면 허용 몹 중 최대 반경 기준으로 겹치지 않게 잡는다.</summary>
+        public float SlotSpread => slotsAuto
+            ? Mathf.Max(0.8f, MaxAgentRadius * SimConfig.TraversalSlotGapMul)
+            : slotSpread;
+
+        /// <summary>검증을 통과한(바닥 있고 캡슐 안 박히는) 슬롯 개수. 못 쓰는 건 자동 폐기.</summary>
+        public int UsableSlotCount(Vector3 landing)
+        {
+            GetSlots(landing, slotBuf);
+            int n = 0;
+            foreach (var s in slotBuf) if (SlotUsable(s)) n++;
+            return Mathf.Max(1, n);   // 전부 막혀도 착지점 자체는 쓴다
         }
 
         // ── 기즈모 ──
@@ -119,22 +248,52 @@ namespace Game.View
             Gizmos.DrawWireSphere(a, 0.25f);
             Gizmos.DrawWireSphere(b, 0.25f);
 
+            bool bad = IsBlocked;   // 최소 clearance로도 뚫림 → 무효(빨강)
+
             // 하강 궤적(항상 허용)
-            DrawArc(DescendArc, KindColor(true), selected);
+            DrawArc(DescendArc, bad ? Color.red : KindColor(true), selected);
             // 상승 궤적(허용 시)
-            if (AscendAllowed) DrawArc(AscendArc, KindColor(false), selected);
+            if (AscendAllowed) DrawArc(AscendArc, bad ? Color.red : KindColor(false), selected);
+
+            if (bad)
+            {
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireSphere(BlockPoint, 0.5f);
+                Gizmos.DrawLine(BlockPoint + Vector3.up * 1.5f, BlockPoint);
+            }
 
             if (!selected) return;
 
-            // 착지 슬롯
-            Gizmos.color = new Color(0.4f, 1f, 0.6f, 0.8f);
-            GetSlots(Low, slotBuf);
-            foreach (var s in slotBuf) Gizmos.DrawWireSphere(s, 0.28f);
-            if (AscendAllowed)
+            // 캡슐 실루엣 — 천장과의 여유를 눈으로 확인(허용 몹 중 최대 크기 기준)
+            DrawCapsules(DescendArc, bad ? new Color(1f, 0.3f, 0.3f, 0.5f) : new Color(1f, 1f, 1f, 0.35f));
+
+            // 착지 슬롯 — 유효=초록, 못 쓰는 슬롯=빨강(자동 폐기 대상)
+            DrawSlots(Low);
+            if (AscendAllowed) DrawSlots(High);
+        }
+
+        void DrawSlots(Vector3 landing)
+        {
+            GetSlots(landing, slotBuf);
+            foreach (var s in slotBuf)
             {
-                Gizmos.color = new Color(1f, 0.85f, 0.3f, 0.8f);
-                GetSlots(High, slotBuf);
-                foreach (var s in slotBuf) Gizmos.DrawWireSphere(s, 0.28f);
+                bool ok = SlotUsable(s);
+                Gizmos.color = ok ? new Color(0.4f, 1f, 0.6f, 0.85f) : new Color(1f, 0.35f, 0.35f, 0.85f);
+                Gizmos.DrawWireSphere(s, 0.28f);
+            }
+        }
+
+        static void DrawCapsules(BallisticArc arc, Color c)
+        {
+            if (!arc.IsValid) return;
+            Gizmos.color = c;
+            float r = MaxAgentRadius, h = MaxAgentHeight;
+            const int N = 5;
+            for (int i = 1; i < N; i++)
+            {
+                Vector3 p = arc.At(Mathf.RoundToInt((float)arc.flightTicks * i / N));
+                Gizmos.DrawWireSphere(p + Vector3.up * r, r);
+                Gizmos.DrawWireSphere(p + Vector3.up * Mathf.Max(r, h - r), r);
             }
         }
 

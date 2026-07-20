@@ -13,11 +13,52 @@ namespace Game.EditorTools
     [CanEditMultipleObjects]
     public class TraversalLinkEditor : Editor
     {
+        // ── 고스트 재생 상태 ──
+        bool   playing;
+        bool   playAscend;          // false = 하강 재생, true = 상승 재생
+        double playStartTime;
+
+        void OnEnable()  { EditorApplication.update += OnEditorUpdate; }
+        void OnDisable() { EditorApplication.update -= OnEditorUpdate; playing = false; }
+
+        void OnEditorUpdate()
+        {
+            if (!playing) return;
+            SceneView.RepaintAll();
+        }
+
         public override void OnInspectorGUI()
         {
             var link = (TraversalLink)target;
 
             DrawDefaultInspector();
+
+            // ── 충돌 검증 상태 ──
+            EditorGUILayout.Space(6);
+            if (link.IsBlocked)
+                EditorGUILayout.HelpBox(
+                    "무효: 최소 높이로도 궤적이 구조물을 뚫습니다. 위치를 옮기거나 종류를 바꾸십시오.\n" +
+                    "이 마커는 Bake에서 제외됩니다.", MessageType.Error);
+            else if (link.EffectiveClearance < link.DesiredClearance - 0.01f)
+                EditorGUILayout.HelpBox(
+                    $"천장에 걸려 clearance를 자동으로 낮췄습니다: " +
+                    $"{link.DesiredClearance:0.00} → {link.EffectiveClearance:0.00} m", MessageType.Warning);
+            else
+                EditorGUILayout.HelpBox("궤적 안전 — 구조물에 걸리지 않습니다.", MessageType.Info);
+
+            // ── 고스트 재생 ──
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("고스트 재생 (Play 없이 타이밍 확인)", EditorStyles.boldLabel);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button(playing ? "■ 정지" : "▶ 재생"))
+                {
+                    playing = !playing;
+                    playStartTime = EditorApplication.timeSinceStartup;
+                }
+                using (new EditorGUI.DisabledScope(!link.AscendAllowed))
+                    playAscend = GUILayout.Toggle(playAscend, "상승 재생", "Button");
+            }
 
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("계산 결과", EditorStyles.boldLabel);
@@ -93,11 +134,42 @@ namespace Game.EditorTools
                 }
             }
 
+            // ── 고스트 재생 ──
+            if (playing) DrawGhost(link);
+
             // ── 라벨 ──
             Handles.color = Color.white;
             Vector3 mid = (link.PointA + link.PointB) * 0.5f;
             Handles.Label(mid + Vector3.up * 0.4f,
                 $"{KindLabel(link.kind)}\n길이 {link.Length:0.0}m · 주저 {link.PauseTicks} · 멈칫 {link.RecoverTicks}");
+        }
+
+        /// <summary>
+        /// 주저 → 비행(탄도) → 멈칫을 실제 틱 길이로 재생. 런타임과 같은 함수로 궤적을 풀기 때문에
+        /// 여기서 본 타이밍·궤적이 그대로 게임에서 나온다.
+        /// </summary>
+        void DrawGhost(TraversalLink link)
+        {
+            BallisticArc arc = playAscend && link.AscendAllowed ? link.AscendArc : link.DescendArc;
+            if (!arc.IsValid) return;
+
+            int pause = link.PauseTicks, flight = arc.flightTicks, recover = link.RecoverTicks;
+            int total = pause + flight + recover;
+            double elapsed = EditorApplication.timeSinceStartup - playStartTime;
+            int tick = (int)(elapsed / SimConfig.TickDelta) % Mathf.Max(1, total);
+
+            Vector3 p; string phase;
+            if (tick < pause)                    { p = arc.start;                phase = "주저"; }
+            else if (tick < pause + flight)      { p = arc.At(tick - pause);     phase = "비행"; }
+            else                                 { p = arc.end;                  phase = "멈칫"; }
+
+            float r = TraversalLink.MaxAgentRadius, h = TraversalLink.MaxAgentHeight;
+            Handles.color = phase == "비행" ? new Color(1f, 0.9f, 0.2f, 0.95f)
+                                            : new Color(1f, 0.5f, 0.2f, 0.95f);
+            Handles.DrawWireDisc(p + Vector3.up * r, Vector3.up, r);
+            Handles.DrawWireDisc(p + Vector3.up * Mathf.Max(r, h - r), Vector3.up, r);
+            Handles.DrawLine(p + Vector3.up * r, p + Vector3.up * Mathf.Max(r, h - r));
+            Handles.Label(p + Vector3.up * (h + 0.3f), $"{phase} {tick}/{total}틱");
         }
 
         static string KindLabel(TraversalLinkKind k)

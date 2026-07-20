@@ -41,11 +41,22 @@ namespace Game.View
             }
 
             int nextLinkId = 0;
+            int skipped = 0;
             foreach (var m in markers)
             {
                 if (m == null) continue;
                 Vector3 high = m.High, low = m.Low;
                 if ((high - low).sqrMagnitude < 1e-6f) continue;
+
+                // 최소 clearance로도 궤적이 구조물을 뚫으면 굽지 않는다(무효 마커).
+                // 이런 링크를 살려 두면 몹이 벽을 통과해 날아간다.
+                if (m.IsBlocked)
+                {
+                    Debug.LogWarning($"[층이동] 무효 마커 건너뜀: {m.name} — 최소 높이로도 궤적이 막힘 " +
+                                     $"(막힌 지점 {m.BlockPoint:F2}). 위치를 옮기거나 종류를 바꾸십시오.", m);
+                    skipped++;
+                    continue;
+                }
 
                 // ── 하강(High→Low): 항상 전 지상몹 허용 ──
                 result.Add(MakeGraphLink(ref nextLinkId, m, high, low, ascend: false, nodes));
@@ -58,6 +69,8 @@ namespace Game.View
                     if (buildNavMeshLinks) MakeNavMeshLink(root, m, low, high, ascend: true);
                 }
             }
+            if (skipped > 0)
+                Debug.LogWarning($"[층이동] 무효 마커 {skipped}개를 건너뛰었습니다(궤적이 구조물을 뚫음).");
             return result;
         }
 
@@ -81,9 +94,8 @@ namespace Game.View
                 agentMask = AgentMaskFor(m, ascend),
                 landingPosition = to,
                 traversalStartPosition = from,
-                landingSlotCount = Mathf.Clamp(m.slotsAuto ? 3 : m.slotCount, 1, SimConfig.TraversalSlotMax),
-                landingSpread = m.slotsAuto ? Mathf.Max(0.8f, SimConfig.EnemyRadius * SimConfig.TraversalSlotGapMul)
-                                            : m.slotSpread,
+                landingSlotCount = m.UsableSlotCount(to),   // 검증 통과한 슬롯만
+                landingSpread = m.SlotSpread,
                 clearance = m.EffectiveClearance,
                 gravity   = m.gravity,
                 pauseTicks = pause,
