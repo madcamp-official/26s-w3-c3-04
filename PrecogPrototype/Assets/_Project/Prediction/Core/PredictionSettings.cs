@@ -6,7 +6,7 @@ namespace Game.Prediction
     /// <summary>
     /// 탐색 파라미터. `Mini`는 docs/shared/PREDICTION_INTEGRATION_PLAN.md 15장 G3
     /// 미니 탐색 기준(행동 4개 × 깊이 3 × Beam 4), `Full`은 12장 본탐색 기준
-    /// (3초/180틱, 매크로 15틱→깊이 12, Beam 12)이다.
+    /// (5초/300틱, 매크로 15틱→깊이 20, Beam 12)이다.
     /// </summary>
     public struct PredictionSettings
     {
@@ -44,7 +44,7 @@ namespace Game.Prediction
         public static PredictionSettings Full => new PredictionSettings
         {
             macroTicks = MacroTicksPerStep,
-            macroDepth = 12,
+            macroDepth = 20,
             beamWidth = 12,
             // 이동4 + Jump + 대시4 + Attack + 런지 최대 2 + Wait = 13. 여기에 공중 마무리 콤보
             // (LungeStrike는 런지 슬롯을 재사용하지만, JumpStrike는 얼어붙은 공중 슈터 상황에서만
