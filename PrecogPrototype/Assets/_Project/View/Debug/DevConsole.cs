@@ -84,6 +84,11 @@ namespace Game.View
                 case "help":
                     Print("spawn <종류> · solo <종류> · clear · autospawn on|off|reload · count");
                     Print("종류: grunt pinky soldier caco large");
+                    Print("wave list · wave start [n] · wave only <n> · wave stop · wave status");
+                    break;
+
+                case "wave":
+                    Wave(p);
                     break;
 
                 case "spawn":
@@ -125,6 +130,78 @@ namespace Game.View
                     Print("모르는 명령: " + p[0]);
                     break;
             }
+        }
+
+        // ── 웨이브 명령 ──
+        // 아레나를 씬에서 런타임에 찾으므로, 지금 테스트 씬이든 나중에 프리팹을 이어붙인
+        // 최종 맵(아레나 여러 개)이든 그대로 동작한다. 여러 개면 플레이어에게 가장 가까운 아레나.
+        void Wave(string[] p)
+        {
+            var arenas = UnityEngine.Object.FindObjectsByType<ArenaWaves>(FindObjectsSortMode.None);
+            if (arenas.Length == 0) { Print("씬에 ArenaWaves가 없습니다. (Tools/맵 부속/테스트 웨이브 생성)"); return; }
+
+            string sub = p.Length >= 2 ? p[1].ToLowerInvariant() : "status";
+
+            if (sub == "list")
+            {
+                Print($"아레나 {arenas.Length}개:");
+                for (int i = 0; i < arenas.Length; i++)
+                {
+                    ArenaWaves a = arenas[i];
+                    int wc = a.waves != null ? a.waves.Length : 0;
+                    var sb = new StringBuilder($"  [{i}] {a.name} — 웨이브 {wc}개");
+                    for (int w = 0; w < wc; w++) sb.Append($" / W{w}:{a.SpawnCountOf(w)}마리");
+                    Print(sb.ToString());
+                }
+                return;
+            }
+
+            ArenaWaves target = Nearest(arenas);
+            WaveRunner runner = target.GetComponent<WaveRunner>();
+            if (runner == null) runner = target.gameObject.AddComponent<WaveRunner>();   // 없으면 자동 부착
+
+            switch (sub)
+            {
+                case "start":
+                {
+                    int n = 0;
+                    if (p.Length >= 3) int.TryParse(p[2], out n);
+                    Print(runner.StartFrom(n, true));
+                    break;
+                }
+                case "only":
+                {
+                    if (p.Length < 3) { Print("사용: wave only <번호>"); break; }
+                    int n; if (!int.TryParse(p[2], out n)) { Print("번호가 숫자가 아닙니다"); break; }
+                    Print(runner.StartFrom(n, false));
+                    break;
+                }
+                case "stop":
+                    runner.Stop();
+                    Print($"[{target.name}] 웨이브 정지");
+                    break;
+                case "status":
+                    Print(runner.Status());
+                    break;
+                default:
+                    Print("사용: wave list | start [n] | only <n> | stop | status");
+                    break;
+            }
+        }
+
+        /// <summary>플레이어에게 가장 가까운 아레나(하나뿐이면 그것).</summary>
+        static ArenaWaves Nearest(ArenaWaves[] arenas)
+        {
+            if (arenas.Length == 1 || Main.Instance == null) return arenas[0];
+            Vector3 p = Main.Instance.World.player.pos;
+            ArenaWaves best = arenas[0];
+            float bestSq = float.MaxValue;
+            foreach (ArenaWaves a in arenas)
+            {
+                float sq = (a.transform.position - p).sqrMagnitude;
+                if (sq < bestSq) { bestSq = sq; best = a; }
+            }
+            return best;
         }
 
         static bool TryType(string alias, out CombatType c, out MobilityType m, out SizeClass s)

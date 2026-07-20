@@ -9,7 +9,10 @@ namespace Game.Sim
         public const int   TickRate  = 60;
         public const float TickDelta = 1f / TickRate;
 
-        public const int   MaxEnemies = 64;
+        // 웨이브 시스템(배관 다수 동시 방출) 대응으로 64 → 128.
+        // ※ 비용: Snapshot.Clone이 이 배열을 통째 복사하므로 예측 포크 비용이 그대로 2배가 된다.
+        //    예측 성능이 문제되면 다시 낮추거나 복사 범위를 enemyCount로 제한하는 최적화가 필요하다.
+        public const int   MaxEnemies = 128;
 
         public const float Gravity = -25f;
 
