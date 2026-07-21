@@ -12,6 +12,11 @@ namespace Game.View
     public class PredictedRoute
     {
         public List<Vector3> path  = new List<Vector3>();   // 경로 점(월드 좌표)
+
+        /// <summary>[예측 세션 추가, 2026-07-21] path와 같은 인덱스(틱)로 대응하는 플레이어 요(yaw,
+        /// 도). Following 중 틱별 회전 속도를 재서 완급(회전=느리게/직진=빠르게) 페이싱에 쓴다.
+        /// RoutePreviewStub은 못 채운다 — 그때는 비어있다.</summary>
+        public List<float> yaw = new List<float>();
         public List<Vector3> kills = new List<Vector3>();   // 처치 위치 마커
         public float seconds;                               // 예상 소요 시간(초)
         public Color color = Color.white;

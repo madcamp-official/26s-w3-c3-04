@@ -42,7 +42,10 @@ namespace Game.View
                     profileLabel = plan.profileLabel ?? "",
                 };
                 for (int f = 0; f < plan.predictedFrames.Length; f++)
+                {
                     route.path.Add(plan.predictedFrames[f].playerPosition);
+                    route.yaw.Add(plan.predictedFrames[f].playerYaw);
+                }
 
                 // [예측 세션 수정, 2026-07-20] 정지 잔상은 더 이상 고정 0.5초(30틱) 격자가
                 // 아니라 실제 행동이 시작되는 ActionEvent 틱마다 찍는다 — PREDICTION_CONTRACT.md

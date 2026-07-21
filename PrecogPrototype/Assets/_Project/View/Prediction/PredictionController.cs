@@ -312,9 +312,63 @@ namespace Game.View
                             rhythmSegmentStartScale, PredictionConfig.RhythmMinTimeScale, eased);
                     }
                     else target = rhythmSegmentStartScale;
+
+                    int eventTick = rhythmJudge.GetEvent(pending).tick;
+                    target = ApplyMovementPacing(followingIndex, eventTick, target);
                 }
             }
             Time.timeScale = target;
+        }
+
+        /// <summary>
+        /// 이벤트-근접 감속 커브(target) 위에 틱별 이동/회전 페이싱을 얹는다. 대시·런지 트리거
+        /// 직후 몇 틱은 커브를 무시하고 강제로 끌어올려("쫀득한" 스냅) 빠른 구간을 확실히
+        /// 빠르게 만들고, 반대로 제자리 회전 구간은 커브에 감쇠를 곱해 더 느리게 만든다.
+        /// </summary>
+        float ApplyMovementPacing(int tick, int eventTick, float target)
+        {
+            if (followingRoute == null) return target;
+
+            var markers = followingRoute.actionMarkers;
+            for (int i = 0; i < markers.Count; i++)
+            {
+                PredictedActionType t = markers[i].type;
+                bool burstTrigger = t == PredictedActionType.DashForward
+                    || t == PredictedActionType.DashBackward
+                    || t == PredictedActionType.DashLeft
+                    || t == PredictedActionType.DashRight
+                    || t == PredictedActionType.Lunge;
+                if (!burstTrigger) continue;
+                if (tick >= markers[i].tick && tick <= markers[i].tick + PredictionConfig.RhythmBurstTicks)
+                    return PredictionConfig.RhythmBurstTimeScale;
+            }
+
+            var path = followingRoute.path;
+            var yaw = followingRoute.yaw;
+            bool turning = false;
+            if (path != null && yaw != null && tick >= 0 && tick + 1 < path.Count && tick + 1 < yaw.Count)
+            {
+                float moveSpeed = Vector3.Distance(path[tick], path[tick + 1]) * SimConfig.TickRate;
+                float yawDelta = Mathf.Abs(Mathf.DeltaAngle(yaw[tick], yaw[tick + 1]));
+                turning = yawDelta > PredictionConfig.RhythmTurnYawDegPerTick
+                    && moveSpeed < PredictionConfig.RhythmTurnMoveSpeedThreshold;
+            }
+            if (turning) return target * PredictionConfig.RhythmTurnTimeScale;
+
+            // [예측 세션 추가, 2026-07-21] 다음 판정까지 남은 틱이 넉넉하면(=아직 순수 이동
+            // 구간) 실시간 기반 이벤트-근접 감속 커브를 무시하고 최고 속도를 유지한다. 짧은
+            // 액션들이 줄줄이 이어질 때 각 세그먼트가 자기 duration의 마지막 30%를 감속에
+            // 쓰다 보니, 실제로는 다음 액션까지 한참 남았는데도 "멈췄다 가는" 느낌이 났다 —
+            // 감속은 실제 판정 틱에 가까울 때(RhythmApproachTicks 이내)만 허용한다. 반응 여유는
+            // 시간 배속과 무관하게 TryConsumeFollowingInput의 tick 기반 대기 게이트가 보장한다.
+            // [예측 세션 수정, 2026-07-21] 걷는 구간 속도감을 더 키워달라는 피드백 — 이 "멀리
+            // 남은 순수 이동" 구간은 RhythmMaxTimeScale(세그먼트 커브 상한, 판정 임박 구간에도
+            // 쓰임)보다 한 단계 더 빠른 전용 상한(RhythmWalkTimeScale)을 쓴다.
+            int ticksToEvent = eventTick - tick;
+            if (ticksToEvent > PredictionConfig.RhythmApproachTicks)
+                return PredictionConfig.RhythmWalkTimeScale;
+
+            return target;
         }
 
         void BeginRhythmSegment()
@@ -325,6 +379,17 @@ namespace Game.View
             rhythmSegmentDuration = PredictionConfig.RhythmNormalMinSeconds;
             if (rhythmSegmentEventIndex < 0)
             {
+                rhythmSegmentStartScale = 1f;
+                rhythmSegmentDecelStart = 1f;
+                return;
+            }
+            if (rhythmSegmentEventIndex == 0)
+            {
+                // [예측 세션 추가, 2026-07-21] 경로 확정 직후 첫 박자는 강제 타이밍 없이 사용자가
+                // 원하는 순간에 직접 시작한다 — 확정하자마자 판정이 들이닥치면 당황스럽다는
+                // 피드백. duration/스케일은 오직 접근링 연출용이고(급하게 안 조이게 느슨한 값),
+                // 실제 입력 마감(Miss)은 TryConsumeFollowingInput이 pending==0일 때 걸지 않는다.
+                rhythmSegmentDuration = PredictionConfig.RhythmFirstBeatDisplaySeconds;
                 rhythmSegmentStartScale = 1f;
                 rhythmSegmentDecelStart = 1f;
                 return;
@@ -340,26 +405,15 @@ namespace Game.View
                 : Mathf.Clamp(simSeconds + PredictionConfig.RhythmNormalReadPadding,
                     PredictionConfig.RhythmNormalMinSeconds, PredictionConfig.RhythmNormalMaxSeconds);
             rhythmSegmentDuration = Mathf.Max(rhythmSegmentDuration, simSeconds);
-            float requiredAverage = Mathf.Clamp01(simSeconds / Mathf.Max(0.01f, rhythmSegmentDuration));
-            float fullCurveAverage = (PredictionConfig.RhythmMaxTimeScale
-                                      + PredictionConfig.RhythmMinTimeScale) * 0.5f;
-            if (requiredAverage <= fullCurveAverage)
-            {
-                rhythmSegmentStartScale = Mathf.Clamp(
-                    requiredAverage * 2f - PredictionConfig.RhythmMinTimeScale,
-                    PredictionConfig.RhythmMinTimeScale,
-                    PredictionConfig.RhythmMaxTimeScale);
-                rhythmSegmentDecelStart = 0f;
-            }
-            else
-            {
-                rhythmSegmentStartScale = PredictionConfig.RhythmMaxTimeScale;
-                float decelFraction = 2f * (1f - requiredAverage)
-                                      / (1f - PredictionConfig.RhythmMinTimeScale);
-                rhythmSegmentDecelStart = Mathf.Min(
-                    Mathf.Clamp01(1f - decelFraction),
-                    1f - PredictionConfig.RhythmCurveMinSeconds);
-            }
+
+            // [예측 세션 수정, 2026-07-21] 이전엔 평균 속도가 정확히 이벤트 도착 시각과 맞아
+            //떨어지게 역산했는데, 그러다 보니 "다음 액션까지 남은 시간이 짧다"고 계산되면
+            // 세그먼트 전체가 감속 구간이 되어 순수 이동조차 늘 느릿했다. 클릭 판정 자체는
+            // tick 기준으로 별도 처리되니(TryConsumeFollowingInput) 이 실시간 커브가 정확히
+            // 안 맞아도 된다 — 그래서 항상 최고 속도로 시작해 마지막 구간(RhythmDecelStartFloor)
+            // 에서만 판독 가능하도록 감속한다("다음 액션 나오는 순간까지 빠르게 걷기").
+            rhythmSegmentStartScale = PredictionConfig.RhythmMaxTimeScale;
+            rhythmSegmentDecelStart = PredictionConfig.RhythmDecelStartFloor;
         }
 
         bool IsSamePositionCombo(int currentIndex)
@@ -475,7 +529,13 @@ namespace Game.View
                     PredictedActionEvent evt = rhythmJudge.GetEvent(pending);
                     float targetRealTime = rhythmSegmentStartRealTime + rhythmSegmentDuration;
                     float earlyGoodSeconds = RhythmJudge.GoodWindowTicks / (float)SimConfig.TickRate;
-                    if (Time.unscaledTime < targetRealTime - earlyGoodSeconds
+                    // [예측 세션 수정, 2026-07-21] 실시간(Time.unscaledTime) 기준만으로 "아직 이르다"고
+                    // 판단하면, 대시/런지 구간에서 timeScale을 확 끌어올리는 페이싱(RhythmBurstTimeScale)
+                    // 때문에 실시간은 목표 시각에 못 미쳤는데 틱(tick)은 이미 evt.tick을 지나쳐버릴 수
+                    // 있다 — 그러면 waitingAtEvent 게이트를 아예 안 타서 사용자가 클릭하기 전에
+                    // 공격이 그냥 재생돼버린다(싱크 어긋남). tick < evt.tick을 반드시 같이 검사해서
+                    // 틱이 이벤트에 도달한 순간부터는 무조건 입력 대기 분기로 넘어가게 한다.
+                    if (tick < evt.tick && Time.unscaledTime < targetRealTime - earlyGoodSeconds
                         && rhythmInputs.Count == 0)
                     {
                         // 아직 표시상 Good 창 전이며 입력도 없으므로 평소 경로를 계속 재생한다.
@@ -499,12 +559,20 @@ namespace Game.View
                                 0, RhythmJudge.GoodWindowTicks + 1);
                             judgementTick = evt.tick + lateTicks;
                         }
+                        // [예측 세션 수정, 2026-07-21] 첫 박자(pending==0)는 시간 제한 없이 사용자가
+                        // 직접 시작한다 — 아무리 오래 기다렸다 눌러도 정확히 evt.tick으로 제출해
+                        // 항상 Perfect로 받아준다(일반 이벤트처럼 대기시간 기반 지각 판정을 적용하면
+                        // GoodWindowTicks를 넘겨 영영 거부당할 수 있으므로 별도 처리).
+                        bool firstBeat = pending == 0;
                         bool accepted = false;
                         for (int i = 0; i < rhythmInputs.Count; i++)
                         {
-                            int inputTick = RhythmJudge.MapDisplayTimeToTick(
-                                rhythmInputs[i].realTime, targetRealTime, evt.tick,
-                                PredictionConfig.RhythmWaitGoodSeconds);
+                            if (firstBeat && rhythmInputs[i].type != evt.type) continue;
+                            int inputTick = firstBeat
+                                ? evt.tick
+                                : RhythmJudge.MapDisplayTimeToTick(
+                                    rhythmInputs[i].realTime, targetRealTime, evt.tick,
+                                    PredictionConfig.RhythmWaitGoodSeconds);
                             RhythmJudgement result = rhythmJudge.Submit(
                                 rhythmInputs[i].type, inputTick);
                             if (result == RhythmJudgement.Perfect || result == RhythmJudgement.Good)
@@ -524,6 +592,12 @@ namespace Game.View
                         {
                             if (!waitingAtEvent)
                                 goto ConsumeFollowingControl;
+
+                            if (firstBeat)
+                            {
+                                cmd = default;
+                                return false;   // 첫 박자는 Miss 없이 계속 대기
+                            }
 
                             int missed = rhythmJudge.CompleteTick(judgementTick);
                             if (missed >= 0)
@@ -1017,8 +1091,13 @@ namespace Game.View
                 lines[i].gameObject.SetActive(chosen);
                 if (chosen)
                 {
+                    // [예측 세션 수정, 2026-07-21] 이전엔 StyleLine으로 단색(ExecutionRouteColor,
+                    // 초록)을 강제해서 Preview 때 보이던 그라데이션이 Following 진입 순간
+                    // 사라져 보였다 — 경로 전체가 이미 공개된 상태(progress=1)의 프리뷰
+                    // 그라데이션을 그대로 재사용해서 동일하게 보이게 한다.
                     SetLineReveal(lines[i], routes[i], 1f);
-                    StyleLine(lines[i], PredictionConfig.ExecutionRouteColor, true);
+                    lines[i].widthMultiplier = PredictionConfig.RouteWidthSel;
+                    ApplyPreviewLineGradient(lines[i], 1f);
                 }
             }
             for (int i = 0; i < revealGhosts.Count; i++)
@@ -1187,47 +1266,59 @@ namespace Game.View
                     if (!used) continue;
                     pool[i].position = f.playerPosition + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
                     pool[i].rotation = Quaternion.Euler(0f, f.playerYaw, 0f);
-                    SetMarkColor(pool[i], GhostDisplayColor(
-                        r, ri, f, i, need, world.player.pos));
+                    SetMarkColor(pool[i], GhostDisplayColor(r, ri, f, world.player.pos));
                 }
             }
         }
 
         Color GhostDisplayColor(
-            PredictedRoute route, int routeIndex, PredictedFrame frame, int index, int count,
-            Vector3 playerPosition)
+            PredictedRoute route, int routeIndex, PredictedFrame frame, Vector3 playerPosition)
         {
             if (state == State.Following)
             {
+                // [예측 세션 수정, 2026-07-21] 이전엔 임박 구간은 고정 초록, 지난 구간은
+                // 무지개 순환색을 써서 Preview 때 보이던 경로 그라데이션과 완전히 달라
+                // 보였다 — Preview와 같은 위치 기반 그라데이션(PreviewPathColor)을 그대로
+                // 써서 "경로 나올 때처럼" 일관되게 만들고, 밝기/투명도만으로 임박·경과
+                // 여부를 구분한다.
                 float distance = Vector3.Distance(playerPosition, frame.playerPosition);
                 float proximityFade = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(
                     PredictionConfig.ExecutionGhostFadeNear,
                     PredictionConfig.ExecutionGhostFadeFar,
                     distance));
+                float pathProgress = route.path.Count > 1
+                    ? frame.tick / (float)(route.path.Count - 1)
+                    : 0f;
+                Color c = PreviewPathColor(pathProgress);
                 int currentEvent = rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1;
                 int eventTick = currentEvent >= 0 ? rhythmJudge.GetEvent(currentEvent).tick : followingIndex;
-                if (Mathf.Abs(frame.tick - eventTick) <= 15)
-                    return new Color(0.35f, 1f, 0.65f, 0.28f * proximityFade);
-                if (frame.tick < followingIndex)
+                bool imminent = Mathf.Abs(frame.tick - eventTick) <= 15;
+                if (imminent)
                 {
-                    Color trail = RainbowGhostColor(index, count);
-                    trail.a = PredictionConfig.ExecutionGhostAlpha * proximityFade;
-                    return trail;
+                    c = Color.Lerp(c, Color.white, 0.35f);
+                    c.a = 0.28f * proximityFade;
                 }
-                return new Color(0.65f, 0.72f, 0.68f, 0.08f * proximityFade);
+                else if (frame.tick < followingIndex)
+                    c.a = PredictionConfig.ExecutionGhostAlpha * proximityFade;
+                else
+                    c.a = 0.08f * proximityFade;
+                return c;
             }
 
             // Preview: 경로 색으로 후보를 구분하고, 선택된 후보만 또렷하게 강조한다
             // (다른 시각 요소인 라인·트레일의 RouteDimMul 감쇠와 동일한 규칙).
             bool sel = routeIndex == selected;
-            float pathProgress = route.path.Count > 1
+            float previewPathProgress = route.path.Count > 1
                 ? frame.tick / (float)(route.path.Count - 1)
                 : 0f;
-            Color c = PreviewPathColor(pathProgress);
-            c.a = sel ? 0.62f : 0.3f;
-            if (!sel) c = new Color(c.r * PredictionConfig.RouteDimMul, c.g * PredictionConfig.RouteDimMul,
-                                     c.b * PredictionConfig.RouteDimMul, c.a);
-            return c;
+            Color previewColor = PreviewPathColor(previewPathProgress);
+            previewColor.a = sel ? 0.62f : 0.3f;
+            if (!sel) previewColor = new Color(
+                previewColor.r * PredictionConfig.RouteDimMul,
+                previewColor.g * PredictionConfig.RouteDimMul,
+                previewColor.b * PredictionConfig.RouteDimMul,
+                previewColor.a);
+            return previewColor;
         }
 
         Transform MakeGhostMark()
@@ -1250,16 +1341,6 @@ namespace Game.View
             renderer.material.color = color;
             if (renderer.material.HasProperty("_BaseColor"))
                 renderer.material.SetColor("_BaseColor", color);
-        }
-
-        static Color RainbowGhostColor(int index, int count)
-        {
-            float spacing = count > 1 ? index / (float)(count - 1) : 0f;
-            float hue = Mathf.Repeat(
-                spacing * 0.82f + Time.unscaledTime * PredictionConfig.ExecutionGhostHueSpeed, 1f);
-            Color color = Color.HSVToRGB(hue, 0.78f, 1f);
-            color.a = PredictionConfig.ExecutionGhostAlpha;
-            return color;
         }
 
         void SetVisible(bool on)

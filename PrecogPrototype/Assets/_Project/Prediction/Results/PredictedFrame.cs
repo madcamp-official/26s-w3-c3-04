@@ -66,8 +66,13 @@ namespace Game.Prediction
     /// </summary>
     public sealed class RhythmJudge
     {
-        public const int PerfectWindowTicks = 3;
-        public const int GoodWindowTicks = 8;
+        // [예측 세션 수정, 2026-07-21] 3 → 5, 판정이 너무 빡세다는 피드백으로 Perfect창도 완화.
+        public const int PerfectWindowTicks = 5;
+        // [예측 세션 수정, 2026-07-21] 8 → 11 → 16: 실시간 판정창을 넓혀서, 이벤트 직전 슬로모를
+        // 덜 걸어도 사람이 반응 가능한 정도의 실시간 유예를 확보한다(PredictionConfig의
+        // RhythmMaxTimeScale/RhythmMinTimeScale 조정과 짝을 이루는 변경 — 체감 난이도는
+        // 유지하되 평균 속도를 올리기 위함). 16으로 재조정 — 여전히 너무 빡빡하다는 피드백.
+        public const int GoodWindowTicks = 16;
 
         readonly PredictedActionEvent[] events;
         readonly RhythmJudgement[] judgements;

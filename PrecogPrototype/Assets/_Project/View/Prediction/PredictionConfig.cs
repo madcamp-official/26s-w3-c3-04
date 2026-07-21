@@ -74,7 +74,10 @@ namespace Game.View
         public const float FollowingCamTurnSpeed = 300f;
 
         // 성공 입력부터 다음 액션 잔상까지 실제 시간 1초를 목표로 연속 보정한다.
-        public const float RhythmNormalMinSeconds = 0.55f;
+        // [예측 세션 수정, 2026-07-21] 속도감 튜닝: GoodWindowTicks를 8→11로 넓혀 확보한
+        // 여유를 슬로모 강도를 줄이는 데 쓰고, 대신 빠른/느린 구간의 대비를 키워서
+        // "쭉 빠르게 이동하다 임팩트 직전 한 박자만 확 느려지는" 리듬감을 낸다.
+        public const float RhythmNormalMinSeconds = 0.4f;
         public const float RhythmNormalMaxSeconds = 0.85f;
         public const float RhythmNormalReadPadding = 0.18f;
         public const float RhythmComboMinSeconds = 0.22f;
@@ -82,13 +85,36 @@ namespace Game.View
         public const float RhythmComboReadPadding = 0.08f;
         public const float RhythmComboPositionRadius = 0.9f;
         public const int RhythmComboMaxGapTicks = 24;
-        public const float RhythmMinTimeScale = 0.35f;
-        public const float RhythmMaxTimeScale = 1.12f;
+        public const float RhythmMinTimeScale = 0.5f;
+        public const float RhythmMaxTimeScale = 1.7f;
         public const float RhythmCurveMinSeconds = 0.12f;
-        public const float RhythmWaitGoodSeconds = 0.42f;
-        public static readonly Color ExecutionRouteColor = new Color(0.15f, 1f, 0.55f);
+        // 세그먼트 중 감속(느려지는) 구간이 앞부분까지 잠식하지 않도록, 감속 시작 지점의
+        // 하한을 세그먼트의 마지막 30%로 고정한다 — 나머지 70%는 항상 빠른 스케일을 쓴다.
+        public const float RhythmDecelStartFloor = 0.7f;
+
+        // [예측 세션 추가, 2026-07-21] 이동/회전 완급 페이싱. 이벤트까지 남은 시간 기준의
+        // 위 감속 커브 위에 얹히는 틱별 보정 — 대시·런지 트리거 직후 몇 틱은 스케일을 강제로
+        // 확 끌어올려 "쫀득한" 스냅을 주고(오버라이드), 순수 회전(제자리 선회) 중에는 반대로
+        // 낮춰서 방향 전환을 눈으로 따라올 여유를 준다(기존 target에 곱하는 감쇠).
+        public const float RhythmBurstTimeScale = 2.4f;   // 대시/런지 직후 강제 스케일
+        public const int   RhythmBurstTicks = 12;          // 트리거 틱 이후 이 틱 수만큼 유지
+        public const float RhythmTurnTimeScale = 0.55f;    // 순수 회전 구간에 곱하는 감쇠 배율
+        public const float RhythmTurnYawDegPerTick = 2.5f; // 이 이상 틱당 요 변화면 "회전 중"
+        public const float RhythmTurnMoveSpeedThreshold = 1.5f; // 이 미만 이동속도(유닛/초)여야 회전으로 간주
+        // 다음 판정 틱까지 이 틱 수보다 많이 남았으면 실시간 기반 감속 커브를 무시하고 최고
+        // 속도로 유지한다(짧은 액션이 줄줄이 이어질 때 매번 멈췄다 가는 느낌을 없애기 위함).
+        public const int RhythmApproachTicks = 20;
+        // [예측 세션 추가, 2026-07-21] 판정이 한참 남은 순수 이동 구간 전용 상한 — 걷는 속도감을
+        // 더 키워달라는 피드백으로 RhythmMaxTimeScale(1.7)보다 한 단계 더 빠르게 잡는다.
+        public const float RhythmWalkTimeScale = 2.6f;
+        // [예측 세션 수정, 2026-07-21] 0.42 → 0.6: 판정이 너무 빡세다는 피드백 — 이벤트 도달 후
+        // 입력을 기다려주는 실시간 유예를 늘려서 Miss로 강제 전환(직접 조작行)되기까지 여유를 준다.
+        public const float RhythmWaitGoodSeconds = 0.6f;
+        // 예측 경로 확정 직후의 첫 박자는 시간 제한 없이 사용자가 원하는 순간에 직접 누른다
+        // (TryConsumeFollowingInput이 pending==0일 때 Miss 판정을 걸지 않음) — 이 값은 오직
+        // 접근링 연출 속도용이며 실제 입력 마감과는 무관하다.
+        public const float RhythmFirstBeatDisplaySeconds = 1.2f;
         public const float ExecutionGhostAlpha = 0.16f;
-        public const float ExecutionGhostHueSpeed = 0.08f;
         public const float ExecutionGhostFadeNear = 0.65f;
         public const float ExecutionGhostFadeFar = 3.2f;
         public static readonly Color ExecutionFxTint = new Color(0.52f, 1f, 0.62f);

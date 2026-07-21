@@ -204,8 +204,8 @@ namespace Game.Sim.Tests
 
             Assert.AreEqual(RhythmJudgement.Pending,
                 judge.Submit(PredictedActionType.Attack, 10));
-            Assert.AreEqual(-1, judge.CompleteTick(17));
-            Assert.AreEqual(0, judge.CompleteTick(18));
+            Assert.AreEqual(-1, judge.CompleteTick(10 + RhythmJudge.GoodWindowTicks - 1));
+            Assert.AreEqual(0, judge.CompleteTick(10 + RhythmJudge.GoodWindowTicks));
             Assert.AreEqual(RhythmJudgement.Miss, judge.GetJudgement(0));
         }
 
