@@ -28,12 +28,25 @@ namespace Game.Sim
             if (c.lungePhase != CombatConfig.LgNone) { StepLunge(ref w, in svc, dt); return; }
 
             // ── 런지 시작: (우클 or 예약) + 스택>0 + 쿨0 + 유효 대상 ──
-            if ((cmd.lunge || c.lungeBufferTicks > 0) && c.lungeStacks > 0 && c.lungeCooldown == 0 && c.hitStunTicks == 0)
+            bool devFree = CombatConfig.DevLungeFree;   // 개발용: 스택·쿨·대상 무시
+            if ((cmd.lunge || c.lungeBufferTicks > 0) && (c.lungeStacks > 0 || devFree)
+                && (c.lungeCooldown == 0 || devFree) && c.hitStunTicks == 0)
             {
                 int targetId = cmd.lungeTargetId >= 0
                     ? cmd.lungeTargetId
                     : FindLungeTarget(in w, in p, in svc);
-                if (targetId >= 0 && TryLockDestination(in w, in p, in svc, targetId, out Vector3 dest))
+                Vector3 dest = p.pos;
+                bool haveDest = targetId >= 0 && TryLockDestination(in w, in p, in svc, targetId, out dest);
+
+                // 대상이 없어도 발동 — 조준 방향 앞으로 블링크(벽은 뚫지 않는다)
+                if (!haveDest && devFree)
+                {
+                    targetId = -1;
+                    dest = DevFreeDestination(in p, in svc);
+                    haveDest = true;
+                }
+
+                if (haveDest)
                 {
                     int travel = Mathf.Max(1, CombatConfig.LungeTravelTicks);   // 순간이동급 블링크
 
@@ -44,9 +57,10 @@ namespace Game.Sim
                     c.lungeDest = dest;
                     c.lungeTravelTicks = travel;
                     c.lungeHitDone = false;
-                    c.lungeCooldown = CombatConfig.LungeCooldownTicks;
-                    c.lungeStacks--;           // 스택 1 소모
-                    c.lungeBufferTicks = 0;    // 예약 소비
+                    // 개발 모드에선 쿨·스택을 소모하지 않는다(연속 시전으로 애니메이션 확인)
+                    c.lungeCooldown = devFree ? 0 : CombatConfig.LungeCooldownTicks;
+                    if (!devFree) c.lungeStacks--;   // 스택 1 소모
+                    c.lungeBufferTicks = 0;          // 예약 소비
                     p.jumpCount = 0;           // 우클 직후 더블점프 리필
 
                     // 표적 이동봉쇄(bind): 블링크 동안만 위치·중력 동결(공중이면 공중에). 공격은 계속.
@@ -272,6 +286,26 @@ namespace Game.Sim
 
         static Vector3 AimDir(float yaw, float pitch)
             => Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
+
+        /// <summary>
+        /// 개발용(DevLungeFree): 대상이 없을 때의 도착점. 조준 방향 수평 성분으로 전진하되
+        /// 벽에 막히면 그 앞에서 멈춘다. 지면 스냅은 이동 처리가 알아서 한다.
+        /// </summary>
+        static Vector3 DevFreeDestination(in PlayerSim p, in SimServices svc)
+        {
+            float want = Mathf.Max(0f, CombatConfig.DevLungeBlinkDist);
+            if (want <= 0.01f) return p.pos;
+
+            Vector3 dir = AimDir(p.yaw, p.aimPitch); dir.y = 0f;
+            if (dir.sqrMagnitude < 1e-6f) return p.pos;
+            dir.Normalize();
+
+            // 허리 높이에서 전방 검사 — 벽을 뚫고 나가지 않게
+            Vector3 from = p.pos + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
+            var hit = svc.Collision.Raycast(from, dir, want + SimConfig.PlayerRadius);
+            float dist = hit.hit ? Mathf.Max(0f, hit.distance - SimConfig.PlayerRadius) : want;
+            return p.pos + dir * dist;
+        }
 
         /// <summary>런지 유효 대상인가 + 조준 레이 기준 perp(수직거리)·along(앞거리) 산출.</summary>
         static bool IsLungeable(in PlayerSim p, in EnemySim e, in SimServices svc,

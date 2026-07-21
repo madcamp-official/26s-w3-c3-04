@@ -41,6 +41,15 @@ namespace Game.Sim
         public static int   LungeBindExtraTicks = 4;     // 바인드 = 블링크+이 여유
         // 임팩트 쫀득함 (View 전용 — 예측 무해)
         public static int   LungeHitStopTicks   = 7;     // 접촉 순간 프리즈(글로리킬 느낌)
+
+        /// <summary>
+        /// 개발용: 대상이 없어도 우클릭으로 찌르기가 나가고 스택·쿨다운을 무시한다.
+        /// 몹 없이 애니메이션만 확인할 때 쓴다(콘솔 <c>lunge on</c>).
+        /// ★ Sim 동작을 바꾸므로 예지(포크) 결과도 같이 바뀐다. 테스트 전용으로만 켤 것.
+        /// </summary>
+        public static bool  DevLungeFree = false;
+        /// <summary>DevLungeFree 상태에서 대상이 없을 때 전방으로 이동하는 거리(m). 0이면 제자리.</summary>
+        public static float DevLungeBlinkDist = 4f;
         public static float LungeFovKick        = 12f;   // 접촉 순간 FOV 킥(도)
 
         // ── 대형몹 글로리킬 처형 (막타 → 컷신). 진행 중 플레이어 무적·조작잠금 ──

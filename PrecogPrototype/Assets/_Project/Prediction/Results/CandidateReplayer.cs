@@ -91,8 +91,10 @@ namespace Game.Prediction
                 && after.player.combat.attackPhase == CombatConfig.PhWindup)
                 events.Add(new PredictedActionEvent { tick = tick, type = PredictedActionType.Attack, targetId = -1 });
 
+            // 찌르기는 윈드업이 0틱이라 LgNone → LgTravel 로 직행한다.
+            // LgWindup 만 보면 예지 결과에 찌르기가 아예 안 잡힌다.
             if (before.player.combat.lungePhase == CombatConfig.LgNone
-                && after.player.combat.lungePhase == CombatConfig.LgWindup)
+                && after.player.combat.lungePhase != CombatConfig.LgNone)
                 events.Add(new PredictedActionEvent
                 {
                     tick = tick,

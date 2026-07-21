@@ -30,6 +30,7 @@ namespace Game.View
 
         void OnGUI()
         {
+            if (UiVisibility.Skip) return;      // 콘솔 `ui off` 로 숨김
             if (Main.Instance == null) return;
             ref readonly PlayerCombatState c = ref Main.Instance.World.player.combat;
             ref readonly PlayerSim p = ref Main.Instance.World.player;

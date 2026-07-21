@@ -40,44 +40,17 @@ namespace Game.View
         // 사운드 전이 감지
         byte prevAttack; bool prevDash; byte prevLunge;
 
-        // ── 절차 레이어 ──
-        bool  prevGrounded = true;
-        float prevVelY;
-        int   prevHp = int.MinValue;
-        float breathePhase;
-        Vector3 posOff, posVel, rotOff, rotVel;
+        // ── 절차 레이어는 ViewmodelMotion이 전담한다(루트의 유일한 작성자).
+        //    아래는 기존 콘솔 명령 호환용 위임.
+        public void KickLand(float impact) { var m = ViewmodelMotion.Instance; if (m != null) m.KickLand(impact); }
+        public void KickHit()              { var m = ViewmodelMotion.Instance; if (m != null) m.KickHit(); }
+        public void ResetProcedural()      { var m = ViewmodelMotion.Instance; if (m != null) m.ResetAll(); }
 
-        // ── 절차 레이어 튜닝(Play 중 Inspector에서 실시간 조절) ──
-        [Header("착지 딥")]
-        public float landKick = 0.06f;      // 하강속도 → 아래 임펄스
-        public float landMinSpeed = 3f;     // 이 속도 미만 착지는 무시
-        [Header("스프링 (클수록 빠르고 딱딱)")]
-        public float posStiff = 180f, posDamp = 18f;
-        public float rotStiff = 220f, rotDamp = 20f;
-        [Header("피격 움찔")]
-        public float hitPosKick = 0.05f, hitRotKick = 8f;
-        [Header("숨고르기 (HP 낮을수록 크고 빨라짐)")]
-        public float breatheAmpFull = 0.004f, breatheAmpLow = 0.018f;
-        public float breatheSpdFull = 1.6f,   breatheSpdLow = 4.5f;
-        [Tooltip("0~1이면 그 HP 비율로 강제(숨 연출 테스트용). 음수면 실제 HP 사용")]
-        [Range(-1f, 1f)] public float breatheHpOverride = -1f;
-
-        // ── 콘솔/외부에서 절차 효과를 즉시 발동 (전투 없이 테스트) ──
-        /// <summary>착지 딥을 강제로 발동. impact = 가상의 하강 속도.</summary>
-        public void KickLand(float impact) => posVel += Vector3.down * (Mathf.Abs(impact) * landKick);
-
-        /// <summary>피격 움찔을 강제로 발동.</summary>
-        public void KickHit()
+        /// <summary>숨 연출 HP 강제(테스트). 음수면 실제 HP 사용.</summary>
+        public float breatheHpOverride
         {
-            posVel += Random.insideUnitSphere * hitPosKick;
-            rotOff += Random.insideUnitSphere * hitRotKick;
-        }
-
-        /// <summary>절차 오프셋을 즉시 0으로(테스트 리셋).</summary>
-        public void ResetProcedural()
-        {
-            posOff = posVel = rotOff = rotVel = Vector3.zero;
-            breatheHpOverride = -1f;
+            get { var m = ViewmodelMotion.Instance; return m != null ? m.hpOverride : -1f; }
+            set { var m = ViewmodelMotion.Instance; if (m != null) m.hpOverride = value; }
         }
 
         void Awake() { Instance = this; }
@@ -95,12 +68,15 @@ namespace Game.View
             }
 
             ref readonly PlayerSim p = ref main.World.player;
-            DetectAndSound(in p);
+            DetectAndSound(in p);   // 소리·전이 감지는 포즈 구동 중에도 계속 돈다
+
+            // 포즈 시스템이 자세를 쥐고 있으면 Animator 구동만 건너뛴다.
+            var pp = PosePlayer.Instance;
+            if (pp != null && pp.IsDriving) return;
 
             if (previewOn) DrivePreview();
             else           DriveFromSim(in p.combat);
-
-            Procedural(in p);
+            // 루트 오프셋(절차 레이어)은 ViewmodelMotion이 LateUpdate에서 처리한다.
         }
 
         // ── 뷰모델 준비 ──
@@ -117,12 +93,36 @@ namespace Game.View
 
             vmRoot = go.transform;
             if (vmRoot.parent != cam.transform) vmRoot.SetParent(cam.transform, false);
-            vmRoot.localPosition = Vector3.zero;
-            vmRoot.localRotation = Quaternion.identity;
+            // 루트 위치는 리셋하지 않는다 — 씬에서 잡아둔 배치가 기준이고,
+            // ViewmodelMotion이 그 위에 절차 오프셋을 얹는다.
 
             anim = go.GetComponent<Animator>();
             if (anim != null) anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
 
+            return true;
+        }
+
+        /// <summary>뷰모델을 버리고 Resources 프리팹에서 다시 만든다(콘솔 vm).
+        /// 실제 생성은 다음 Update의 BuildViewmodel이 한다.</summary>
+        public bool RebuildViewmodel()
+        {
+            var main = Main.Instance;
+            if (main == null) return false;
+            cam = main.Cam;
+            if (cam == null) return false;
+
+            var old = FindExistingViewmodel();
+            if (old != null)
+            {
+                old.name = "~KatanaViewmodel_old";   // 같은 프레임에 다시 안 잡히게 개명 후 파괴
+                Destroy(old);
+            }
+            vmRoot = null;
+            anim = null;
+
+            // 다른 시스템이 들고 있던 참조도 비운다
+            var pp = PosePlayer.Instance;      if (pp != null) pp.ForgetRoot();
+            var vc = ViewmodelCamera.Instance; if (vc != null) vc.ForgetRoot();
             return true;
         }
 
@@ -205,44 +205,6 @@ namespace Game.View
             previewOn = false;
         }
 
-        // ── 절차 레이어 ──
-        void Procedural(in PlayerSim p)
-        {
-            float dt = Time.deltaTime;
-
-            bool grounded = p.grounded;
-            if (grounded && !prevGrounded)
-            {
-                float impact = Mathf.Max(0f, -prevVelY);
-                if (impact > landMinSpeed) KickLand(impact);
-            }
-            prevGrounded = grounded; prevVelY = p.vel.y;
-
-            if (prevHp != int.MinValue && p.combat.hp < prevHp) KickHit();
-            prevHp = p.combat.hp;
-
-            // 숨고르기: override(테스트)가 있으면 그 값, 없으면 실제 HP 비율
-            float hpFrac = breatheHpOverride >= 0f
-                ? breatheHpOverride
-                : Mathf.Clamp01(p.combat.hp / (float)Mathf.Max(1, CombatConfig.PlayerMaxHp));
-            float amp = Mathf.Lerp(breatheAmpLow, breatheAmpFull, hpFrac);
-            float spd = Mathf.Lerp(breatheSpdLow, breatheSpdFull, hpFrac);
-            breathePhase += dt * spd;
-            Vector3 breathe = new Vector3(0f, Mathf.Sin(breathePhase) * amp, 0f);
-
-            Spring(ref posOff, ref posVel, posStiff, posDamp, dt);
-            Spring(ref rotOff, ref rotVel, rotStiff, rotDamp, dt);
-
-            vmRoot.localPosition = posOff + breathe;
-            vmRoot.localRotation = Quaternion.Euler(rotOff);
-        }
-
-        static void Spring(ref Vector3 x, ref Vector3 v, float stiff, float damp, float dt)
-        {
-            v += (-stiff * x - damp * v) * dt;
-            x += v * dt;
-        }
-
         // ── 사운드 전이 ──
         void DetectAndSound(in PlayerSim p)
         {
@@ -258,7 +220,8 @@ namespace Game.View
             byte lg = p.combat.lungePhase;
             if (lg != prevLunge)
             {
-                if (prevLunge == CombatConfig.LgNone && lg == CombatConfig.LgWindup) CombatAudio.Backstrike();
+                // 찌르기는 윈드업 0틱이라 LgNone → LgTravel 로 직행한다(LgWindup 을 기다리면 소리가 안 난다)
+                if (prevLunge == CombatConfig.LgNone && lg != CombatConfig.LgNone) CombatAudio.Backstrike();
                 prevLunge = lg;
             }
         }

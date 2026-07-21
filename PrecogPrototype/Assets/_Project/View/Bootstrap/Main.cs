@@ -19,6 +19,8 @@ namespace Game.View
         // 전투 뷰(HUD·카메라고정·히트스톱)가 sim 상태를 읽는 최소 접근자 (읽기 전용)
         public static Main Instance { get; private set; }
         public ref readonly SimWorld World => ref world;
+        /// <summary>직전 틱의 월드. 뷰가 "틱당 실제 이동량"을 재는 데 쓴다(프레임레이트 무관).</summary>
+        public ref readonly SimWorld PrevWorld => ref prevWorld;
         public Camera Cam => cam;
         public CinemachineCamera GameplayVcam => gameplayVcam;   // 연출(FOV킥·Impulse)이 vcam을 건드리게
 
@@ -107,7 +109,9 @@ namespace Game.View
         // 개발 콘솔 훅
         public bool AutoSpawn = true;                 // 기본 on. 씬 세팅 있으면 그 값으로 덮음
         const float DevSpawnDistance = 6f;            // 콘솔 소환 위치 = 플레이어 정면 이 거리
-        bool ConsoleOpen => console != null && console.IsOpen;
+        // 콘솔뿐 아니라 개발 패널(F1~F4)이 열려 있어도 입력을 막는다.
+        // 안 그러면 슬라이더를 클릭할 때마다 그 클릭이 공격 입력으로도 들어간다.
+        bool ConsoleOpen => (console != null && console.IsOpen) || DevPanels.AnyOpen;
 
         void Start()
         {

@@ -186,6 +186,7 @@ namespace Game.View
 
         void OnGUI()
         {
+            if (UiVisibility.Skip) return;      // 콘솔 `ui off` 로 숨김
             if (lastPlan == null) return;
 
             var style = new GUIStyle(GUI.skin.label) { fontSize = 14 };
