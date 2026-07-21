@@ -86,8 +86,12 @@ namespace Game.View
                     Print("종류: grunt pinky soldier caco large gruntt(근층) soldiert(원층)");
                     Print("wave list · wave start [n] · wave only <n> · wave stop · wave status  (n은 1부터)");
                     Print("  예) wave only 2 = 웨이브2만 실행 · wave start 2 = 웨이브2부터 순차");
+                    Print("[이펙트] vfx <이름> [거리] [pitch] [yaw] [roll] [상하] · vfx list · vfx reload");
+                    Print("  pitch=위아래로 눕히기 · yaw=좌우로 돌리기 · roll=화면 안 각도 (전부 0=원래 방향)");
+                    Print("[이펙트] slash 1|2|t|down [거리] [pitch] [yaw] [roll] [상하]");
+                    Print("[컷신] cut · cut stop   (C 키와 동일. 리그는 Tools/컷신/①로 설치)");
                     Print("[이펙트] swing 1|2|t [loop] · swing stop   (칼 애니메이션 재생)");
-                    Print("[이펙트] vfx list · vfx <이름> [here] · vfx reload");
+                    Print("[절차] proc land [강도] · proc hit · proc breathe [0~1] · proc grip [0~1] · proc pulse · proc reset");
                     Print("[이펙트] timescale 0.15  (슬로우모션. 1로 원복)");
                     break;
 
@@ -130,6 +134,62 @@ namespace Game.View
                     Print("생존: " + main.AliveEnemyCount());
                     break;
 
+                // ── 절차 애니메이션 테스트 (전투 없이 즉시 발동) ──
+                case "proc":
+                {
+                    var sv = SwordView.Instance;
+                    var fp = FingerPoser.Instance;
+                    string sub = p.Length >= 2 ? p[1].ToLowerInvariant() : "";
+                    float arg = 0f;
+                    bool hasArg = p.Length >= 3 && float.TryParse(p[2], out arg);
+
+                    switch (sub)
+                    {
+                        case "land":
+                            if (sv == null) { Print("SwordView 없음"); break; }
+                            sv.KickLand(hasArg ? arg : 8f);
+                            Print("착지 딥 발동 (강도 " + (hasArg ? arg : 8f) + ")");
+                            break;
+
+                        case "hit":
+                            if (sv == null) { Print("SwordView 없음"); break; }
+                            sv.KickHit();
+                            Print("피격 움찔 발동");
+                            break;
+
+                        case "breathe":
+                            if (sv == null) { Print("SwordView 없음"); break; }
+                            sv.breatheHpOverride = hasArg ? Mathf.Clamp01(arg) : -1f;
+                            Print(hasArg ? $"숨고르기 HP={arg:0.00} 로 강제 (0=빈사, 1=멀쩡)" : "숨고르기 실제 HP로 복귀");
+                            break;
+
+                        case "grip":
+                            if (fp == null) { Print("FingerPoser 없음 — 손 뼈에 붙이십시오"); break; }
+                            fp.grip = hasArg ? Mathf.Clamp01(arg) : 0f;
+                            Print("손가락 그립 = " + fp.grip.ToString("0.00"));
+                            break;
+
+                        case "pulse":
+                            if (fp == null) { Print("FingerPoser 없음 — 손 뼈에 붙이십시오"); break; }
+                            fp.PulseGrip(hasArg ? arg : 0.5f);
+                            Print("손가락 확 쥠 (세기 " + (hasArg ? arg : 0.5f) + ")");
+                            break;
+
+                        case "reset":
+                            if (sv != null) sv.ResetProcedural();
+                            if (fp != null) { fp.ResetGrip(); fp.grip = 0f; }
+                            Print("절차 오프셋 리셋");
+                            break;
+
+                        default:
+                            Print("사용: proc land [강도] · proc hit · proc breathe [0~1]");
+                            Print("      proc grip [0~1] · proc pulse [세기] · proc reset");
+                            Print("  튜닝은 SwordView / FingerPoser 컴포넌트 Inspector에서 실시간 조절");
+                            break;
+                    }
+                    break;
+                }
+
                 // ── 이펙트 튜닝용 ──
                 case "swing":
                 {
@@ -145,14 +205,43 @@ namespace Game.View
 
                 case "slash":
                 {
-                    if (p.Length < 2) { Print("사용: slash 1|2|t [hold]   (베기 이펙트. 칼 움직임과 무관)"); break; }
-                    float syr = main.LookYaw * Mathf.Deg2Rad;
-                    Vector3 sfwd = new Vector3(Mathf.Sin(syr), 0f, Mathf.Cos(syr));
-                    Vector3 spos = main.World.player.pos + Vector3.up * 1.3f + sfwd * 3f;
-                    var sl = SwordSlash.Spawn(spos, Quaternion.LookRotation(sfwd), p[1]);
-                    bool shold = p.Length >= 3 && p[2] == "hold";
-                    if (sl != null && shold) sl.hold = true;
-                    Print("베기: " + p[1] + (shold ? " (hold — Hierarchy의 SwordSlash 선택해 튜닝)" : ""));
+                    // 평타1/평타2/찌르기 매핑 + 위→아래(down) 프리셋. 바꾸려면 여기만 수정.
+                    // 기본 방향 보정(pitch 90) 위에서 roll로 화면상 베는 각도를 정한다.
+                    string vname; float spitch = VfxBasePitch, syaw = 0f, sroll = 0f, sup = 0f;
+                    switch (p.Length >= 2 ? p[1] : "")
+                    {
+                        case "1":    vname = "Slash_Basic";  sroll = -45f; break;   // 우상 → 좌하
+                        case "2":    vname = "Slash_Double"; sroll =  45f; break;   // 좌상 → 우하
+                        case "t": case "thrust": vname = "Slash_Multi"; sroll = 0f; break;   // 수평
+                        case "down": vname = "Slash_Basic";  sroll = 90f; sup = 0.35f; break; // 위 → 아래
+                        default:
+                            Print("사용: slash 1|2|t|down [거리] [pitch] [yaw] [roll] [상하]");
+                            Print("  1=우상→좌하 · 2=좌상→우하 · t=수평 · down=위→아래");
+                            Print("  roll이 화면상 각도(0=수평, 90=수직). pitch 90은 이 에셋의 기본 보정");
+                            vname = null; break;
+                    }
+                    if (vname == null) break;
+
+                    float sd = 2.2f;
+                    if (p.Length >= 3) float.TryParse(p[2], out sd);
+                    if (p.Length >= 4) float.TryParse(p[3], out spitch);
+                    if (p.Length >= 5) float.TryParse(p[4], out syaw);
+                    if (p.Length >= 6) float.TryParse(p[5], out sroll);
+                    if (p.Length >= 7) float.TryParse(p[6], out sup);
+
+                    Print(SpawnVfxInView(main, vname, sd, spitch, syaw, sroll, sup)
+                        ? "베기: " + p[1] + " → " + vname + "  pitch=" + spitch + " yaw=" + syaw + " roll=" + sroll
+                        : "프리팹 없음: " + vname + " (vfx list 로 확인)");
+                    break;
+                }
+
+                case "cut":
+                {
+                    // System.Object / UnityEngine.Object 이름 충돌(using System + using UnityEngine) → 명시
+                    var cm = UnityEngine.Object.FindFirstObjectByType<CutsceneManager>();
+                    if (cm == null) { Print("CutsceneManager 없음 — Tools/컷신/① 리그 설치 필요"); break; }
+                    if (p.Length >= 2 && p[1] == "stop") { cm.StopFromConsole(); Print("컷신 중단"); break; }
+                    Print(cm.PlayFromConsole() ? "컷신 재생" : "재생 불가 (이미 재생 중이거나 리그 미설치)");
                     break;
                 }
 
@@ -161,19 +250,29 @@ namespace Game.View
                     if (p.Length >= 2 && p[1] == "list")
                     {
                         var names = VfxLibrary.Names();
-                        if (names.Count == 0) Print("VFX 없음 — Resources/VFX/ 에 프리팹을 넣으십시오");
+                        if (names.Count == 0) Print("VFX 없음 — Assets/_Project/Prefabs/Resources/VFX/ 에 프리팹을 넣으십시오");
                         else foreach (var n in names) Print("  " + n);
                         break;
                     }
                     if (p.Length >= 2 && p[1] == "reload") { VfxLibrary.Reload(); Print("VFX 폴더 다시 읽음"); break; }
-                    if (p.Length < 2) { Print("사용: vfx list | vfx reload | vfx <이름> [here]"); break; }
+                    if (p.Length < 2)
+                    {
+                        Print("사용: vfx <이름> [거리] [pitch] [yaw] [roll] [상하]");
+                        Print("  기본 pitch=" + VfxBasePitch + " (이 에셋 팩 방향 보정). roll이 화면상 각도");
+                        Print("  예) vfx Slash_Basic 2.2 90 0 90   ← 위→아래 수직");
+                        Print("  vfx list · vfx reload");
+                        break;
+                    }
 
-                    float yr = main.LookYaw * Mathf.Deg2Rad;
-                    Vector3 fwd = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
-                    Vector3 at = main.World.player.pos + Vector3.up * 1.2f;
-                    if (!(p.Length >= 3 && p[2] == "here")) at += fwd * 3f;   // 기본: 정면 3m
-                    var inst = VfxLibrary.Play(p[1], at, Quaternion.LookRotation(-fwd));
-                    Print(inst != null ? "재생: " + p[1] : "없는 VFX: " + p[1] + "  (vfx list 로 확인)");
+                    float d = 2.2f, vpitch = VfxBasePitch, vyaw = 0f, vroll = 0f, vup = 0f;
+                    if (p.Length >= 3) float.TryParse(p[2], out d);
+                    if (p.Length >= 4) float.TryParse(p[3], out vpitch);
+                    if (p.Length >= 5) float.TryParse(p[4], out vyaw);
+                    if (p.Length >= 6) float.TryParse(p[5], out vroll);
+                    if (p.Length >= 7) float.TryParse(p[6], out vup);
+                    Print(SpawnVfxInView(main, p[1], d, vpitch, vyaw, vroll, vup)
+                        ? "재생: " + p[1] + "  pitch=" + vpitch + " yaw=" + vyaw + " roll=" + vroll + " 상하=" + vup
+                        : "없는 VFX: " + p[1] + "  (vfx list 로 확인)");
                     break;
                 }
 
@@ -262,6 +361,39 @@ namespace Game.View
                 if (sq < bestSq) { bestSq = sq; best = a; }
             }
             return best;
+        }
+
+        /// <summary>
+        /// 1인칭 시선 기준으로 VFX를 재생한다 — 실제 카메라 위치·회전(피치 포함) 앞에 내고,
+        /// 카메라에 붙여 시점을 돌려도 화면에 남게 한다(테스트·튜닝 편의).
+        /// </summary>
+        /// <summary>
+        /// 1인칭 시선 기준 VFX 재생. 회전은 카메라 기준 3축을 전부 노출한다
+        /// (프리팹마다 authoring 방향이 달라 맞는 축을 직접 찾아야 함).
+        ///   pitch = 카메라 오른쪽 축(X) 기준 — 위아래로 눕히기
+        ///   yaw   = 카메라 위쪽 축(Y) 기준   — 좌우로 돌리기
+        ///   roll  = 시선 축(Z) 기준          — 화면 안에서 각도만 바꾸기
+        /// </summary>
+        /// <summary>
+        /// 이 슬래시 에셋 팩(Matthew Guz)의 기본 방향 보정.
+        /// 프리팹이 눕혀진 채로 authoring돼 있어서 pitch 90을 줘야 화면을 가로지른다.
+        /// 이 값을 기준으로 roll이 화면상 베는 각도가 된다(0=수평, 90=수직).
+        /// </summary>
+        public const float VfxBasePitch = 90f;
+
+        static bool SpawnVfxInView(Main main, string name, float dist,
+                                   float pitch = VfxBasePitch, float yaw = 0f, float roll = 0f,
+                                   float up = 0f, float right = 0f)
+        {
+            var cam = main != null ? main.Cam : null;
+            if (cam == null) return false;
+            Transform ct = cam.transform;
+            Vector3 pos = ct.position + ct.forward * dist + ct.up * up + ct.right * right;
+            Quaternion rot = ct.rotation * Quaternion.Euler(pitch, yaw, roll);
+            var inst = VfxLibrary.Play(name, pos, rot);
+            if (inst == null) return false;
+            inst.transform.SetParent(ct, true);
+            return true;
         }
 
         static bool TryType(string alias, out CombatType c, out MobilityType m, out SizeClass s)

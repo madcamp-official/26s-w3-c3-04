@@ -6,50 +6,81 @@ namespace Game.View
     /// <summary>
     /// 1인칭 칼 뷰모델. ★ combat 소유·독립 — Main/EntityViews 안 건드림. 읽기 전용(SimWorld).
     ///
-    /// 구조(하이브리드): 스윙 = 사장님이 Animation 창에서 authoring한 클립,
-    ///   재생 시점은 Sim phase가 몬다(틱 동기). 그 위에 절차 레이어(착지·숨·피격)를 additive로 얹는다.
+    /// 구조(하이브리드): 스윙 = Animation 창에서 authoring한 클립,
+    ///   재생 시점은 Sim phase가 몬다(틱 동기). 그 위에 절차 레이어(착지·숨·피격)를 additive.
+    ///   (이펙트는 별도 — 현재 없음)
     ///
-    /// 계층: KatanaViewmodel(root, 절차 오프셋 여기) > PoseTarget(클립이 애니메이션) > Katana(메시).
-    ///   - 클립(Katana_Idle/Slash1/Slash2/Thrust)은 PoseTarget의 Transform만 애니메이션.
-    ///   - Animator를 자동재생이 아니라 매 프레임 normalizedTime으로 수동 샘플링 → 틱 동기.
-    ///   - 절차 오프셋은 root에 적용(클립이 root를 안 건드리므로 안 싸움).
+    /// 계층: KatanaViewmodel(root, 절차 오프셋) > PoseTarget(클립) > Katana(메시) > Tip/Root(궤적 앵커)
     /// </summary>
     public class SwordView : MonoBehaviour
     {
-        const string ViewmodelPrefab = "KatanaViewmodel";   // Resources/Prefabs 하위
+        const string ViewmodelPrefab = "KatanaViewmodel";
 
-        Transform vmRoot;    // 절차 오프셋 적용 대상(클립 미관여)
+        public static SwordView Instance { get; private set; }   // 콘솔 프리뷰 진입점
+
+        Transform vmRoot;
         Animator  anim;
         Camera    cam;
 
-        // 클립 state 해시(컨트롤러의 state 이름 = 클립 이름)
+        // 클립 state 해시(state 이름 = 클립 이름)
         static readonly int HIdle   = Animator.StringToHash("Katana_Idle");
         static readonly int HSlash1 = Animator.StringToHash("Katana_Slash1");
         static readonly int HSlash2 = Animator.StringToHash("Katana_Slash2");
         static readonly int HThrust = Animator.StringToHash("Katana_Thrust");
 
-        // 사운드 전이 감지
-        byte prevAttack;
-        bool prevDash;
-        byte prevLunge;
+        int   prevHash;
+        float prevNt;
 
-        // ── 절차 레이어 상태 ──
+        // ── 콘솔 프리뷰(전투 없이 스윙 재생. Sim 안 건드림 → 결정론 무관) ──
+        bool  previewOn, previewLoop;
+        int   previewHash;
+        float previewT;
+        public float previewDuration = 0.5f;
+
+        // 사운드 전이 감지
+        byte prevAttack; bool prevDash; byte prevLunge;
+
+        // ── 절차 레이어 ──
         bool  prevGrounded = true;
         float prevVelY;
         int   prevHp = int.MinValue;
         float breathePhase;
-        Vector3 posOff, posVel;   // 위치 스프링(착지·피격)
-        Vector3 rotOff, rotVel;   // 회전 스프링(피격 움찔), euler(도)
+        Vector3 posOff, posVel, rotOff, rotVel;
 
-        // ── 절차 튜닝 상수 ──
-        const float LandKick     = 0.06f;  // 착지 하강속도 → 아래 임펄스
-        const float LandMinSpeed = 3f;
-        const float PosStiff     = 180f, PosDamp = 18f;   // 위치 스프링(클수록 빠름/딱딱)
-        const float RotStiff     = 220f, RotDamp = 20f;   // 회전 스프링
-        const float HitPosKick   = 0.05f, HitRotKick = 8f;
-        // 숨고르기: HP 낮을수록 진폭·속도↑ (숨 가빠짐)
-        const float BreatheAmpFull = 0.004f, BreatheAmpLow = 0.018f;
-        const float BreatheSpdFull = 1.6f,   BreatheSpdLow = 4.5f;
+        // ── 절차 레이어 튜닝(Play 중 Inspector에서 실시간 조절) ──
+        [Header("착지 딥")]
+        public float landKick = 0.06f;      // 하강속도 → 아래 임펄스
+        public float landMinSpeed = 3f;     // 이 속도 미만 착지는 무시
+        [Header("스프링 (클수록 빠르고 딱딱)")]
+        public float posStiff = 180f, posDamp = 18f;
+        public float rotStiff = 220f, rotDamp = 20f;
+        [Header("피격 움찔")]
+        public float hitPosKick = 0.05f, hitRotKick = 8f;
+        [Header("숨고르기 (HP 낮을수록 크고 빨라짐)")]
+        public float breatheAmpFull = 0.004f, breatheAmpLow = 0.018f;
+        public float breatheSpdFull = 1.6f,   breatheSpdLow = 4.5f;
+        [Tooltip("0~1이면 그 HP 비율로 강제(숨 연출 테스트용). 음수면 실제 HP 사용")]
+        [Range(-1f, 1f)] public float breatheHpOverride = -1f;
+
+        // ── 콘솔/외부에서 절차 효과를 즉시 발동 (전투 없이 테스트) ──
+        /// <summary>착지 딥을 강제로 발동. impact = 가상의 하강 속도.</summary>
+        public void KickLand(float impact) => posVel += Vector3.down * (Mathf.Abs(impact) * landKick);
+
+        /// <summary>피격 움찔을 강제로 발동.</summary>
+        public void KickHit()
+        {
+            posVel += Random.insideUnitSphere * hitPosKick;
+            rotOff += Random.insideUnitSphere * hitRotKick;
+        }
+
+        /// <summary>절차 오프셋을 즉시 0으로(테스트 리셋).</summary>
+        public void ResetProcedural()
+        {
+            posOff = posVel = rotOff = rotVel = Vector3.zero;
+            breatheHpOverride = -1f;
+        }
+
+        void Awake() { Instance = this; }
 
         void Update()
         {
@@ -65,14 +96,14 @@ namespace Game.View
 
             ref readonly PlayerSim p = ref main.World.player;
             DetectAndSound(in p);
-            DriveClip(in p.combat);
+
+            if (previewOn) DrivePreview();
+            else           DriveFromSim(in p.combat);
+
             Procedural(in p);
         }
 
-        /// <summary>
-        /// 씬에 이미 뷰모델이 있으면 "그걸" 쓴다(애니메이션 authoring용으로 카메라 밑에 둔 인스턴스).
-        /// 없을 때만 프리팹에서 생성. → 작업 화면 = 게임 화면이 일치하고 칼이 2개가 되지 않는다.
-        /// </summary>
+        // ── 뷰모델 준비 ──
         bool BuildViewmodel()
         {
             GameObject go = FindExistingViewmodel();
@@ -86,15 +117,15 @@ namespace Game.View
 
             vmRoot = go.transform;
             if (vmRoot.parent != cam.transform) vmRoot.SetParent(cam.transform, false);
-            vmRoot.localPosition = Vector3.zero;   // 이후 절차 레이어가 매 프레임 덮음
+            vmRoot.localPosition = Vector3.zero;
             vmRoot.localRotation = Quaternion.identity;
 
             anim = go.GetComponent<Animator>();
             if (anim != null) anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
             return true;
         }
 
-        /// <summary>카메라 자식 우선, 없으면 씬 전체에서 같은 이름을 찾는다.</summary>
         GameObject FindExistingViewmodel()
         {
             Transform t = cam.transform.Find(ViewmodelPrefab);
@@ -102,23 +133,35 @@ namespace Game.View
             return GameObject.Find(ViewmodelPrefab);
         }
 
-        // ── 스윙: Sim phase → 클립 + normalizedTime 수동 샘플(틱 동기) ──
-        void DriveClip(in PlayerCombatState c)
+        // ── Sim 구동 ──
+        void DriveFromSim(in PlayerCombatState c)
+        {
+            int hash; float nt;
+            if (c.gloryPhase != CombatConfig.GlNone)        { hash = HSlash1; nt = 0.5f; }
+            else if (c.lungePhase != CombatConfig.LgNone)   { hash = HThrust; nt = LungeNt(in c); }
+            else if (c.attackPhase != CombatConfig.PhNone)  { hash = HSlash1; nt = AttackNt(in c); }   // TODO 콤보로 Slash1/2 교대
+            else                                           { hash = HIdle;   nt = 0f; }
+            Sample(hash, nt);
+        }
+
+        void DrivePreview()
+        {
+            previewT += Time.deltaTime / Mathf.Max(0.01f, previewDuration);
+            if (previewT >= 1f)
+            {
+                if (previewLoop) previewT = 0f;
+                else { previewOn = false; Sample(HIdle, 0f); return; }
+            }
+            Sample(previewHash, Mathf.Clamp01(previewT));
+        }
+
+        /// <summary>클립을 nt(0~1) 시점으로 수동 샘플 — 틱 동기 유지.</summary>
+        void Sample(int hash, float nt)
         {
             if (anim == null) return;
-            int hash; float nt;
-
-            if (c.gloryPhase != CombatConfig.GlNone)        // 처형(TODO: 전용 클립)
-            { hash = HSlash1; nt = 0.5f; }
-            else if (c.lungePhase != CombatConfig.LgNone)   // 찌르기(= 런지)
-            { hash = HThrust; nt = LungeNt(in c); }
-            else if (c.attackPhase != CombatConfig.PhNone)  // 평타(TODO: 콤보로 Slash1/2 교대)
-            { hash = HSlash1; nt = AttackNt(in c); }
-            else
-            { hash = HIdle; nt = 0f; }
-
             anim.Play(hash, 0, nt);
-            anim.Update(0f);   // 즉시 그 시점 포즈로 샘플(시간 전진 X)
+            anim.Update(0f);
+            prevHash = hash; prevNt = nt;
         }
 
         static float AttackNt(in PlayerCombatState c)
@@ -141,53 +184,66 @@ namespace Game.View
             return Mathf.Clamp01(e / total);
         }
 
-        // ── 절차 레이어: 클립 포즈 위에 additive(root 오프셋) ──
+        // ── 콘솔 API ──
+        /// <summary>전투 없이 스윙 재생(궤적 튜닝용). which: 1=평타1, 2=평타2, t=찌르기.</summary>
+        public bool PreviewSwing(string which, bool loop)
+        {
+            int h;
+            switch (which)
+            {
+                case "1": h = HSlash1; break;
+                case "2": h = HSlash2; break;
+                case "t": case "thrust": h = HThrust; break;
+                default: return false;
+            }
+            previewHash = h; previewT = 0f; previewLoop = loop; previewOn = true;
+            return true;
+        }
+
+        public void StopPreview()
+        {
+            previewOn = false;
+        }
+
+        // ── 절차 레이어 ──
         void Procedural(in PlayerSim p)
         {
             float dt = Time.deltaTime;
 
-            // 착지 딥
             bool grounded = p.grounded;
             if (grounded && !prevGrounded)
             {
                 float impact = Mathf.Max(0f, -prevVelY);
-                if (impact > LandMinSpeed) posVel += Vector3.down * (impact * LandKick);
+                if (impact > landMinSpeed) KickLand(impact);
             }
-            prevGrounded = grounded;
-            prevVelY = p.vel.y;
+            prevGrounded = grounded; prevVelY = p.vel.y;
 
-            // 피격 움찔
-            if (prevHp != int.MinValue && p.combat.hp < prevHp)
-            {
-                posVel += Random.insideUnitSphere * HitPosKick;
-                rotOff += Random.insideUnitSphere * HitRotKick;
-            }
+            if (prevHp != int.MinValue && p.combat.hp < prevHp) KickHit();
             prevHp = p.combat.hp;
 
-            // 숨고르기(HP 낮을수록 진폭·속도↑)
-            float hpFrac = Mathf.Clamp01(p.combat.hp / (float)Mathf.Max(1, CombatConfig.PlayerMaxHp));
-            float amp = Mathf.Lerp(BreatheAmpLow, BreatheAmpFull, hpFrac);
-            float spd = Mathf.Lerp(BreatheSpdLow, BreatheSpdFull, hpFrac);
+            // 숨고르기: override(테스트)가 있으면 그 값, 없으면 실제 HP 비율
+            float hpFrac = breatheHpOverride >= 0f
+                ? breatheHpOverride
+                : Mathf.Clamp01(p.combat.hp / (float)Mathf.Max(1, CombatConfig.PlayerMaxHp));
+            float amp = Mathf.Lerp(breatheAmpLow, breatheAmpFull, hpFrac);
+            float spd = Mathf.Lerp(breatheSpdLow, breatheSpdFull, hpFrac);
             breathePhase += dt * spd;
             Vector3 breathe = new Vector3(0f, Mathf.Sin(breathePhase) * amp, 0f);
 
-            // 스프링 감쇠(목표 0으로)
-            Spring(ref posOff, ref posVel, PosStiff, PosDamp, dt);
-            Spring(ref rotOff, ref rotVel, RotStiff, RotDamp, dt);
+            Spring(ref posOff, ref posVel, posStiff, posDamp, dt);
+            Spring(ref rotOff, ref rotVel, rotStiff, rotDamp, dt);
 
-            // root에 합산 적용(클립은 PoseTarget을 몰고, 여긴 그 위 additive)
             vmRoot.localPosition = posOff + breathe;
             vmRoot.localRotation = Quaternion.Euler(rotOff);
         }
 
-        /// <summary>감쇠 스프링: x를 0으로 당기며 오버슛→정착.</summary>
         static void Spring(ref Vector3 x, ref Vector3 v, float stiff, float damp, float dt)
         {
             v += (-stiff * x - damp * v) * dt;
             x += v * dt;
         }
 
-        // ── 사운드 전이 감지(기존 유지) ──
+        // ── 사운드 전이 ──
         void DetectAndSound(in PlayerSim p)
         {
             byte atk = p.combat.attackPhase;
@@ -196,11 +252,9 @@ namespace Game.View
                 if (prevAttack == CombatConfig.PhNone && atk == CombatConfig.PhWindup) CombatAudio.Swing();
                 prevAttack = atk;
             }
-
             bool dash = p.dashTicks > 0;
             if (dash && !prevDash) CombatAudio.Dash();
             prevDash = dash;
-
             byte lg = p.combat.lungePhase;
             if (lg != prevLunge)
             {

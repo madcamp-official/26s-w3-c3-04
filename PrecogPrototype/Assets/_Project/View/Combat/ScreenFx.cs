@@ -17,6 +17,7 @@ namespace Game.View
         Vignette            vig;
         ChromaticAberration chroma;
         LensDistortion      lens;
+        Bloom               bloom;   // HDR 발광 번짐 — 궤적·이미션이 "빛나 보이게" 하는 근본
 
         // 펄스 상태(스파이크 후 감쇠). lens는 지속형(매 프레임 목표 갱신).
         float hurt;
@@ -30,6 +31,10 @@ namespace Game.View
         const float ChromaDecay     = 4f;
         const float LensPullMax     = -0.35f;  // 런지 풀백 배럴 왜곡(음수=오목/땡김)
         const float LensSpeed       = 9f;
+        // Bloom(상시). threshold>1 = HDR로 과노출된 것만 번짐 → 궤적·이미션만 빛남.
+        const float BloomThreshold  = 1.05f;
+        const float BloomIntensity  = 1.1f;
+        const float BloomScatter    = 0.7f;
         static readonly Color HurtColor = new Color(0.7f, 0f, 0f);
 
         /// <summary>피격: 붉은 비네트 + 색수차 버스트.</summary>
@@ -75,6 +80,12 @@ namespace Game.View
 
             lens = p.Add<LensDistortion>(true);
             lens.intensity.overrideState = true; lens.intensity.value = 0f;
+
+            // Bloom: HDR 1.0 초과 색만 번지게(threshold>1) → 칼 궤적·이미션만 빛나고 일반 벽은 안 뜸.
+            bloom = p.Add<Bloom>(true);
+            bloom.threshold.overrideState = true; bloom.threshold.value = BloomThreshold;
+            bloom.intensity.overrideState = true; bloom.intensity.value = BloomIntensity;
+            bloom.scatter.overrideState   = true; bloom.scatter.value   = BloomScatter;
 
             EnablePostProcessing();
         }

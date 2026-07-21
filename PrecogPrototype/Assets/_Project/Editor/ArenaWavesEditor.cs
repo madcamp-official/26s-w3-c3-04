@@ -47,7 +47,7 @@ namespace Game.EditorTools
             const int   MobsPerPipe = 2;      // 배관당 방출 수(≥2여야 간격이 의미를 가짐)
             const float PipeInterval = 1.5f;  // 배관 안 방출 간격(초)
 
-            aw.waves = new Wave[3];
+            aw.waves = new Wave[WaveTable.Length];   // 구성표 행 수 = 웨이브 수(제한 없음)
             int lastPipeCount = 0, lastTotal = 0;
             for (int w = 0; w < aw.waves.Length; w++)
             {
@@ -94,41 +94,39 @@ namespace Game.EditorTools
         }
 
         /// <summary>
-        /// 웨이브별·종류별 지정 마리 수. **여기 숫자만 고치면 구성이 바뀐다.**
-        /// wave는 0부터(= 화면상 W1). 적지 않은 종류는 0마리.
+        /// ★ 웨이브 구성표 — **여기 한 곳만 고치면 된다.**
+        /// 행 하나 = 웨이브 하나. **행을 추가하면 웨이브가 늘어난다**(개수 제한 없음).
+        /// 적지 않은 종류는 0마리. 종류: Grunt(근) Pinky(돌) Soldier(원) Caco(공)
+        ///                          GruntT(근층) SoldierT(원층) Large(대)
         /// </summary>
+        static readonly (MobKind kind, int count)[][] WaveTable =
+        {
+            // W1 — 근 7 · 근층 7 · 돌 6
+            new[]
+            {
+                (MobKind.Grunt, 7), (MobKind.GruntT, 7), (MobKind.Pinky, 6),
+            },
+            // W2 — 근 4 · 근층 4 · 돌 2 · 원 3 · 원층 3 · 공 4
+            new[]
+            {
+                (MobKind.Grunt, 4), (MobKind.GruntT, 4), (MobKind.Pinky, 2),
+                (MobKind.Soldier, 3), (MobKind.SoldierT, 3), (MobKind.Caco, 4),
+            },
+            // W3 — 공 7
+            new[]
+            {
+                (MobKind.Caco, 7),
+            },
+            // ↓ 웨이브를 더 넣으려면 이 아래에 행을 추가하십시오.
+            // new[] { (MobKind.Grunt, 10), (MobKind.Large, 2) },
+        };
+
+        /// <summary>구성표에서 해당 웨이브·종류의 마리 수를 읽는다. 없으면 0.</summary>
         static int QuotaOf(int wave, MobKind k)
         {
-            switch (wave)
-            {
-                case 0:   // W1 — 근 7 · 근층 7 · 돌 6
-                    switch (k)
-                    {
-                        case MobKind.Grunt:  return 7;
-                        case MobKind.GruntT: return 7;
-                        case MobKind.Pinky:  return 6;
-                        default:             return 0;
-                    }
-
-                case 1:   // W2 — 근 4 · 근층 4 · 돌 2 · 원 3 · 원층 3 · 공 4
-                    switch (k)
-                    {
-                        case MobKind.Grunt:    return 4;
-                        case MobKind.GruntT:   return 4;
-                        case MobKind.Pinky:    return 2;
-                        case MobKind.Soldier:  return 3;
-                        case MobKind.SoldierT: return 3;
-                        case MobKind.Caco:     return 4;
-                        default:               return 0;
-                    }
-
-                default:  // W3 — 공 7
-                    switch (k)
-                    {
-                        case MobKind.Caco: return 7;
-                        default:           return 0;
-                    }
-            }
+            if (wave < 0 || wave >= WaveTable.Length) return 0;
+            foreach (var row in WaveTable[wave]) if (row.kind == k) return row.count;
+            return 0;
         }
 
         /// <summary>

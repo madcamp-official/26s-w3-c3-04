@@ -96,6 +96,25 @@ namespace Game.View
             director.Play();
         }
 
+        // >>> [이펙트/도구 세션 추가] 콘솔에서 컷신을 재생·중단하기 위한 공개 진입점.
+        //     기존 흐름(C 키)은 그대로. 테스트 편의용이며 로직은 Play/EndCutscene 재사용.
+        /// <summary>콘솔용: 즉시 재생. 준비가 안 됐거나 이미 재생 중이면 false.</summary>
+        public bool PlayFromConsole()
+        {
+            if (Cutscene.Active || !CanPlay()) return false;
+            Play();
+            return true;
+        }
+
+        /// <summary>콘솔용: 즉시 중단(핸드오프까지 정상 수행).</summary>
+        public void StopFromConsole()
+        {
+            if (!Cutscene.Active) return;
+            if (director != null) director.Stop();   // stopped 이벤트 → EndCutscene
+            else EndCutscene();
+        }
+        // <<< [추가 끝]
+
         void OnDirectorStopped(PlayableDirector d) => EndCutscene();
 
         void EndCutscene()
