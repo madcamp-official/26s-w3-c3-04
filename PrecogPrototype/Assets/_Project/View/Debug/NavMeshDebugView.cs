@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -21,6 +22,9 @@ namespace Game.View
     {
         [Header("표시")]
         public bool  showMesh = true;
+        [Tooltip("면을 반투명하게 채운다(끄면 테두리 선만)")]
+        public bool  fillFaces = true;
+        [Range(0.05f, 1f)] public float fillAlpha = 0.35f;
         public bool  showLinkEndpoints = true;
         [Tooltip("면을 다시 읽는 주기(초). 런타임 생성이라 처음엔 비어 있을 수 있다")]
         public float refreshInterval = 1f;
@@ -30,6 +34,12 @@ namespace Game.View
         NavMeshTriangulation tri;
         float nextRefresh;
         bool  hasData;
+
+        // 면 채우기용 캐시. Gizmos.DrawMesh는 메시 하나에 색 하나라 Area별로 메시를 나눠 만든다.
+        // 매 갱신마다 다시 만들면 낭비라, 삼각화 크기가 바뀔 때만 재생성한다.
+        readonly List<int>  fillAreas  = new List<int>();
+        readonly List<Mesh> fillMeshes = new List<Mesh>();
+        int lastVertCount, lastIndexCount;
 
         // ── Game 뷰에도 그리기 ──
         // Gizmos는 Scene 뷰(및 Game 뷰 Gizmos 토글 ON)에서만 보인다. 그것 때문에 "안 보인다"가 되기 쉬워
@@ -60,14 +70,34 @@ namespace Game.View
             EnsureMat();
             if (lineMat == null) return;
 
-            lineMat.SetPass(0);
-            GL.PushMatrix();
-            GL.Begin(GL.LINES);
-
             Vector3 eye = ViewerPos();
             float maxSq = maxDrawDistance > 0f ? maxDrawDistance * maxDrawDistance : float.MaxValue;
             Vector3 up = Vector3.up * 0.03f;
             int triCount = tri.indices.Length / 3;
+
+            lineMat.SetPass(0);
+            GL.PushMatrix();
+
+            // ① 면 채우기(반투명) — 선보다 먼저 그려 테두리가 위에 얹히게
+            if (fillFaces)
+            {
+                GL.Begin(GL.TRIANGLES);
+                for (int t = 0; t < triCount; t++)
+                {
+                    Vector3 a = tri.vertices[tri.indices[t * 3]];
+                    if ((a - eye).sqrMagnitude > maxSq) continue;
+                    Vector3 b = tri.vertices[tri.indices[t * 3 + 1]];
+                    Vector3 c = tri.vertices[tri.indices[t * 3 + 2]];
+                    Color col = AreaColor(tri.areas[t]);
+                    col.a = fillAlpha;
+                    GL.Color(col);
+                    GL.Vertex(a + up); GL.Vertex(b + up); GL.Vertex(c + up);
+                }
+                GL.End();
+            }
+
+            // ② 테두리
+            GL.Begin(GL.LINES);
             for (int t = 0; t < triCount; t++)
             {
                 Vector3 a = tri.vertices[tri.indices[t * 3]];
@@ -98,6 +128,60 @@ namespace Game.View
             hasData = tri.indices  != null && tri.indices.Length >= 3
                    && tri.vertices != null && tri.vertices.Length > 0
                    && tri.areas    != null && tri.areas.Length >= tri.indices.Length / 3;
+
+            int v  = hasData ? tri.vertices.Length : 0;
+            int ix = hasData ? tri.indices.Length  : 0;
+            if (v != lastVertCount || ix != lastIndexCount)
+            { lastVertCount = v; lastIndexCount = ix; RebuildFillMeshes(); }
+        }
+
+        /// <summary>Area별로 삼각형을 묶어 채움용 메시를 만든다(색이 메시 단위라 나눠야 한다).</summary>
+        void RebuildFillMeshes()
+        {
+            foreach (var m in fillMeshes) Kill(m);
+            fillMeshes.Clear();
+            fillAreas.Clear();
+            if (!hasData) return;
+
+            var byArea = new Dictionary<int, List<int>>();
+            int triCount = tri.indices.Length / 3;
+            for (int t = 0; t < triCount; t++)
+            {
+                int area = tri.areas[t];
+                if (!byArea.TryGetValue(area, out var list)) { list = new List<int>(); byArea[area] = list; }
+                list.Add(tri.indices[t * 3]);
+                list.Add(tri.indices[t * 3 + 1]);
+                list.Add(tri.indices[t * 3 + 2]);
+            }
+
+            foreach (var kv in byArea)
+            {
+                var mesh = new Mesh
+                {
+                    name = "NavFill_" + kv.Key,
+                    hideFlags = HideFlags.HideAndDontSave,
+                    indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                };
+                mesh.vertices = tri.vertices;      // 정점은 공유(안 쓰는 정점이 있어도 무해)
+                mesh.SetTriangles(kv.Value, 0);
+                mesh.RecalculateBounds();
+                fillAreas.Add(kv.Key);
+                fillMeshes.Add(mesh);
+            }
+        }
+
+        void OnDisable()
+        {
+            foreach (var m in fillMeshes) Kill(m);
+            fillMeshes.Clear();
+            fillAreas.Clear();
+            lastVertCount = lastIndexCount = -1;
+        }
+
+        static void Kill(Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) Destroy(o); else DestroyImmediate(o);
         }
 
         void OnDrawGizmos()
@@ -108,8 +192,28 @@ namespace Game.View
                 Refresh();
             }
 
-            if (showMesh && hasData) DrawMesh();
+            if (showMesh && hasData)
+            {
+                if (fillFaces) DrawFill();   // 면 먼저 → 테두리가 위에 얹힘
+                DrawMesh();
+            }
             if (showLinkEndpoints) DrawLinkEndpoints();
+        }
+
+        /// <summary>Area별 채움 메시를 반투명으로 그린다.</summary>
+        void DrawFill()
+        {
+            Matrix4x4 saved = Gizmos.matrix;
+            Gizmos.matrix = Matrix4x4.Translate(Vector3.up * 0.02f);   // z-fighting 방지
+            for (int i = 0; i < fillMeshes.Count; i++)
+            {
+                if (fillMeshes[i] == null) continue;
+                Color c = AreaColor(fillAreas[i]);
+                c.a = fillAlpha;
+                Gizmos.color = c;
+                Gizmos.DrawMesh(fillMeshes[i]);
+            }
+            Gizmos.matrix = saved;
         }
 
         void DrawMesh()

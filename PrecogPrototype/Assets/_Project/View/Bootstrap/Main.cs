@@ -165,7 +165,7 @@ namespace Game.View
             prediction.Init(cam, gameplayVcam.transform);
             console = gameObject.AddComponent<DevConsole>();   // ` 개발 콘솔(몹 소환 등)
             ReloadSpawnConfig();   // 씬에 MapSpawnConfig 있으면 그 맵의 스폰 세팅 채택
-            input.Yaw = 180f;   // 남쪽(아레나) 바라봄
+            input.Yaw = map.playerYaw;   // 씬의 PlayerSpawnPoint 방향(없으면 남쪽 180)
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
 
@@ -178,7 +178,9 @@ namespace Game.View
             // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능). 컷신 중엔 조작 잠금.
             if (!prediction.Frozen && !ConsoleOpen && !Cutscene.Active) input.PollFrame();
 
-            prediction.Tick(in world);   // 정지 아닐 때: F 감시 / 정지 중: 루트 표시·탑다운 카메라
+            // 정지 아닐 때: F 감시 / 정지 중: 루트 표시·탑다운 카메라.
+            // 콘솔에 타이핑 중이면 입력만 차단(표시·카메라는 계속) — 'f' 타이핑에 예지가 발동하던 버그.
+            prediction.Tick(in world, ConsoleOpen);
 
             fixedAccum += Time.deltaTime;
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
