@@ -85,15 +85,22 @@ namespace Game.Sim
                 for (int i = 0; i < projectileCount; i++) projectiles[i].alive = false;
         }
 
-        /// <summary>스폰 슬롯 → (전투, 기동, 크기). 결정론 배분. (층이동·비행은 이후 추가.)</summary>
-        static (CombatType, MobilityType, SizeClass) PickSpawn(int slot)
+        /// <summary>
+        /// 실험용 자동 스폰 분포. 10회 중 공중 원거리 7, 지상 근접/돌진/원거리 각 1, 대형 0.
+        /// 명시적 개발 콘솔 스폰에는 적용하지 않는다.
+        /// </summary>
+        public static (CombatType, MobilityType, SizeClass) ExperimentalAutoSpawn(int sequence)
         {
-            if (slot % 5 == 4) return (CombatType.Melee, MobilityType.Ground, SizeClass.Large);   // 대형근접
-            if (slot % 4 == 3) return (CombatType.Melee, MobilityType.Charge, SizeClass.Normal);  // 돌진근접
-            if (slot % 6 == 5) return (CombatType.Ranged, MobilityType.Flying, SizeClass.Normal); // 공중원거리
-            if (slot % 3 == 2) return (CombatType.Ranged, MobilityType.Ground, SizeClass.Normal); // 원거리잡
-            return (CombatType.Melee, MobilityType.Ground, SizeClass.Normal);                     // 근접잡
+            int index = sequence % 10;
+            if (index < 0) index += 10;
+            if (index < 7) return (CombatType.Ranged, MobilityType.Flying, SizeClass.Normal);
+            if (index == 7) return (CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            if (index == 8) return (CombatType.Melee, MobilityType.Charge, SizeClass.Normal);
+            return (CombatType.Ranged, MobilityType.Ground, SizeClass.Normal);
         }
+
+        static (CombatType, MobilityType, SizeClass) PickSpawn(int slot) =>
+            ExperimentalAutoSpawn(slot);
 
         /// <summary>적→플레이어 히트 큐잉(AI). 적용은 CombatResolve가 방어판정 후.</summary>
         public void QueuePlayerHit(Vector3 dir, int dmg)

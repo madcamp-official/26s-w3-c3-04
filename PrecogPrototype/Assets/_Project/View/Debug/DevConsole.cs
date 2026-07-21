@@ -20,6 +20,9 @@ namespace Game.View
         readonly StringBuilder log = new StringBuilder();
         Vector2 scroll;
 
+        // ── 몹 애니메이션 상태 관찰 오버레이(anim 명령) ──
+        bool animWatch;
+
         void Update()
         {
             var kb = Keyboard.current;
@@ -45,6 +48,7 @@ namespace Game.View
 
         void OnGUI()
         {
+            if (animWatch) DrawAnimWatch();
             if (!IsOpen) return;
             float w = Screen.width;
             const float h = 220f;
@@ -72,6 +76,48 @@ namespace Game.View
             }
         }
 
+        /// <summary>anim 명령으로 켠 관찰 오버레이 — Enemy_0의 애니메이터 상태를 매 프레임 표시.</summary>
+        void DrawAnimWatch()
+        {
+            var main = Main.Instance;
+            if (main == null) return;
+
+            var sb = new StringBuilder();
+            sb.Append("[anim watch] Enemy_0: ");
+            var go = GameObject.Find("Enemy_0");
+            if (go == null)
+            {
+                sb.Append("없음(죽었거나 아직 생성 안 됨)");
+            }
+            else
+            {
+                var anim = go.GetComponentInChildren<Animator>();
+                if (anim == null)
+                {
+                    sb.Append("Animator 없음(공중/캡슐 유닛)");
+                }
+                else
+                {
+                    var st = anim.GetCurrentAnimatorStateInfo(0);
+                    sb.Append("t=" + st.normalizedTime.ToString("0.00") + " speed=" + anim.speed.ToString("0.00"));
+                    foreach (var pname in new[] { "IsAttacking", "IsAiming", "IsCharging", "IsAirborne" })
+                    {
+                        bool has = false;
+                        foreach (var pp in anim.parameters) if (pp.name == pname) { has = true; break; }
+                        if (has) sb.Append("  " + pname + "=" + anim.GetBool(pname));
+                    }
+                }
+
+                ref readonly SimWorld w = ref main.World;
+                if (w.enemyCount > 0)
+                    sb.Append("\nsim: ai.state=" + w.enemies[0].ai.state + "  grounded=" + w.enemies[0].grounded);
+            }
+
+            const float boxW = 480f, boxH = 54f;
+            GUI.Box(new Rect(6, 6, boxW, boxH), GUIContent.none);
+            GUI.Label(new Rect(12, 8, boxW - 12, boxH - 4), sb.ToString());
+        }
+
         void Execute(string line)
         {
             Print("> " + line);
@@ -82,8 +128,9 @@ namespace Game.View
             switch (p[0].ToLowerInvariant())
             {
                 case "help":
-                    Print("spawn <종류> · solo <종류> · clear · autospawn on|off|reload · count");
+                    Print("spawn <종류> · solo <종류> · anim <종류>|off · clear · autospawn on|off|reload · count");
                     Print("종류: grunt pinky soldier caco large gruntt(근층) soldiert(원층)");
+                    Print("[디버그] anim <종류> = 그 몹 하나만 소환하고 화면에 애니메이터 상태 실시간 표시. anim off로 끔");
                     Print("wave list · wave start [n] · wave only <n> · wave stop · wave status  (n은 1부터)");
                     Print("  예) wave only 2 = 웨이브2만 실행 · wave start 2 = 웨이브2부터 순차");
                     Print("[이펙트] vfx <이름> [거리] [pitch] [yaw] [roll] [상하] · vfx list · vfx reload");
@@ -124,6 +171,20 @@ namespace Game.View
                         main.DevClear();
                         main.DevSpawn(c2, m2, s2);
                         Print("솔로: " + p[1] + " (자동소환 off)");
+                    }
+                    else Print("모르는 종류: " + p[1]);
+                    break;
+
+                case "anim":
+                    if (p.Length < 2) { Print("사용: anim <종류> | anim off"); break; }
+                    if (p[1].ToLowerInvariant() == "off") { animWatch = false; Print("애니메이션 관찰 꺼짐"); break; }
+                    if (TryType(p[1], out var c3, out var m3, out var s3))
+                    {
+                        main.AutoSpawn = false;
+                        main.DevClear();
+                        main.DevSpawn(c3, m3, s3);
+                        animWatch = true;
+                        Print("애니메이션 관찰: " + p[1] + " (Enemy_0, 화면 좌상단 표시. 끄려면 anim off)");
                     }
                     else Print("모르는 종류: " + p[1]);
                     break;

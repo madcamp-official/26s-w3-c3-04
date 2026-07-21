@@ -17,6 +17,10 @@ namespace Game.Prediction
         DashRight,
         Attack,
         Lunge,
+        LungeStrike,   // 공중 마무리 콤보: 우클릭 접근 → (착지 직후) 좌클릭. 한 매크로 안에서 서브틱 시퀀싱.
+        JumpStrike,    // 대공 콤보(런지 없이): 점프로 솟구쳐 얼어붙은(조준/발사 중) 공중 슈터 고도에서 좌클릭.
+        AerialPursuit, // 공중 추격: 대상 방향 전진 → 점프 → 더블 점프 → 우클릭 접근.
+        TerrainLeap,   // 안전형 지형 도약: 그래프의 JumpUp 방향으로 점프 → 더블 점프.
     }
 
     /// <summary>
@@ -30,10 +34,53 @@ namespace Game.Prediction
 
         /// <summary>Lunge일 때만 유효. 매크로 생성 시점에 확정해 Travel 중 재계산하지 않는다.</summary>
         public int lungeTargetId;
+        public float targetYaw;
 
-        public static MacroAction Simple(MacroActionType type) => new MacroAction { type = type, lungeTargetId = -1 };
+        public static MacroAction Simple(MacroActionType type) => new MacroAction { type = type, lungeTargetId = -1, targetYaw = float.NaN };
 
-        public static MacroAction LungeTo(int targetId) => new MacroAction { type = MacroActionType.Lunge, lungeTargetId = targetId };
+        public static MacroAction LungeTo(int targetId) => new MacroAction { type = MacroActionType.Lunge, lungeTargetId = targetId, targetYaw = float.NaN };
+
+        public static MacroAction LungeStrikeTo(int targetId) => new MacroAction { type = MacroActionType.LungeStrike, lungeTargetId = targetId, targetYaw = float.NaN };
+
+        public static MacroAction AerialPursuitTo(int targetId) =>
+            new MacroAction { type = MacroActionType.AerialPursuit, lungeTargetId = targetId, targetYaw = float.NaN };
+
+        public static MacroAction TerrainLeapAt(float yaw) =>
+            new MacroAction { type = MacroActionType.TerrainLeap, lungeTargetId = -1, targetYaw = yaw };
+
+        /// <summary>
+        /// LungeStrike 콤보에서 좌클릭을 넣는 서브틱. 우클릭 블링크(LungeTravelTicks)가 끝나고
+        /// LgRecovery까지 해제된 다음 틱이어야 좌클릭이 실제로 개시된다(그 전엔 StepLunge가 틱을
+        /// 소비해 무시됨). +2 여유 = Travel + Recovery 종료 직후. 실전 규칙(CombatConfig)에서 파생해
+        /// 런지 튜닝이 바뀌어도 따라가게 한다.
+        /// </summary>
+        public static int LungeStrikeAttackTick =>
+            CombatConfig.LungeTravelTicks + CombatConfig.LungeRecoveryTicks + 2;
+
+        public static MacroAction JumpStrikeAction() => new MacroAction { type = MacroActionType.JumpStrike, lungeTargetId = -1, targetYaw = float.NaN };
+
+        public float ResolveYaw(in SimWorld world, float fallbackYaw)
+        {
+            if (!float.IsNaN(targetYaw)) return targetYaw;
+            if (lungeTargetId < 0) return fallbackYaw;
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                ref readonly EnemySim enemy = ref world.enemies[i];
+                if (!enemy.alive || enemy.id != lungeTargetId) continue;
+                Vector3 delta = enemy.pos - world.player.pos;
+                return Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg;
+            }
+            return fallbackYaw;
+        }
+
+        /// <summary>
+        /// JumpStrike에서 좌클릭 서브틱. 점프는 t0, 좌클릭 판정(윈드업 후 Active)이 매크로 안에서
+        /// 가장 높은 지점(단일 점프는 매크로 끝에 apex 근처)에 떨어지도록 역산한다:
+        /// (매크로 마지막 틱) − 윈드업 = 판정이 마지막 틱에 걸리는 개시 틱. 얼어붙은 공중 슈터의
+        /// 고도(플레이어+FlyHoverOffset)에 가장 가깝게 붙는다.
+        /// </summary>
+        public static int JumpStrikeAttackTick =>
+            Mathf.Max(1, (PredictionSettings.MacroTicksPerStep - 1) - CombatConfig.AttackWindupTicks);
 
         public InputCmd ToInputCmd(float yaw, int tickWithinMacro)
         {
@@ -76,6 +123,30 @@ namespace Game.Prediction
                     break;
                 case MacroActionType.Lunge:
                     if (first) { cmd.lunge = true; cmd.lungeTargetId = lungeTargetId; }
+                    break;
+                case MacroActionType.LungeStrike:
+                    // 우클릭으로 대상 고도(enemy.y+LungeAimUp)에 붙은 뒤, 착지 직후 좌클릭으로 마무리.
+                    // 공중 적을 좌클릭 사거리·높이차(1m) 안에서 실제로 처치하는 유일한 원자적 콤보.
+                    if (first) { cmd.lunge = true; cmd.lungeTargetId = lungeTargetId; }
+                    else if (tickWithinMacro == LungeStrikeAttackTick) cmd.attack = true;
+                    break;
+                case MacroActionType.JumpStrike:
+                    // 점프로 솟구쳐 얼어붙은 공중 슈터 고도까지 올라간 뒤, 매크로 정점 근처에서 좌클릭.
+                    if (first) cmd.jump = true;
+                    else if (tickWithinMacro == JumpStrikeAttackTick) cmd.attack = true;
+                    break;
+                case MacroActionType.AerialPursuit:
+                    cmd.move = new Vector2(0f, 1f);
+                    if (tickWithinMacro == 0 || tickWithinMacro == 7) cmd.jump = true;
+                    if (tickWithinMacro == 11)
+                    {
+                        cmd.lunge = true;
+                        cmd.lungeTargetId = lungeTargetId;
+                    }
+                    break;
+                case MacroActionType.TerrainLeap:
+                    cmd.move = new Vector2(0f, 1f);
+                    if (tickWithinMacro == 0 || tickWithinMacro == 7) cmd.jump = true;
                     break;
             }
             return cmd;

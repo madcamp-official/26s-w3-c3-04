@@ -220,7 +220,9 @@ namespace Game.View
             byte lg = p.combat.lungePhase;
             if (lg != prevLunge)
             {
-                // 찌르기는 윈드업 0틱이라 LgNone → LgTravel 로 직행한다(LgWindup 을 기다리면 소리가 안 난다)
+                // 런지 발동음(구 칼등치기 사운드 재사용).
+                // 찌르기는 윈드업 0틱이라 LgNone → LgTravel 로 직행한다 — LgWindup은 죽은 경로다.
+                // LgNone에서 벗어나는 모든 전이를 잡아 Travel 외 경로가 생겨도 소리가 빠지지 않게 한다.
                 if (prevLunge == CombatConfig.LgNone && lg != CombatConfig.LgNone) CombatAudio.Backstrike();
                 prevLunge = lg;
             }

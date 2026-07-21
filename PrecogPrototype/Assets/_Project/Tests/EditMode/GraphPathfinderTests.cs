@@ -59,6 +59,21 @@ namespace Game.Sim.Tests
             Assert.AreEqual(1, graph.FloorIdAt(new Vector3(5,4.9f,0)));
         }
 
+        [Test]
+        public void FromBake_PreservesMapVersion()
+        {
+            GraphPathfinder graph = GraphPathfinder.FromBake(BuildBake());
+            Assert.AreEqual(7, graph.MapVersion);
+        }
+
+        [Test]
+        public void InvalidBake_IsRejectedBeforePrediction()
+        {
+            ArenaMapBake invalid = BuildBake();
+            invalid.links[0].toNodeId = 999;
+            Assert.Throws<System.ArgumentException>(() => GraphPathfinder.FromBake(invalid));
+        }
+
         static ArenaNavNode Node(int id, Vector3 p, int floor)
             => new ArenaNavNode { nodeId=id, position=p, floorId=floor, areaFlags=MapAreaFlags.Playable };
 

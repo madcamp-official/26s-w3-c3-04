@@ -25,32 +25,58 @@ namespace Game.View
             }
         }
 
-        // 막대 배치 (화면 좌하단, 세로)
-        const float BarW = 22f, BarH = 200f, Gap = 8f, Pad = 28f;
+        // 막대 배치 (화면 좌하단, 세로). Screen.height 기준으로 스케일해서 고해상도에서도
+        // [버그 수정, 2026-07-20] 예전 고정 픽셀 크기(120x14)가 너무 작아 눈에 잘 안 띈다는
+        // 피드백 — HP 바를 큼지막하게 키우고 라벨(숫자)까지 붙여 확실히 보이게 한다.
+        static float Scale => Mathf.Clamp(Screen.height / 1080f, 0.85f, 2.5f);
+        static float BarW => 22f * Scale;
+        static float BarH => 200f * Scale;
+        static float Gap => 8f * Scale;
+        static float Pad => 28f * Scale;
+        const float HpW = 220f, HpH = 34f;
 
         void OnGUI()
         {
             if (UiVisibility.Skip) return;      // 콘솔 `ui off` 로 숨김
             if (Main.Instance == null) return;
-            ref readonly PlayerCombatState c = ref Main.Instance.World.player.combat;
-            ref readonly PlayerSim p = ref Main.Instance.World.player;
+            int previousDepth = GUI.depth;
+            GUI.depth = -100;
+            try
+            {
+                ref readonly PlayerCombatState c = ref Main.Instance.World.player.combat;
+                ref readonly PlayerSim p = ref Main.Instance.World.player;
 
-            float x = Pad;
-            float y = Screen.height - Pad - BarH;
+                float x = Pad;
+                float y = Screen.height - Pad - BarH;
 
-            DrawHp(x, y - 24f, in c);
-            DrawLunge(x, y, in c);
-            DrawDash(x + BarW + Gap, y, in p);
+                DrawHp(x, y - HpH * Scale - 12f * Scale, in c);
+                DrawLunge(x, y, in c);
+                DrawDash(x + BarW + Gap, y, in p);
+            }
+            finally
+            {
+                GUI.depth = previousDepth;
+            }
         }
 
         void DrawHp(float x, float y, in PlayerCombatState c)
         {
-            const float w = 120f, h = 14f;
-            Fill(x - 2, y - 2, w + 4, h + 4, new Color(0.08f, 0.04f, 0.04f, 0.85f));
+            float w = HpW * Scale, h = HpH * Scale;
+            Fill(x - 3, y - 3, w + 6, h + 6, new Color(0.05f, 0.02f, 0.02f, 0.9f));
             float f = Mathf.Clamp01(c.hp / (float)CombatConfig.PlayerMaxHp);
-            var col = f > 0.3f ? new Color(0.85f, 0.2f, 0.2f) : new Color(1f, 0.5f, 0.1f);  // 낮으면 주황 경고
+            var col = f > 0.3f ? new Color(0.9f, 0.15f, 0.15f) : new Color(1f, 0.5f, 0.1f);  // 낮으면 주황 경고
             Fill(x, y, w * f, h, col);
-            Frame(x, y, w, h, new Color(0f, 0f, 0f, 0.6f));
+            Frame(x, y, w, h, Color.white);
+            var style = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = Mathf.RoundToInt(16f * Scale),
+                fontStyle = FontStyle.Bold,
+            };
+            var prevColor = GUI.color;
+            GUI.color = Color.white;
+            GUI.Label(new Rect(x, y, w, h), $"HP {Mathf.Max(0, c.hp)}/{CombatConfig.PlayerMaxHp}", style);
+            GUI.color = prevColor;
         }
 
         void DrawLunge(float x, float y, in PlayerCombatState c)

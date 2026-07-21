@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -13,6 +17,283 @@ namespace Game.Prediction.Editor
     /// </summary>
     public static class PredictionVisualizer
     {
+        const string ContractVersion = "1.9";
+        const string AggressiveFixtureVersion = "A-v2-complex";
+        const string SafeFixtureVersion = "S-v2-dense";
+
+        [Serializable]
+        sealed class BaselineLog
+        {
+            public BaselineRow[] rows;
+        }
+
+        [Serializable]
+        sealed class BaselineRow
+        {
+            public string scenarioId;
+            public string fixtureVersion;
+            public string weightStage;
+            public string profile;
+            public float salientTargetMul;
+            public float terminalPositionMul;
+            public float difficultyPenaltyMul;
+            public bool difficultyTerminalOnly;
+            public string contractVersion;
+            public int mapVersion;
+            public string initialSnapshotHash;
+            public int repetition;
+            public int candidateRank;
+            public string actionSequence;
+            public int salientEnemyId;
+            public float salientTargetProgress;
+            public int killCount;
+            public int damageDealt;
+            public int initialEnemyCount;
+            public int finalAliveEnemyCount;
+            public float terminalNearestEnemyDistance;
+            public int terminalNearbyEnemyCount;
+            public float terminalHeightDelta;
+            public bool terminalActionable;
+            public float terminalPositionQuality;
+            public float executionDifficulty;
+            public int expectedHits;
+            public int durationTicks;
+            public float safetyScore;
+            public float killScore;
+            public float difficultyScore;
+            public float totalScore;
+            public double elapsedMs;
+            public string worldHashAfterReplay;
+            public bool replayValid;
+            public int auditRank;
+            public bool auditRecommended;
+            public bool auditDiffersFromBeamWinner;
+            public string auditReason;
+        }
+
+        readonly struct AggressiveScenario
+        {
+            public readonly string id;
+            public readonly string title;
+            public readonly SimWorld world;
+
+            public AggressiveScenario(string id, string title, SimWorld world)
+            {
+                this.id = id;
+                this.title = title;
+                this.world = world;
+            }
+        }
+
+        readonly struct SafeScenario
+        {
+            public readonly string id;
+            public readonly string title;
+            public readonly SimWorld world;
+            public readonly bool hasJumpEscape;
+
+            public SafeScenario(string id, string title, SimWorld world, bool hasJumpEscape = false)
+            {
+                this.id = id;
+                this.title = title;
+                this.world = world;
+                this.hasJumpEscape = hasJumpEscape;
+            }
+        }
+
+        readonly struct WeightStage
+        {
+            public readonly string name;
+            public readonly ScoreProfile profile;
+
+            public WeightStage(string name, ScoreProfile profile)
+            {
+                this.name = name;
+                this.profile = profile;
+            }
+        }
+
+        [MenuItem("Precog/프로필 검증/안정형 S1-S4 단계별 가중치 비교 내보내기")]
+        static void ExportSafeWeightStages()
+        {
+            const int Repetitions = 10;
+            WeightStage[] stages =
+            {
+                new WeightStage("0-baseline", ScoreProfile.SafeDiagnostic),
+                new WeightStage("1-terminal", ScoreProfile.SafeTerminalOnly),
+                new WeightStage("2-difficulty", ScoreProfile.SafeTerminalDifficulty),
+                new WeightStage("3-current-final", ScoreProfile.Safe),
+            };
+            SafeScenario[] scenarios = BuildSafeScenarios();
+            var rows = new List<BaselineRow>(stages.Length * scenarios.Length * Repetitions * 3);
+
+            foreach (WeightStage stage in stages)
+            foreach (SafeScenario safeScenario in scenarios)
+            {
+                SimServices services = SafeServices(safeScenario.hasJumpEscape);
+                PlayerIntentContext intent = PlayerIntentEvaluator.Capture(in safeScenario.world);
+                var scenario = new AggressiveScenario(safeScenario.id, safeScenario.title, safeScenario.world);
+                for (int repetition = 0; repetition < Repetitions; repetition++)
+                {
+                    ScoreProfile profile = stage.profile;
+                    var stopwatch = Stopwatch.StartNew();
+                    CandidatePath[] candidates = BeamSearch.Run(
+                        in safeScenario.world, in services, PredictionSettings.Full, in profile);
+                    stopwatch.Stop();
+                    var runRows = new List<BaselineRow>(candidates.Length);
+                    for (int rank = 0; rank < candidates.Length; rank++)
+                    {
+                        CandidatePath candidate = candidates[rank];
+                        SimWorld finalWorld = ReplayToWorld(
+                            in safeScenario.world, in services, candidate, PredictionSettings.Full.macroTicks,
+                            out bool replayValid);
+                        BaselineRow row = CreateBaselineRow(
+                            in scenario, in intent, in profile, stage.name, candidate, rank + 1, repetition + 1,
+                            stopwatch.Elapsed.TotalMilliseconds, in finalWorld, replayValid);
+                        row.fixtureVersion = SafeFixtureVersion;
+                        runRows.Add(row);
+                    }
+                    AnnotateSafeAudit(runRows);
+                    rows.AddRange(runRows);
+                }
+            }
+
+            string directory = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "PredictionLogs"));
+            Directory.CreateDirectory(directory);
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+            string jsonPath = Path.Combine(directory, $"safe_weight_stages_{stamp}.json");
+            string csvPath = Path.Combine(directory, $"safe_weight_stages_{stamp}.csv");
+            File.WriteAllText(jsonPath, JsonUtility.ToJson(new BaselineLog { rows = rows.ToArray() }, true), Encoding.UTF8);
+            File.WriteAllText(csvPath, BuildCsv(rows), Encoding.UTF8);
+            Debug.Log($"안정형 S1~S4 단계별 비교 {rows.Count}행 저장 완료\nJSON: {jsonPath}\nCSV: {csvPath}");
+            EditorUtility.RevealInFinder(csvPath);
+        }
+
+        [MenuItem("Precog/프로필 검증/안정형 S1-S4 콘솔 재생")]
+        static void ReplaySafeScenarios()
+        {
+            foreach (SafeScenario scenario in BuildSafeScenarios())
+            {
+                RunScenario($"{scenario.id}. {scenario.title}", scenario.world);
+                Separator();
+            }
+        }
+
+        [MenuItem("Precog/프로필 검증/공격형 A1-A4 기준선 로그 내보내기")]
+        static void ExportAggressiveBaseline()
+        {
+            const int Repetitions = 10;
+            AggressiveScenario[] scenarios = BuildAggressiveScenarios();
+            var rows = new List<BaselineRow>(scenarios.Length * Repetitions * 3);
+            SimServices services = new SimServices(new FlatGroundCollision(), new StraightLinePathfinder());
+
+            foreach (AggressiveScenario scenario in scenarios)
+            {
+                PlayerIntentContext intent = PlayerIntentEvaluator.Capture(in scenario.world);
+                for (int repetition = 0; repetition < Repetitions; repetition++)
+                {
+                    ScoreProfile profile = ScoreProfile.AggressiveDiagnostic;
+                    var stopwatch = Stopwatch.StartNew();
+                    CandidatePath[] candidates = BeamSearch.Run(
+                        in scenario.world, in services, PredictionSettings.Full, in profile);
+                    stopwatch.Stop();
+
+                    var runRows = new List<BaselineRow>(candidates.Length);
+                    for (int rank = 0; rank < candidates.Length; rank++)
+                    {
+                        CandidatePath candidate = candidates[rank];
+                        SimWorld finalWorld = ReplayToWorld(
+                            in scenario.world, in services, candidate, PredictionSettings.Full.macroTicks,
+                            out bool replayValid);
+                        runRows.Add(CreateBaselineRow(
+                            in scenario, in intent, in profile, "0-baseline", candidate, rank + 1, repetition + 1,
+                            stopwatch.Elapsed.TotalMilliseconds, in finalWorld, replayValid));
+                    }
+                    AnnotateAudit(runRows);
+                    rows.AddRange(runRows);
+                }
+            }
+
+            string directory = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "PredictionLogs"));
+            Directory.CreateDirectory(directory);
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+            string jsonPath = Path.Combine(directory, $"aggressive_baseline_{stamp}.json");
+            string csvPath = Path.Combine(directory, $"aggressive_baseline_{stamp}.csv");
+            File.WriteAllText(jsonPath, JsonUtility.ToJson(new BaselineLog { rows = rows.ToArray() }, true), Encoding.UTF8);
+            File.WriteAllText(csvPath, BuildCsv(rows), Encoding.UTF8);
+
+            int auditDisagreements = 0;
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].candidateRank == 1 && rows[i].auditDiffersFromBeamWinner) auditDisagreements++;
+            Debug.Log($"공격형 A1~A4 기준선 {rows.Count}행 저장 완료\n" +
+                      $"관측축 추천과 Beam 1위 불일치: {auditDisagreements}/{scenarios.Length * Repetitions}회\n" +
+                      $"JSON: {jsonPath}\nCSV: {csvPath}");
+            EditorUtility.RevealInFinder(csvPath);
+        }
+
+        [MenuItem("Precog/프로필 검증/공격형 단계별 가중치 비교 내보내기")]
+        static void ExportAggressiveWeightStages()
+        {
+            const int Repetitions = 10;
+            WeightStage[] stages =
+            {
+                new WeightStage("0-baseline", ScoreProfile.AggressiveDiagnostic),
+                new WeightStage("1-target", ScoreProfile.AggressiveTargetOnly),
+                new WeightStage("2-terminal", ScoreProfile.AggressiveTargetTerminal),
+                new WeightStage("3-difficulty-final", ScoreProfile.Aggressive),
+            };
+            AggressiveScenario[] scenarios = BuildAggressiveScenarios();
+            var rows = new List<BaselineRow>(stages.Length * scenarios.Length * Repetitions * 3);
+            SimServices services = new SimServices(new FlatGroundCollision(), new StraightLinePathfinder());
+
+            foreach (WeightStage stage in stages)
+            foreach (AggressiveScenario scenario in scenarios)
+            {
+                PlayerIntentContext intent = PlayerIntentEvaluator.Capture(in scenario.world);
+                for (int repetition = 0; repetition < Repetitions; repetition++)
+                {
+                    ScoreProfile profile = stage.profile;
+                    var stopwatch = Stopwatch.StartNew();
+                    CandidatePath[] candidates = BeamSearch.Run(
+                        in scenario.world, in services, PredictionSettings.Full, in profile);
+                    stopwatch.Stop();
+                    var runRows = new List<BaselineRow>(candidates.Length);
+                    for (int rank = 0; rank < candidates.Length; rank++)
+                    {
+                        CandidatePath candidate = candidates[rank];
+                        SimWorld finalWorld = ReplayToWorld(
+                            in scenario.world, in services, candidate, PredictionSettings.Full.macroTicks,
+                            out bool replayValid);
+                        runRows.Add(CreateBaselineRow(
+                            in scenario, in intent, in profile, stage.name, candidate, rank + 1, repetition + 1,
+                            stopwatch.Elapsed.TotalMilliseconds, in finalWorld, replayValid));
+                    }
+                    AnnotateAudit(runRows);
+                    rows.AddRange(runRows);
+                }
+            }
+
+            string directory = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "PredictionLogs"));
+            Directory.CreateDirectory(directory);
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+            string jsonPath = Path.Combine(directory, $"aggressive_weight_stages_{stamp}.json");
+            string csvPath = Path.Combine(directory, $"aggressive_weight_stages_{stamp}.csv");
+            File.WriteAllText(jsonPath, JsonUtility.ToJson(new BaselineLog { rows = rows.ToArray() }, true), Encoding.UTF8);
+            File.WriteAllText(csvPath, BuildCsv(rows), Encoding.UTF8);
+            Debug.Log($"공격형 단계별 가중치 비교 {rows.Count}행 저장 완료\nJSON: {jsonPath}\nCSV: {csvPath}");
+            EditorUtility.RevealInFinder(csvPath);
+        }
+
+        [MenuItem("Precog/프로필 검증/공격형 A1-A4 콘솔 재생")]
+        static void ReplayAggressiveScenarios()
+        {
+            foreach (AggressiveScenario scenario in BuildAggressiveScenarios())
+            {
+                RunScenario($"{scenario.id}. {scenario.title}", scenario.world);
+                Separator();
+            }
+        }
+
         [MenuItem("Precog/예측 시각화 (텍스트, 콘솔)")]
         static void RunDemo()
         {
@@ -78,6 +359,498 @@ namespace Game.Prediction.Editor
             stopwatch.Stop();
             return stopwatch.Elapsed.TotalMilliseconds;
         }
+
+        static SafeScenario[] BuildSafeScenarios() => new[]
+        {
+            new SafeScenario("S1", "양측 포위 + 저체력 탈출구 차단 적", BuildSafeS1()),
+            new SafeScenario("S2", "지상 추격대 + 좌측 고지대 JumpUp 탈출", BuildSafeS2(), hasJumpEscape: true),
+            new SafeScenario("S3", "교차 투사체 + 정면 돌진의 사선 이탈", BuildSafeS3()),
+            new SafeScenario("S4", "조준 중 공중 위협 제거 후 지상 포위 이탈", BuildSafeS4()),
+        };
+
+        static SimServices SafeServices(bool hasJumpEscape) =>
+            new SimServices(
+                new FlatGroundCollision(),
+                hasJumpEscape ? (IPathfinder)new ElevatedEscapePathfinder() : new StraightLinePathfinder());
+
+        static SimWorld BuildSafeS1()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            Vector3[] ring =
+            {
+                new Vector3(-3f, 0f, 1f), new Vector3(3f, 0f, 1f),
+                new Vector3(-2.5f, 0f, -2.5f), new Vector3(2.5f, 0f, -2.5f),
+                new Vector3(0f, 0f, -3.5f),
+            };
+            for (int i = 0; i < ring.Length; i++)
+                world.AddEnemy(ring[i], CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            for (int i = 0; i < 6; i++)
+            {
+                float angle = (i + 0.5f) * 60f * Mathf.Deg2Rad;
+                world.AddEnemy(
+                    new Vector3(Mathf.Sin(angle) * 7f, 0f, Mathf.Cos(angle) * 7f),
+                    i % 2 == 0 ? CombatType.Ranged : CombatType.Melee,
+                    MobilityType.Ground, SizeClass.Normal);
+            }
+            world.AddEnemy(new Vector3(0f, 0f, 2.2f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            world.enemies[world.enemyCount - 1].combat.health = CombatConfig.Damage;
+            return world;
+        }
+
+        static SimWorld BuildSafeS2()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            for (int i = 0; i < 14; i++)
+            {
+                float x = -6.5f + i;
+                float z = 2.5f + (i % 3) * 1.5f;
+                world.AddEnemy(new Vector3(x, 0f, z),
+                    i % 4 == 0 ? CombatType.Ranged : CombatType.Melee,
+                    i == 6 ? MobilityType.Charge : MobilityType.Ground,
+                    SizeClass.Normal);
+            }
+            return world;
+        }
+
+        static SimWorld BuildSafeS3()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            world.SpawnProjectile(
+                new Vector3(-6f, AIConfig.PlayerTorso, 0f), new Vector3(14f, 0f, 0f));
+            world.SpawnProjectile(
+                new Vector3(0f, AIConfig.PlayerTorso, 6f), new Vector3(0f, 0f, -14f));
+            world.AddEnemy(new Vector3(0f, 0f, 7f),
+                CombatType.Melee, MobilityType.Charge, SizeClass.Normal);
+            world.enemies[0].ai.state = EnemyState.Windup;
+            world.enemies[0].ai.stateTicks = Mathf.Max(0, AIConfig.ChargeWindupTicks - 12);
+            world.enemies[0].ai.committedDir = Vector3.back;
+            world.AddEnemy(new Vector3(-5f, 0f, 4f),
+                CombatType.Ranged, MobilityType.Ground, SizeClass.Normal);
+            world.AddEnemy(new Vector3(5f, 0f, 4f),
+                CombatType.Ranged, MobilityType.Ground, SizeClass.Normal);
+            return world;
+        }
+
+        static SimWorld BuildSafeS4()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            world.AddEnemy(new Vector3(0f, AIConfig.FlyHoverOffset + 1.5f, 4f),
+                CombatType.Ranged, MobilityType.Flying, SizeClass.Normal);
+            world.enemies[0].ai.state = EnemyState.Aim;
+            world.enemies[0].ai.stateTicks = Mathf.Max(0, AIConfig.RangedAimTicks - 15);
+            Vector3[] ground =
+            {
+                new Vector3(-2.5f, 0f, 2f), new Vector3(2.5f, 0f, 2f),
+                new Vector3(-3f, 0f, -2f), new Vector3(3f, 0f, -2f),
+                new Vector3(0f, 0f, -3.5f),
+            };
+            for (int i = 0; i < ground.Length; i++)
+                world.AddEnemy(ground[i],
+                    i < 2 ? CombatType.Ranged : CombatType.Melee,
+                    MobilityType.Ground, SizeClass.Normal);
+            for (int i = 0; i < 6; i++)
+            {
+                float side = i % 2 == 0 ? -1f : 1f;
+                world.AddEnemy(new Vector3(side * (5f + i * 0.3f), 0f, 3f + i),
+                    i % 3 == 0 ? CombatType.Ranged : CombatType.Melee,
+                    MobilityType.Ground, SizeClass.Normal);
+            }
+            return world;
+        }
+
+        static AggressiveScenario[] BuildAggressiveScenarios() => new[]
+        {
+            new AggressiveScenario("A1", "정면 12마리 밀집 + 후방 유인 4마리", BuildAggressiveA1()),
+            new AggressiveScenario("A2", "다층 공중 4마리 + 지상 군집 8마리", BuildAggressiveA2()),
+            new AggressiveScenario("A3", "저체력 연계 통로 + 양측 군집 14마리", BuildAggressiveA3()),
+            new AggressiveScenario("A4", "양옆 포위 18마리 + 중앙 공격 임박 강적", BuildAggressiveA4()),
+        };
+
+        static SimWorld BuildAggressiveA1()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            // 정면은 부채꼴 3열 밀집. 가까운 후방 적은 카메라 밖 유인책이라 먼저 돌면 실패다.
+            Vector3[] front =
+            {
+                new Vector3(0f, 0f, 3f),
+                new Vector3(-1.5f, 0f, 3.6f), new Vector3(1.5f, 0f, 3.6f),
+                new Vector3(-3f, 0f, 4.8f), new Vector3(0f, 0f, 4.8f), new Vector3(3f, 0f, 4.8f),
+                new Vector3(-4.5f, 0f, 6.5f), new Vector3(-1.5f, 0f, 6.2f),
+                new Vector3(1.5f, 0f, 6.2f), new Vector3(4.5f, 0f, 6.5f),
+                new Vector3(-2.5f, 0f, 8f), new Vector3(2.5f, 0f, 8f),
+            };
+            for (int i = 0; i < front.Length; i++)
+            {
+                SizeClass size = i == 4 || i == 9 ? SizeClass.Large : SizeClass.Normal;
+                CombatType combat = i % 4 == 3 ? CombatType.Ranged : CombatType.Melee;
+                world.AddEnemy(front[i], combat, MobilityType.Ground, size);
+            }
+            world.AddEnemy(new Vector3(0f, 0f, -1.8f));
+            world.AddEnemy(new Vector3(-1.8f, 0f, -3f));
+            world.AddEnemy(new Vector3(1.8f, 0f, -3.2f));
+            world.AddEnemy(new Vector3(0f, 0f, -5f), CombatType.Melee, MobilityType.Ground, SizeClass.Large);
+            return world;
+        }
+
+        static SimWorld BuildAggressiveA2()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            Vector3[] flying =
+            {
+                new Vector3(0f, AIConfig.FlyHoverOffset + 1.5f, 4f),
+                new Vector3(-3f, AIConfig.FlyHoverOffset + 3f, 6f),
+                new Vector3(3f, AIConfig.FlyHoverOffset + 2f, 6.5f),
+                new Vector3(0f, AIConfig.FlyHoverOffset + 4f, 8f),
+            };
+            for (int i = 0; i < flying.Length; i++)
+            {
+                world.AddEnemy(flying[i], CombatType.Ranged, MobilityType.Flying, SizeClass.Normal);
+                world.enemies[i].ai.state = i < 2 ? EnemyState.Aim : EnemyState.Reposition;
+            }
+            Vector3[] ground =
+            {
+                new Vector3(-1.5f, 0f, 5.5f), new Vector3(1.5f, 0f, 5.5f),
+                new Vector3(-4f, 0f, 4.5f), new Vector3(4f, 0f, 4.5f),
+                new Vector3(-5f, 0f, 8f), new Vector3(5f, 0f, 8f),
+                new Vector3(-2f, 0f, 10f), new Vector3(2f, 0f, 10f),
+            };
+            for (int i = 0; i < ground.Length; i++)
+                world.AddEnemy(ground[i], i % 3 == 0 ? CombatType.Ranged : CombatType.Melee,
+                    MobilityType.Ground, i == 6 ? SizeClass.Large : SizeClass.Normal);
+            return world;
+        }
+
+        static SimWorld BuildAggressiveA3()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            // 중앙 저체력 4마리는 연계 통로, 좌우 군집은 잘못 새면 포위되는 압력이다.
+            Vector3[] chain =
+            {
+                new Vector3(0f, 0f, 2.4f), new Vector3(0.7f, 0f, 4.2f),
+                new Vector3(-0.5f, 0f, 6f), new Vector3(0.4f, 0f, 7.8f),
+            };
+            for (int i = 0; i < chain.Length; i++)
+            {
+                world.AddEnemy(chain[i]);
+                world.enemies[i].combat.health = CombatConfig.Damage;
+            }
+            Vector3[] flanks =
+            {
+                new Vector3(-3f, 0f, 3f), new Vector3(-4.5f, 0f, 4.5f),
+                new Vector3(-5f, 0f, 6.5f), new Vector3(-3.5f, 0f, 8.5f),
+                new Vector3(-6f, 0f, 10f),
+                new Vector3(3f, 0f, 3f), new Vector3(4.5f, 0f, 4.5f),
+                new Vector3(5f, 0f, 6.5f), new Vector3(3.5f, 0f, 8.5f),
+                new Vector3(6f, 0f, 10f),
+            };
+            for (int i = 0; i < flanks.Length; i++)
+                world.AddEnemy(flanks[i], i % 2 == 0 ? CombatType.Melee : CombatType.Ranged,
+                    MobilityType.Ground, i == 2 || i == 7 ? SizeClass.Large : SizeClass.Normal);
+            return world;
+        }
+
+        static SimWorld BuildAggressiveA4()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.player.yaw = 0f;
+            world.AddEnemy(new Vector3(-1.2f, 0f, 2.5f));
+            world.enemies[0].combat.health = CombatConfig.Damage;
+            world.AddEnemy(new Vector3(1.2f, 0f, 3f));
+            world.enemies[1].combat.health = CombatConfig.Damage;
+            world.AddEnemy(new Vector3(0f, 0f, 1.8f),
+                CombatType.Melee, MobilityType.Charge, SizeClass.Large);
+            world.enemies[2].ai.state = EnemyState.Windup;
+            world.enemies[2].ai.stateTicks = Mathf.Max(0, AIConfig.MeleeWindupTicks - 8);
+            world.enemies[2].ai.committedDir = Vector3.back;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int row = 0; row < 5; row++)
+                {
+                    float x = side * (2.5f + row * 0.7f);
+                    float z = -2f + row * 2.2f;
+                    world.AddEnemy(new Vector3(x, 0f, z),
+                        row % 2 == 0 ? CombatType.Melee : CombatType.Ranged,
+                        row == 3 ? MobilityType.Charge : MobilityType.Ground,
+                        row == 4 ? SizeClass.Large : SizeClass.Normal);
+                }
+            }
+            world.AddEnemy(new Vector3(-1.5f, 0f, 7f), CombatType.Ranged, MobilityType.Ground, SizeClass.Normal);
+            world.AddEnemy(new Vector3(1.5f, 0f, 7f), CombatType.Ranged, MobilityType.Ground, SizeClass.Normal);
+            world.AddEnemy(new Vector3(-4f, 0f, -5f), CombatType.Melee, MobilityType.Ground, SizeClass.Large);
+            world.AddEnemy(new Vector3(4f, 0f, -5f), CombatType.Melee, MobilityType.Ground, SizeClass.Large);
+            world.AddEnemy(new Vector3(0f, AIConfig.FlyHoverOffset + 2f, 6f),
+                CombatType.Ranged, MobilityType.Flying, SizeClass.Normal);
+            return world;
+        }
+
+        static BaselineRow CreateBaselineRow(
+            in AggressiveScenario scenario, in PlayerIntentContext intent, in ScoreProfile profile,
+            string weightStage, CandidatePath candidate,
+            int rank, int repetition, double elapsedMs, in SimWorld finalWorld, bool replayValid)
+        {
+            MeasureTerminal(in finalWorld, out float nearest, out int nearby, out float heightDelta, out bool actionable);
+            return new BaselineRow
+            {
+                scenarioId = scenario.id,
+                fixtureVersion = AggressiveFixtureVersion,
+                weightStage = weightStage,
+                profile = candidate.profileLabel,
+                salientTargetMul = profile.salientTargetMul,
+                terminalPositionMul = profile.terminalPositionMul,
+                difficultyPenaltyMul = profile.difficultyPenaltyMul,
+                difficultyTerminalOnly = profile.difficultyTerminalOnly,
+                contractVersion = ContractVersion,
+                mapVersion = scenario.world.mapVersion,
+                initialSnapshotHash = WorldHash.Compute(in scenario.world).ToString("X16"),
+                repetition = repetition,
+                candidateRank = rank,
+                actionSequence = ActionSequence(candidate.actions),
+                salientEnemyId = intent.salientEnemyId,
+                salientTargetProgress = candidate.rawSalientTargetProgress,
+                killCount = candidate.killCount,
+                damageDealt = candidate.damageDealt,
+                initialEnemyCount = scenario.world.AliveCount(),
+                finalAliveEnemyCount = finalWorld.AliveCount(),
+                terminalNearestEnemyDistance = nearest,
+                terminalNearbyEnemyCount = nearby,
+                terminalHeightDelta = heightDelta,
+                terminalActionable = actionable,
+                terminalPositionQuality = candidate.rawTerminalPositionQuality,
+                executionDifficulty = candidate.rawExecutionDifficulty,
+                expectedHits = candidate.expectedHits,
+                durationTicks = candidate.durationTicks,
+                safetyScore = candidate.safetyScore,
+                killScore = candidate.killScore,
+                difficultyScore = candidate.difficultyScore,
+                totalScore = candidate.TotalScore,
+                elapsedMs = elapsedMs,
+                worldHashAfterReplay = WorldHash.Compute(in finalWorld).ToString("X16"),
+                replayValid = replayValid,
+            };
+        }
+
+        /// <summary>
+        /// 새 축을 Beam에 더하지 않고 후보 1~3위를 사전식으로 후처리한다. 공격형 목적상
+        /// 주목 대상 실현과 처치를 먼저 보존하고, 동률에서 종료 상태와 입력 난이도를 비교한다.
+        /// </summary>
+        static void AnnotateAudit(List<BaselineRow> runRows)
+        {
+            var ordered = new List<BaselineRow>(runRows);
+            ordered.Sort(CompareAggressiveAudit);
+            int recommendedCandidateRank = ordered.Count > 0 ? ordered[0].candidateRank : -1;
+            BaselineRow beamWinner = runRows.Count > 0 ? runRows[0] : null;
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                BaselineRow row = ordered[i];
+                row.auditRank = i + 1;
+                row.auditRecommended = i == 0;
+                row.auditDiffersFromBeamWinner = recommendedCandidateRank != 1;
+                row.auditReason = i == 0 ? ExplainAuditChoice(row, beamWinner) : string.Empty;
+            }
+        }
+
+        static void AnnotateSafeAudit(List<BaselineRow> runRows)
+        {
+            var ordered = new List<BaselineRow>(runRows);
+            ordered.Sort(CompareSafeAudit);
+            int recommendedCandidateRank = ordered.Count > 0 ? ordered[0].candidateRank : -1;
+            BaselineRow beamWinner = runRows.Count > 0 ? runRows[0] : null;
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                BaselineRow row = ordered[i];
+                row.auditRank = i + 1;
+                row.auditRecommended = i == 0;
+                row.auditDiffersFromBeamWinner = recommendedCandidateRank != 1;
+                row.auditReason = i == 0 ? ExplainSafeAuditChoice(row, beamWinner) : string.Empty;
+            }
+        }
+
+        static int CompareSafeAudit(BaselineRow a, BaselineRow b)
+        {
+            int c = b.replayValid.CompareTo(a.replayValid);
+            if (c != 0) return c;
+            c = a.expectedHits.CompareTo(b.expectedHits);
+            if (c != 0) return c;
+            c = CompareFloatDescending(a.terminalPositionQuality, b.terminalPositionQuality);
+            if (c != 0) return c;
+            c = a.terminalNearbyEnemyCount.CompareTo(b.terminalNearbyEnemyCount);
+            if (c != 0) return c;
+            c = b.terminalActionable.CompareTo(a.terminalActionable);
+            if (c != 0) return c;
+            c = b.killCount.CompareTo(a.killCount);
+            if (c != 0) return c;
+            c = a.executionDifficulty.CompareTo(b.executionDifficulty);
+            if (c != 0) return c;
+            return a.candidateRank.CompareTo(b.candidateRank);
+        }
+
+        static string ExplainSafeAuditChoice(BaselineRow choice, BaselineRow beamWinner)
+        {
+            if (beamWinner == null || choice.candidateRank == beamWinner.candidateRank)
+                return "Beam 1위와 안정형 관측 추천 일치";
+            if (choice.expectedHits < beamWinner.expectedHits) return "예상 피격 감소";
+            if (choice.terminalPositionQuality > beamWinner.terminalPositionQuality + 1e-4f)
+                return "종료 안전도와 퇴로 우세";
+            if (choice.terminalNearbyEnemyCount < beamWinner.terminalNearbyEnemyCount)
+                return "종료 포위 적 감소";
+            if (choice.terminalActionable && !beamWinner.terminalActionable)
+                return "종료 즉시 행동 가능";
+            if (choice.killCount > beamWinner.killCount) return "탈출에 필요한 위협 제거";
+            if (choice.executionDifficulty < beamWinner.executionDifficulty - 1e-4f)
+                return "입력 난이도 감소";
+            return "결정론적 후보 순서";
+        }
+
+        static int CompareAggressiveAudit(BaselineRow a, BaselineRow b)
+        {
+            int c = CompareFloatDescending(a.salientTargetProgress, b.salientTargetProgress);
+            if (c != 0) return c;
+            c = b.killCount.CompareTo(a.killCount);
+            if (c != 0) return c;
+            c = b.damageDealt.CompareTo(a.damageDealt);
+            if (c != 0) return c;
+            c = a.expectedHits.CompareTo(b.expectedHits);
+            if (c != 0) return c;
+            c = b.terminalActionable.CompareTo(a.terminalActionable);
+            if (c != 0) return c;
+            c = CompareFloatDescending(a.terminalPositionQuality, b.terminalPositionQuality);
+            if (c != 0) return c;
+            c = a.executionDifficulty.CompareTo(b.executionDifficulty);
+            if (c != 0) return c;
+            return a.candidateRank.CompareTo(b.candidateRank);
+        }
+
+        static int CompareFloatDescending(float a, float b)
+        {
+            const float Epsilon = 1e-4f;
+            if (a > b + Epsilon) return -1;
+            if (a < b - Epsilon) return 1;
+            return 0;
+        }
+
+        static string ExplainAuditChoice(BaselineRow choice, BaselineRow beamWinner)
+        {
+            if (beamWinner == null || choice.candidateRank == beamWinner.candidateRank)
+                return "Beam 1위와 관측축 추천 일치";
+            if (choice.salientTargetProgress > beamWinner.salientTargetProgress + 1e-4f)
+                return "주목 대상 진척 우세";
+            if (choice.killCount > beamWinner.killCount) return "처치 수 우세";
+            if (choice.damageDealt > beamWinner.damageDealt) return "피해량 우세";
+            if (choice.expectedHits < beamWinner.expectedHits) return "예상 피격 감소";
+            if (choice.terminalActionable && !beamWinner.terminalActionable) return "종료 즉시 행동 가능";
+            if (choice.terminalPositionQuality > beamWinner.terminalPositionQuality + 1e-4f)
+                return "종료 위치 품질 우세";
+            if (choice.executionDifficulty < beamWinner.executionDifficulty - 1e-4f)
+                return "입력 난이도 감소";
+            return "결정론적 후보 순서";
+        }
+
+        static SimWorld ReplayToWorld(
+            in SimWorld initial, in SimServices services, CandidatePath candidate, int macroTicks, out bool valid)
+        {
+            SimWorld world = Snapshot.Clone(in initial);
+            valid = true;
+            for (int m = 0; m < candidate.actions.Length && world.player.combat.hp > 0; m++)
+            {
+                MacroAction action = candidate.actions[m];
+                for (int tick = 0; tick < macroTicks; tick++)
+                {
+                    float yaw = action.ResolveYaw(in world, BeamSearch.ComputeAimYaw(in world));
+                    InputCmd cmd = action.ToInputCmd(yaw, tick);
+                    SimStep.Run(ref world, in cmd, in services);
+                    Vector3 p = world.player.pos;
+                    if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsNaN(p.z))
+                    {
+                        valid = false;
+                        return world;
+                    }
+                    if (world.player.combat.hp <= 0 && !candidate.isDeadFallback) valid = false;
+                }
+            }
+            return world;
+        }
+
+        static void MeasureTerminal(
+            in SimWorld world, out float nearest, out int nearby, out float heightDelta, out bool actionable)
+        {
+            nearest = float.PositiveInfinity;
+            nearby = 0;
+            heightDelta = 0f;
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                ref readonly EnemySim enemy = ref world.enemies[i];
+                if (!enemy.alive) continue;
+                float distance = CombatMath.FlatDistance(world.player.pos, enemy.pos);
+                nearest = Mathf.Min(nearest, distance);
+                if (distance <= PredictionScoreConfig.SurroundedRadius) nearby++;
+                if (distance <= 8f) heightDelta = Mathf.Max(heightDelta, world.player.pos.y - enemy.pos.y);
+            }
+            if (float.IsPositiveInfinity(nearest)) nearest = -1f;
+            actionable = world.player.combat.attackPhase == CombatConfig.PhNone
+                      && world.player.combat.lungePhase == CombatConfig.LgNone;
+        }
+
+        static string ActionSequence(MacroAction[] actions)
+        {
+            var sb = new StringBuilder();
+            for (int i = 0; i < actions.Length; i++)
+            {
+                if (i > 0) sb.Append('>');
+                sb.Append(actions[i].type);
+                if (actions[i].lungeTargetId >= 0) sb.Append('(').Append(actions[i].lungeTargetId).Append(')');
+            }
+            return sb.ToString();
+        }
+
+        static string BuildCsv(List<BaselineRow> rows)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("scenarioId,fixtureVersion,weightStage,profile,salientTargetMul,terminalPositionMul,difficultyPenaltyMul,difficultyTerminalOnly,contractVersion,mapVersion,initialSnapshotHash,repetition,candidateRank,actionSequence,salientEnemyId,salientTargetProgress,killCount,damageDealt,initialEnemyCount,finalAliveEnemyCount,terminalNearestEnemyDistance,terminalNearbyEnemyCount,terminalHeightDelta,terminalActionable,terminalPositionQuality,executionDifficulty,expectedHits,durationTicks,safetyScore,killScore,difficultyScore,totalScore,elapsedMs,worldHashAfterReplay,replayValid,auditRank,auditRecommended,auditDiffersFromBeamWinner,auditReason");
+            foreach (BaselineRow r in rows)
+            {
+                sb.Append(r.scenarioId).Append(',').Append(r.fixtureVersion).Append(',').Append(r.weightStage).Append(',')
+                  .Append(r.profile).Append(',').Append(F(r.salientTargetMul)).Append(',')
+                  .Append(F(r.terminalPositionMul)).Append(',').Append(F(r.difficultyPenaltyMul)).Append(',')
+                  .Append(r.difficultyTerminalOnly).Append(',')
+                  .Append(r.contractVersion).Append(',')
+                  .Append(r.mapVersion).Append(',').Append(r.initialSnapshotHash).Append(',').Append(r.repetition).Append(',')
+                  .Append(r.candidateRank).Append(',').Append('"').Append(r.actionSequence).Append('"').Append(',')
+                  .Append(r.salientEnemyId).Append(',').Append(F(r.salientTargetProgress)).Append(',')
+                  .Append(r.killCount).Append(',').Append(r.damageDealt).Append(',')
+                  .Append(r.initialEnemyCount).Append(',').Append(r.finalAliveEnemyCount).Append(',')
+                  .Append(F(r.terminalNearestEnemyDistance)).Append(',').Append(r.terminalNearbyEnemyCount).Append(',')
+                  .Append(F(r.terminalHeightDelta)).Append(',').Append(r.terminalActionable).Append(',')
+                  .Append(F(r.terminalPositionQuality)).Append(',').Append(F(r.executionDifficulty)).Append(',')
+                  .Append(r.expectedHits).Append(',')
+                  .Append(r.durationTicks).Append(',').Append(F(r.safetyScore)).Append(',')
+                  .Append(F(r.killScore)).Append(',').Append(F(r.difficultyScore)).Append(',')
+                  .Append(F(r.totalScore)).Append(',').Append(r.elapsedMs.ToString("F3", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(r.worldHashAfterReplay).Append(',').Append(r.replayValid).Append(',')
+                  .Append(r.auditRank).Append(',').Append(r.auditRecommended).Append(',')
+                  .Append(r.auditDiffersFromBeamWinner).Append(',').Append('"').Append(r.auditReason).Append('"').AppendLine();
+            }
+            return sb.ToString();
+        }
+
+        static string F(float value) => value.ToString("F3", CultureInfo.InvariantCulture);
 
         static void Separator()
         {
@@ -223,7 +996,7 @@ namespace Game.Prediction.Editor
             {
                 MacroAction a = plan.actions[i];
                 string label = a.type.ToString();
-                if (a.type == MacroActionType.Lunge) label += $" -> 적 id={a.lungeTargetId}";
+                if (a.type == MacroActionType.Lunge || a.type == MacroActionType.LungeStrike) label += $" -> 적 id={a.lungeTargetId}";
                 sb.AppendLine($"  [{i}] {label}");
             }
 
@@ -240,11 +1013,11 @@ namespace Game.Prediction.Editor
             for (int m = 0; m < plan.actions.Length; m++)
             {
                 MacroAction action = plan.actions[m];
-                sb.AppendLine($"  매크로 {m}: {action.type}{(action.type == MacroActionType.Lunge ? " (id=" + action.lungeTargetId + ")" : "")}");
+                sb.AppendLine($"  매크로 {m}: {action.type}{((action.type == MacroActionType.Lunge || action.type == MacroActionType.LungeStrike) ? " (id=" + action.lungeTargetId + ")" : "")}");
                 for (int t = 0; t < settings.macroTicks; t++)
                 {
                     float yaw = AimAtNearestEnemy(in world);
-                    InputCmd cmd = action.ToInputCmd(yaw, t);
+                    InputCmd cmd = action.ToInputCmd(action.ResolveYaw(in world, yaw), t);
                     SimStep.Run(ref world, in cmd, in services);
                     tick++;
 
@@ -336,5 +1109,33 @@ namespace Game.Prediction.Editor
         {
             edge = from; landing = from; return false;
         }
+    }
+
+    /// <summary>S2 fixture 전용 베이크 그래프 대역. 적 압력 반대편 요청을 좌측 고지 JumpUp으로 연결한다.</summary>
+    sealed class ElevatedEscapePathfinder : IPathfinder
+    {
+        public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
+        {
+            Vector3 next = from + Vector3.left * 3f + Vector3.up * 2.5f;
+            return new PathStep
+            {
+                kind = MoveKind.JumpUp,
+                next = next,
+                currentNodeId = 0,
+                nextNodeId = 1,
+                destinationNodeId = 1,
+                linkId = 0,
+                floorId = 0,
+                destinationFloorId = 1,
+            };
+        }
+        public int FloorIdAt(Vector3 position) => position.y > 1f ? 1 : 0;
+        public bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh)
+        { onMesh = pos; return true; }
+        public bool NextCorner(Vector3 from, Vector3 to, out Vector3 next)
+        { next = from + Vector3.left * 3f + Vector3.up * 2.5f; return true; }
+        public float PathLength(Vector3 from, Vector3 to) => Vector3.Distance(from, to);
+        public bool NearestDropEdge(Vector3 from, out Vector3 edge, out Vector3 landing)
+        { edge = from; landing = from; return false; }
     }
 }

@@ -11,6 +11,7 @@ namespace Game.View
     {
         public List<Vector3> spawns = new();
         public Vector3 playerSpawn;
+        public ArenaMapBake predictionMap;
         public float playerYaw = 180f;   // 시작 시 바라보는 방향(PlayerSpawnPoint의 Y회전). 없으면 남쪽.
     }
 
@@ -31,6 +32,7 @@ namespace Game.View
             var gLedge= Mat(new Color(0.60f, 0.52f, 0.40f));   // mantle 계단·엄폐(갈색기)
             var gCont = Mat(new Color(0.16f, 0.38f, 0.68f));   // 컨테이너(파랑)
             var r = new MapResult();
+            r.predictionMap = Game.Bridge.GraphPathfinder.CreateArenaBake();
 
             // 높이: 1F 0 · 반층 3.0 · 2F 4.5 · 3F 9 (단차 1.5배). mantle 1.5(3단=한 층).
             // ── 바닥 + 외벽 (3층 담을 높이 12) ──
@@ -134,6 +136,9 @@ namespace Game.View
             else Debug.Log($"[Map] 미리 구운 NavMesh 사용 — 정점 {tri.vertices.Length}");
 
             var r = new MapResult();
+            ArenaMapAuthoring authored = Object.FindFirstObjectByType<ArenaMapAuthoring>();
+            if (authored != null)
+                r.predictionMap = authored.BuildBake();
 
             // 플레이어 시작점: 씬의 PlayerSpawnPoint 우선. 없으면 예전 방식(카메라 위치)으로 폴백.
             var sp = Object.FindFirstObjectByType<PlayerSpawnPoint>();

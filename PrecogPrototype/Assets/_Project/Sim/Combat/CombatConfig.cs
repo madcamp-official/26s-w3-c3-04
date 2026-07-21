@@ -21,7 +21,7 @@ namespace Game.Sim
         public const int Damage = 1;
 
         // 플레이어 체력·피격
-        public static int PlayerMaxHp        = 1000000;   // 임시: 테스트용 무한 체력(원래 3)
+        public static int PlayerMaxHp        = 3;
         public static int PlayerHitStunTicks = 0;   // 임시: 피격 경직 0(원래 30). 구조는 유지
 
         // ── 타깃 런지 (우클릭): 둠 글로리킬식. 순간이동급 블링크 → 아래→위 베기. 블링크 틱만 잠금 ──
@@ -33,7 +33,7 @@ namespace Game.Sim
         public static int   LungeMaxStacks      = 2;     // 스택 상한(2). 처치로 +1 충전, 발동 1 소모
         public static int   LungeReserveWindow  = 10;    // 쿨 막판 이 틱 이내(≈0.17초) 클릭 → 예약
         public static float LungeMinRange       = 1.2f;
-        public static float LungeMaxRange       = 12f;
+        public static float LungeMaxRange       = 7f;
         public static float LungeAimRadius      = 2.0f;  // 조준 레이 수직 보정 반경(판정 핵심)
         public static float LungeStopDistance   = 0.9f;  // 적 앞 이 거리 지점으로 이동
         public static float LungeHeightTolerance = 6f;   // 위/아래 허용 높이차(공중 대상 포함)

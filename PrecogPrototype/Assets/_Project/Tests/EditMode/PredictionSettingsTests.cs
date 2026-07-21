@@ -8,7 +8,7 @@ namespace Game.Sim.Tests
     {
         [TestCase(1f, 4)]
         [TestCase(2f, 8)]
-        [TestCase(3f, 12)]  // Full과 동일 깊이여야 함
+        [TestCase(3f, 12)]
         [TestCase(4f, 16)]
         [TestCase(5f, 20)]
         public void ForDuration_ProducesExpectedMacroDepth(float seconds, int expectedDepth)
@@ -21,9 +21,9 @@ namespace Game.Sim.Tests
         }
 
         [Test]
-        public void ForDuration_MatchesFullSettings_AtThreeSeconds()
+        public void ForDuration_MatchesFullSettings_AtFiveSeconds()
         {
-            PredictionSettings fromGauge = PredictionSettings.ForDuration(3f);
+            PredictionSettings fromGauge = PredictionSettings.ForDuration(5f);
             PredictionSettings full = PredictionSettings.Full;
 
             Assert.AreEqual(full.macroTicks, fromGauge.macroTicks);

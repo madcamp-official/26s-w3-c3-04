@@ -74,7 +74,7 @@ namespace Game.View
                 for (int t = 0; t < settings.macroTicks; t++)
                 {
                     float aimYaw = AimAtNearestEnemy(in replay);
-                    InputCmd cmd = action.ToInputCmd(aimYaw, t);
+                    InputCmd cmd = action.ToInputCmd(action.ResolveYaw(in replay, aimYaw), t);
                     SimStep.Run(ref replay, in cmd, in services);
                     if (replay.player.combat.hp <= 0) break;
                 }
@@ -173,6 +173,8 @@ namespace Game.View
             {
                 case MacroActionType.Attack: return Color.red;
                 case MacroActionType.Lunge: return new Color(1f, 0.5f, 0f);
+                case MacroActionType.LungeStrike: return new Color(1f, 0.25f, 0.1f); // 공중 마무리 콤보(런지+좌클릭)
+                case MacroActionType.JumpStrike: return new Color(1f, 0.75f, 0.1f);  // 대공 콤보(점프+좌클릭)
                 case MacroActionType.DashForward:
                 case MacroActionType.DashBackward:
                 case MacroActionType.DashLeft:
@@ -201,7 +203,7 @@ namespace Game.View
             {
                 MacroAction a = lastPlan.actions[i];
                 string label = a.type.ToString();
-                if (a.type == MacroActionType.Lunge) label += $"(id={a.lungeTargetId})";
+                if (a.type == MacroActionType.Lunge || a.type == MacroActionType.LungeStrike) label += $"(id={a.lungeTargetId})";
                 sb.Append(i == 0 ? label : " -> " + label);
             }
 

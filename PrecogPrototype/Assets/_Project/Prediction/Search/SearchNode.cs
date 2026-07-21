@@ -21,10 +21,21 @@ namespace Game.Prediction
         public int waitCount;
         public int consecutiveWaitCount;
         public int ticksSurvived;
+        public float executionDifficulty;
+        public float salientTargetProgress;
+        public float terminalPositionQuality;
 
         public float safetyScore;
         public float killScore;
         public float difficultyScore;
+        public float profile1Score;
+        public float profile1SafetyScore;
+        public float profile1KillScore;
+        public float profile1DifficultyScore;
+        public float profile2Score;
+        public float profile2SafetyScore;
+        public float profile2KillScore;
+        public float profile2DifficultyScore;
 
         public bool alive;
         public ulong stateKey;
