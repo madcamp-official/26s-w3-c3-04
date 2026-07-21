@@ -1,6 +1,6 @@
 Shader "Game/RadialInvert"
 {
-    // 예측 정지(F) 진입: 화면 중심에서 퍼지는 원 안쪽을 강렬한 사이버펑크 산데비스탄 그린 모노크롬 톤으로 전환.
+    // 예측 정지(F) 진입: 화면 중심에서 퍼지는 원 안쪽을 맵 윤곽선 네온 그린 사이버 스페이스로 전환.
     // RadialInvertFeature(URP RendererFeature, AfterRenderingPostProcessing)의 passMaterial로 연결.
     // _Radius/_Softness는 PredictionController가 진입 진행률에 맞춰 매 프레임
     // RadialInvertFx.SetRadius로 갱신한다(Assets/_Project/View/Prediction/RadialInvertFeature.cs).
@@ -26,6 +26,12 @@ Shader "Game/RadialInvert"
             float _Radius;
             float _Softness;
 
+            float GetLum(float2 uv)
+            {
+                half4 c = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv);
+                return dot(c.rgb, half3(0.2126, 0.7152, 0.0722));
+            }
+
             half4 Frag(Varyings input) : SV_Target
             {
                 half4 col = FragBlit(input, sampler_LinearClamp);
@@ -50,28 +56,40 @@ Shader "Game/RadialInvert"
                 if (mask <= 0.001)
                     return col;
 
-                // 1. 휘도 (Luminance) 계산
-                float lum = dot(col.rgb, half3(0.2126, 0.7152, 0.0722));
+                // 1. Sobel 필터 기반 맵 전체 윤곽선(Edge Detection) 추출
+                float2 texelSize = _ScreenParams.zw - 1.0;
+                float2 offset = texelSize * 1.25;
 
-                // 2. 맵 구조물(벽, 계단, 엄폐물, 텍스처 명암) 윤곽선을 100% 선명하게 보존하는 산데비스탄 톤
-                // 원본 씬의 음영 텍스처(col.rgb)를 살려 형태감을 유지하면서 에메랄드 그린 톤으로 컬러 그레이딩
-                half3 structureShaded = col.rgb * half3(0.35, 1.20, 0.60);
-                half3 emeraldShadows   = half3(0.01, 0.09, 0.05);
-                half3 cyberHighlights = half3(0.08, 0.85, 0.42);
+                float l_tl = GetLum(input.texcoord + float2(-offset.x, -offset.y));
+                float l_tr = GetLum(input.texcoord + float2( offset.x, -offset.y));
+                float l_bl = GetLum(input.texcoord + float2(-offset.x,  offset.y));
+                float l_br = GetLum(input.texcoord + float2( offset.x,  offset.y));
+                float l_l  = GetLum(input.texcoord + float2(-offset.x,  0.0));
+                float l_r  = GetLum(input.texcoord + float2( offset.x,  0.0));
+                float l_t  = GetLum(input.texcoord + float2( 0.0,       -offset.y));
+                float l_b  = GetLum(input.texcoord + float2( 0.0,        offset.y));
 
-                half3 colorGraded = lerp(emeraldShadows, cyberHighlights, saturate(lum * 1.25));
-                half3 tinted = lerp(structureShaded, colorGraded, 0.55);
+                float gx = (-1.0 * l_tl) + (1.0 * l_tr) + (-2.0 * l_l) + (2.0 * l_r) + (-1.0 * l_bl) + (1.0 * l_br);
+                float gy = (-1.0 * l_tl) + (-2.0 * l_t) + (-1.0 * l_tr) + (1.0 * l_bl) + (2.0 * l_b) + (1.0 * l_br);
+                float edge = saturate(sqrt(gx * gx + gy * gy) * 3.4);
 
-                // 3. 외곽 충격파 링 (Shockwave Ring Pulse) & 비네팅 스캔라인
+                // 2. 어두운 사이버 스페이스 그리드 바탕 (Dark Cyber Grid Base)
+                float centerLum = dot(col.rgb, half3(0.2126, 0.7152, 0.0722));
+                half3 cyberBase = half3(0.005, 0.035, 0.02) + centerLum * half3(0.015, 0.09, 0.045);
+
+                // 3. 맵 윤곽선을 발광하는 네온 그린 사인으로 전환 (Neon Green Outline)
+                half3 neonGreenLine = half3(0.12, 1.0, 0.45) * edge * 2.5;
+                half3 cyberSpace = cyberBase + neonGreenLine;
+
+                // 4. 충격파 링 (Shockwave Ring Pulse) & 스캔라인 효과
                 float ringMask = smoothstep(_Radius - _Softness * 3.0, _Radius, dist)
                                - smoothstep(_Radius, _Radius + _Softness * 0.8, dist);
-                half3 ringPulse = half3(0.25, 1.0, 0.65) * 2.0 * ringMask;
+                half3 ringPulse = half3(0.25, 1.0, 0.65) * 2.2 * ringMask;
 
-                float scanline = 0.96 + 0.04 * sin(input.texcoord.y * _ScreenParams.y * 1.8);
-                float vig = 1.0 - smoothstep(0.4, 0.9, dist);
-                tinted *= scanline * lerp(0.7, 1.0, vig);
+                float scanline = 0.95 + 0.05 * sin(input.texcoord.y * _ScreenParams.y * 2.0);
+                cyberSpace *= scanline;
 
-                half3 finalColor = lerp(col.rgb, tinted + ringPulse, mask);
+                half3 finalColor = lerp(col.rgb, cyberSpace + ringPulse, mask);
                 return half4(finalColor, col.a);
             }
             ENDHLSL
@@ -79,5 +97,6 @@ Shader "Game/RadialInvert"
     }
     Fallback Off
 }
+
 
 
