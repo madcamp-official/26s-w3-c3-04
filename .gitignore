@@ -19,8 +19,6 @@
 *_BurstDebugInformation_DoNotShip/
 
 # --- 원본 에셋 및 무거운 소스 ---
-ArtSource/
-hositility/
 /imported/
 
 # --- 바이너리 / 빌드 산출물 ---
