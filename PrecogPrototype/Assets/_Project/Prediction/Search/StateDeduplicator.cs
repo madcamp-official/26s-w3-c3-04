@@ -31,6 +31,11 @@ namespace Game.Prediction
             h = Mix(h, QuantizeYaw(player.yaw));
             bool dashReady = player.dashTicks == 0 && player.dashCharges > 0;
             h = Mix(h, dashReady ? 1UL : 0UL);
+            // 남은 점프 횟수·접지 여부는 공중 접근에서 의미가 다르다 — 같은 (x,y,z)라도 "점프
+            // 잔량이 남은 분기"와 "다 쓴 분기"가 뭉치면, 마지막 고도 갭을 메울 점프가 남은
+            // 쪽이 버려져 공중 타겟팅 시퀀스가 끊긴다. jumpCount는 0~2로 작아 과분할 위험 낮음.
+            h = Mix(h, (ulong)player.jumpCount);
+            h = Mix(h, player.grounded ? 1UL : 0UL);
             h = Mix(h, (ulong)(player.combat.lungeCooldown / CooldownBucketTicks));
             h = Mix(h, (ulong)player.combat.attackPhase);
             h = Mix(h, (ulong)player.combat.lungePhase);
@@ -48,8 +53,14 @@ namespace Game.Prediction
                 h = Mix(h, (ulong)enemy.ai.size);
                 h = MixPos(h, enemy.pos);
                 h = Mix(h, (ulong)enemy.combat.health);
-                h = Mix(h, IsThreatening(enemy.ai.state) ? 1UL : 0UL);
+                h = Mix(h, ThreatPhase(enemy.ai.state));
+                if (enemy.ai.state == EnemyState.Windup || enemy.ai.state == EnemyState.ChargeRun)
+                    h = Mix(h, QuantizeYaw(Mathf.Atan2(
+                        enemy.ai.committedDir.x, enemy.ai.committedDir.z) * Mathf.Rad2Deg));
                 h = Mix(h, (ulong)(enemy.ai.attackCooldown / CooldownBucketTicks));
+                h = Mix(h, (ulong)enemy.traversalPhase);
+                h = Mix(h, (ulong)enemy.activeMoveKind);
+                h = Mix(h, unchecked((ulong)(enemy.currentFloorId + 1)));
                 // 처형 확정(gloryStage>0)은 이후 alive=false와 별개로 이미 결과가 잠긴 상태다.
                 h = Mix(h, enemy.combat.gloryStage > 0 ? 1UL : 0UL);
             }
@@ -69,9 +80,18 @@ namespace Game.Prediction
             return h;
         }
 
-        static bool IsThreatening(EnemyState state)
-            => state == EnemyState.Windup || state == EnemyState.Active
-            || state == EnemyState.Aim || state == EnemyState.Fire;
+        static ulong ThreatPhase(EnemyState state)
+        {
+            switch (state)
+            {
+                case EnemyState.Windup: return 1;
+                case EnemyState.Active: return 2;
+                case EnemyState.Aim: return 3;
+                case EnemyState.Fire: return 4;
+                case EnemyState.ChargeRun: return 5;
+                default: return 0;
+            }
+        }
 
         static ulong MixPos(ulong h, Vector3 p)
         {

@@ -52,13 +52,23 @@ namespace Game.View
         public float gripSpring;
         float gripVel;
 
+        [Header("지속 그립 (달리기·공중 등 상태에 따라 계속 유지되는 쥠)")]
+        [Tooltip("ViewmodelMotion이 매 프레임 밀어넣는 값. 부드럽게 추적된다")]
+        public float sustainTarget;
+        [Tooltip("지속 그립 추적 속도 (클수록 빨리 반응)")]
+        public float sustainSpeed = 8f;
+        public float sustainGrip;      // 실제 적용되는 값(읽기용)
+
         public static FingerPoser Instance { get; private set; }   // 콘솔 진입점
 
         /// <summary>타격 순간처럼 확 쥐었다 풀리게 한다. amount = 세기(0.2~1 권장).</summary>
         public void PulseGrip(float amount) => gripVel += amount * gripStiff * 0.05f;
 
+        /// <summary>달리기·공중처럼 "그 상태인 동안 계속" 쥐고 있게 한다.</summary>
+        public void SetSustain(float amount) => sustainTarget = Mathf.Clamp01(amount);
+
         /// <summary>절차 그립을 즉시 0으로.</summary>
-        public void ResetGrip() { gripSpring = 0f; gripVel = 0f; }
+        public void ResetGrip() { gripSpring = 0f; gripVel = 0f; sustainTarget = 0f; sustainGrip = 0f; }
 
         static readonly string[] FingerKeys = { "Thumb", "Index", "Middle", "Ring", "Pinky" };
         const int Joints = 3;   // 1·2·3 마디(4는 끝점이라 회전 불필요)
@@ -112,6 +122,34 @@ namespace Game.View
             spread = 0f;
         }
 
+        // ── 프리셋 저장/복원 (기본 그립) ──
+        /// <summary>기준 포즈를 1차원 배열로 내보낸다(5손가락 × 3마디 = 15).</summary>
+        public Quaternion[] ExportRest()
+        {
+            if (!ready) Rebuild();
+            var outArr = new Quaternion[FingerKeys.Length * Joints];
+            for (int f = 0; f < FingerKeys.Length; f++)
+                for (int j = 0; j < Joints; j++)
+                    outArr[f * Joints + j] = rest != null ? rest[f, j] : Quaternion.identity;
+            return outArr;
+        }
+
+        /// <summary>기준 포즈를 되돌리고, 뼈도 즉시 그 포즈로 세팅한다.</summary>
+        public void ImportRest(Quaternion[] data)
+        {
+            if (data == null || data.Length < FingerKeys.Length * Joints) return;
+            if (!ready) Rebuild();
+            for (int f = 0; f < FingerKeys.Length; f++)
+                for (int j = 0; j < Joints; j++)
+                {
+                    rest[f, j] = data[f * Joints + j];
+                    if (chain[f, j] != null) chain[f, j].localRotation = rest[f, j];
+                }
+            grip = thumb = index = middle = ring = pinky = 0f;
+            spread = 0f;
+            ResetGrip();
+        }
+
         /// <summary>손가락별 굽힘 값(전체 grip + 개별 추가분).</summary>
         float CurlOf(int finger)
         {
@@ -119,7 +157,7 @@ namespace Game.View
             {
                 0 => thumb, 1 => index, 2 => middle, 3 => ring, _ => pinky
             };
-            return Mathf.Clamp01(grip + extra + gripSpring);   // 절차 그립을 더함
+            return Mathf.Clamp01(grip + extra + gripSpring + sustainGrip);   // 절차 그립(순간+지속)을 더함
         }
 
         void LateUpdate()
@@ -132,6 +170,8 @@ namespace Game.View
             {
                 gripVel += (-gripStiff * gripSpring - gripDamp * gripVel) * dt;
                 gripSpring += gripVel * dt;
+                // 지속 그립은 목표를 향해 부드럽게 추적(달리기 시작/정지에 뚝 끊기지 않게)
+                sustainGrip = Mathf.Lerp(sustainGrip, sustainTarget, 1f - Mathf.Exp(-sustainSpeed * dt));
             }
             Vector3 axis = curlAxis.sqrMagnitude < 1e-6f ? Vector3.forward : curlAxis.normalized;
             Vector3 sAxis = spreadAxis.sqrMagnitude < 1e-6f ? Vector3.up : spreadAxis.normalized;

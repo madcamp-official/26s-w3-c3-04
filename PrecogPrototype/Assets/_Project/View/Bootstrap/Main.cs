@@ -19,6 +19,8 @@ namespace Game.View
         // 전투 뷰(HUD·카메라고정·히트스톱)가 sim 상태를 읽는 최소 접근자 (읽기 전용)
         public static Main Instance { get; private set; }
         public ref readonly SimWorld World => ref world;
+        /// <summary>직전 틱의 월드. 뷰가 "틱당 실제 이동량"을 재는 데 쓴다(프레임레이트 무관).</summary>
+        public ref readonly SimWorld PrevWorld => ref prevWorld;
         public Camera Cam => cam;
         public CinemachineCamera GameplayVcam => gameplayVcam;   // 연출(FOV킥·Impulse)이 vcam을 건드리게
 
@@ -78,6 +80,7 @@ namespace Game.View
         public void SetLookPitch(float pitch) => input.Pitch = pitch;
         public float LookYaw   => input.Yaw;
         public float LookPitch => input.Pitch;
+        public void SetPredictionSpawnLocked(bool locked) => world.spawnLocked = locked;
 
         /// <summary>컷신 종료 시 플레이어를 현재 시선(yaw) 정면으로 dist만큼 이동(봉인 박스 탈출).
         /// 스크립트 텔레포트라 결정론과 무관(예측 중엔 컷신을 트리거하지 않음). prevWorld도 맞춰 보간 튐 방지.</summary>
@@ -107,7 +110,9 @@ namespace Game.View
         // 개발 콘솔 훅
         public bool AutoSpawn = true;                 // 기본 on. 씬 세팅 있으면 그 값으로 덮음
         const float DevSpawnDistance = 6f;            // 콘솔 소환 위치 = 플레이어 정면 이 거리
-        bool ConsoleOpen => console != null && console.IsOpen;
+        // 콘솔뿐 아니라 개발 패널(F1~F4)이 열려 있어도 입력을 막는다.
+        // 안 그러면 슬라이더를 클릭할 때마다 그 클릭이 공격 입력으로도 들어간다.
+        bool ConsoleOpen => (console != null && console.IsOpen) || DevPanels.AnyOpen;
 
         void Start()
         {
@@ -117,14 +122,22 @@ namespace Game.View
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 
             MapResult map = useSceneGeometry ? MapBuilder.BuildFromScene(refPoint) : MapBuilder.BuildCubes();
+            ArenaMapBake predictionMap = map.predictionMap;
+            if (predictionMap == null || predictionMap.nodes == null || predictionMap.nodes.Length == 0)
+            {
+                predictionMap = GraphPathfinder.CreateArenaBake();
+                Debug.LogWarning("[Prediction] ArenaMapAuthoring이 없어 내장 아레나 그래프를 사용합니다. 씬 지형 변경 시 authoring과 mapVersion을 갱신하세요.");
+            }
+
             // 하이브리드: 평상시 = 런타임 NavMesh(연속 경로·나비 매끄러움).
             // 예측 검색·following 재생 = 고정 그래프(포크·결정론). 둘 다 EnemyMovement가 그대로 씀.
             var collision = new PhysicsCollision(Physics.DefaultRaycastLayers);
+            var navPathfinder = new NavMeshPathfinder();
+            ValidatePredictionMapAgainstNavMesh(predictionMap, navPathfinder);
 
             // 층이동 마커 Bake — 씬의 TraversalLink를 NavMeshLink(평상시) + 그래프 링크(예측)로 굽는다.
             // 같은 소스에서 양쪽을 만들기 때문에 평상시·예측의 층이동이 구조적으로 어긋나지 않는다.
             var markers = FindObjectsByType<TraversalLink>(FindObjectsSortMode.None);
-            var navPathfinder = new NavMeshPathfinder();
 
             // 예측 그래프: 이 씬용으로 구운 에셋이 있으면 그걸 쓰고, 없으면 코드 그래프로 폴백.
             // 폴백 덕분에 SampleScene(하드코딩 그래프)은 굽지 않아도 그대로 동작한다.
@@ -154,6 +167,7 @@ namespace Game.View
             graphServices = new SimServices(collision, graphPathfinder);
 
             world = SimWorld.Create();
+            world.mapVersion = predictionMap.mapVersion;
             world.player = PlayerSim.Spawn(map.playerSpawn);
             spawnPoints = map.spawns;
             spawnTimer = SimConfig.SpawnIntervalTicks;   // 첫 틱부터 소환 시작
@@ -173,6 +187,20 @@ namespace Game.View
                       "  WASD 이동 · 마우스 시점 · Space 더블점프 · Shift+WASD 4방향 대시 · 좌클릭 평타 · 우클릭 런지 · F 예측 · F1 튜닝 · Esc 커서");
         }
 
+        static void ValidatePredictionMapAgainstNavMesh(ArenaMapBake bake, NavMeshPathfinder runtimePathfinder)
+        {
+            int offMesh = 0;
+            for (int i = 0; i < bake.nodes.Length; i++)
+            {
+                Vector3 authored = bake.nodes[i].position;
+                if (!runtimePathfinder.ClampToWalkable(authored, 1.5f, out Vector3 sampled) ||
+                    Vector3.Distance(authored, sampled) > 1.5f)
+                    offMesh++;
+            }
+            if (offMesh > 0)
+                Debug.LogWarning($"[Prediction] mapVersion {bake.mapVersion}: 그래프 노드 {offMesh}/{bake.nodes.Length}개가 런타임 NavMesh와 맞지 않습니다. ArenaMapAuthoring을 다시 베이크하세요.");
+        }
+
         void Update()
         {
             // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능). 컷신 중엔 조작 잠금.
@@ -185,6 +213,10 @@ namespace Game.View
             fixedAccum += Time.deltaTime;
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
             views.Sync(in world, in prevWorld, alpha);
+            if (prediction.state == PredictionController.State.Following
+                && views.PlayerAnchor != null)
+                prediction.UpdateFollowingCameraRenderPose(
+                    views.PlayerAnchor.position, views.PlayerAnchor.eulerAngles.y);
 
             // 정지 중엔 예측 컨트롤러가 카메라를 잡는다(탑다운). 아닐 때만 1인칭. 콘솔·컷신 중엔 시점 고정
             // (컷신 중엔 CinemachineTrack이 컷신 vcam을 잡으므로 게임플레이 vcam pose를 덮지 않는다).
@@ -198,6 +230,25 @@ namespace Game.View
                 }
                 if (input.EscapePressed()) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
             }
+        }
+
+        void OnGUI()
+        {
+            int previousDepth = GUI.depth;
+            GUI.depth = -200;
+            try
+            {
+                prediction.DrawRhythmHud();
+            }
+            finally
+            {
+                GUI.depth = previousDepth;
+            }
+        }
+
+        void OnDisable()
+        {
+            prediction.RestoreNormalTimeScale();
         }
 
         void FixedUpdate()
@@ -247,6 +298,8 @@ namespace Game.View
             // 아니면 예측이 못 본 적이 재생 중에 끼어들어 결과가 어긋난다.
             if (prediction.state != PredictionController.State.Following)
                 SpawnTick();
+            if (prediction.state == PredictionController.State.Following)
+                prediction.AfterFollowingStep();
             // <<< [예측 세션 변경 끝]
 
             // 고정 그래프 층이동 시작 감지
@@ -268,7 +321,8 @@ namespace Game.View
             if (!AutoSpawn) return;   // 콘솔에서 autospawn off 하면 멈춤
 
             int interval = spawnConfig != null ? spawnConfig.intervalTicks : SimConfig.SpawnIntervalTicks;
-            int cap      = spawnConfig != null ? spawnConfig.cap           : SimConfig.SpawnCap;
+            int configuredCap = spawnConfig != null ? spawnConfig.cap : SimConfig.SpawnCap;
+            int cap = Mathf.Min(configuredCap, SimConfig.SpawnCap);
 
             spawnTimer++;
             if (spawnTimer < interval) return;
@@ -278,14 +332,15 @@ namespace Game.View
             if (spawnConfig != null && spawnConfig.entries != null && spawnConfig.entries.Length > 0)
             {
                 SpawnEntry e = spawnConfig.entries[nextSpawn % spawnConfig.entries.Length];
+                var (c, m, s) = SimWorld.ExperimentalAutoSpawn(nextSpawn);
                 nextSpawn++;
                 if (e.point == null) return;
-                var (c, m, s) = MapSpawnConfig.Axes(e.kind);
-                world.AddEnemy(e.point.position, c, m, s);   // 지점별 지정 종류
+                world.AddEnemy(e.point.position, c, m, s);   // 실험 분포, entries는 위치만 사용
             }
             else if (spawnPoints != null && spawnPoints.Count > 0)
             {
-                world.AddEnemy(spawnPoints[nextSpawn % spawnPoints.Count]);   // 폴백: 3축 분포
+                var (c, m, s) = SimWorld.ExperimentalAutoSpawn(nextSpawn);
+                world.AddEnemy(spawnPoints[nextSpawn % spawnPoints.Count], c, m, s);
                 nextSpawn++;
             }
         }
@@ -301,6 +356,11 @@ namespace Game.View
         /// <summary>플레이어 정면에 지정 조합 몹 한 마리 소환.</summary>
         public void DevSpawn(CombatType combat, MobilityType mobility, SizeClass size)
         {
+            if (world.AliveCount() >= SimConfig.SpawnCap)
+            {
+                Debug.LogWarning($"[Spawn] 동시 몬스터 상한 {SimConfig.SpawnCap}마리 — 추가 소환을 거부합니다.");
+                return;
+            }
             float yr = input.Yaw * Mathf.Deg2Rad;
             Vector3 fwd = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
             Vector3 at = world.player.pos + fwd * DevSpawnDistance;

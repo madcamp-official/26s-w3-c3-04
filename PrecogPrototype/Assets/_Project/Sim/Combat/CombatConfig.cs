@@ -21,7 +21,7 @@ namespace Game.Sim
         public const int Damage = 1;
 
         // 플레이어 체력·피격
-        public static int PlayerMaxHp        = 1000000;   // 임시: 테스트용 무한 체력(원래 3)
+        public static int PlayerMaxHp        = 3;
         public static int PlayerHitStunTicks = 0;   // 임시: 피격 경직 0(원래 30). 구조는 유지
 
         // ── 타깃 런지 (우클릭): 둠 글로리킬식. 순간이동급 블링크 → 아래→위 베기. 블링크 틱만 잠금 ──
@@ -33,7 +33,7 @@ namespace Game.Sim
         public static int   LungeMaxStacks      = 2;     // 스택 상한(2). 처치로 +1 충전, 발동 1 소모
         public static int   LungeReserveWindow  = 10;    // 쿨 막판 이 틱 이내(≈0.17초) 클릭 → 예약
         public static float LungeMinRange       = 1.2f;
-        public static float LungeMaxRange       = 12f;
+        public static float LungeMaxRange       = 7f;
         public static float LungeAimRadius      = 2.0f;  // 조준 레이 수직 보정 반경(판정 핵심)
         public static float LungeStopDistance   = 0.9f;  // 적 앞 이 거리 지점으로 이동
         public static float LungeHeightTolerance = 6f;   // 위/아래 허용 높이차(공중 대상 포함)
@@ -41,6 +41,15 @@ namespace Game.Sim
         public static int   LungeBindExtraTicks = 4;     // 바인드 = 블링크+이 여유
         // 임팩트 쫀득함 (View 전용 — 예측 무해)
         public static int   LungeHitStopTicks   = 7;     // 접촉 순간 프리즈(글로리킬 느낌)
+
+        /// <summary>
+        /// 개발용: 대상이 없어도 우클릭으로 찌르기가 나가고 스택·쿨다운을 무시한다.
+        /// 몹 없이 애니메이션만 확인할 때 쓴다(콘솔 <c>lunge on</c>).
+        /// ★ Sim 동작을 바꾸므로 예지(포크) 결과도 같이 바뀐다. 테스트 전용으로만 켤 것.
+        /// </summary>
+        public static bool  DevLungeFree = false;
+        /// <summary>DevLungeFree 상태에서 대상이 없을 때 전방으로 이동하는 거리(m). 0이면 제자리.</summary>
+        public static float DevLungeBlinkDist = 4f;
         public static float LungeFovKick        = 12f;   // 접촉 순간 FOV 킥(도)
 
         // ── 대형몹 글로리킬 처형 (막타 → 컷신). 진행 중 플레이어 무적·조작잠금 ──

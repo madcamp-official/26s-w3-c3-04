@@ -471,7 +471,8 @@ Prediction.FinalResimulation
 
 ### O1 측정
 
-- Profiler Marker
+- [x] Profiler Marker 및 예측 1회 요약 로그(단계별 시간, 확장/틱/중복/사망/최종 후보, GC Alloc)
+- [x] SimStep 세부 계측(Player/Enemy AI/Projectile/Combat/Separation/Navigation clamp)
 - 적 수별 180틱 벤치마크
 - Snapshot GC 측정
 - NavMesh·Physics·분리 비중 확인

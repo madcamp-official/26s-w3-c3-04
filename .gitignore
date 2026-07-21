@@ -14,6 +14,23 @@
 [Ll]ogs/
 [Uu]serSettings/
 [Mm]emoryCaptures/
+[Pp]rofiler[Cc]aptures/
+*_Data/
+*_BurstDebugInformation_DoNotShip/
+
+# --- 원본 에셋 및 무거운 소스 ---
+/imported/
+
+# --- 바이너리 / 빌드 산출물 ---
+*.apk
+*.aab
+*.unitypackage
+*.app
+*.exe
+*.dll
+*.so
+*.dylib
+*.data
 
 # --- 에셋 임포트 캐시 ---
 /[Aa]ssets/[Aa]ssetStoreTools*
@@ -54,18 +71,9 @@ ehthumbs.db
 Thumbs.db
 desktop.ini
 
-# --- 빌드 산출물 ---
-*.apk
-*.aab
-*.unitypackage
-*.app
-
 # --- 크래시 리포트 ---
 sysinfo.txt
 crashlytics-build.properties
 
 # --- Unity 3D 생성 메타 (특정 폴더에 대해서만) ---
 # .meta 파일은 반드시 커밋해야 하므로 무시하지 않는다.
-
-# 원본 에셋 아카이브(압축) — git 비대상
-/imported/

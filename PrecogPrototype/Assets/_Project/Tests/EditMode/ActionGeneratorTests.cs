@@ -100,6 +100,76 @@ namespace Game.Sim.Tests
             Assert.Greater(world.player.vel.y, 0f);
         }
 
+        [Test]
+        public void TerrainLeap_IsGeneratedOnlyForJumpUpEscapeStep()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+            var jumpServices = new SimServices(new StubCollision(), new JumpEscapePathfinder());
+
+            int jumpCount = ActionGenerator.Generate(in world, in jumpServices, in settings, buffer);
+            Assert.IsTrue(Contains(buffer, jumpCount, MacroActionType.TerrainLeap));
+
+            SimServices walkServices = StubServices.Create();
+            int walkCount = ActionGenerator.Generate(in world, in walkServices, in settings, buffer);
+            Assert.IsFalse(Contains(buffer, walkCount, MacroActionType.TerrainLeap));
+        }
+
+        [Test]
+        public void TerrainLeap_QueriesGraphAwayFromNearbyEnemyPressure()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(
+                new Vector3(6f, 0f, 0f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            var pathfinder = new CapturingJumpPathfinder();
+            var services = new SimServices(new StubCollision(), pathfinder);
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            ActionGenerator.Generate(in world, in services, in settings, buffer);
+
+            Assert.Less(pathfinder.lastGoal.x, world.player.pos.x);
+        }
+
+        [Test]
+        public void TerrainLeap_PulsesFirstAndDoubleJump_WhileMovingTowardLink()
+        {
+            MacroAction leap = MacroAction.TerrainLeapAt(90f);
+            InputCmd first = leap.ToInputCmd(leap.targetYaw, 0);
+            InputCmd second = leap.ToInputCmd(leap.targetYaw, 7);
+
+            Assert.IsTrue(first.jump);
+            Assert.IsTrue(second.jump);
+            Assert.AreEqual(Vector2.up, first.move);
+            Assert.AreEqual(90f, leap.targetYaw);
+        }
+
+        sealed class JumpEscapePathfinder : IPathfinder
+        {
+            public PathStep NextStep(Vector3 from, Vector3 to, int agentMask) =>
+                new PathStep { kind = MoveKind.JumpUp, next = from + Vector3.left * 3f + Vector3.up * 2f };
+            public int FloorIdAt(Vector3 position) => 0;
+            public bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh)
+            { onMesh = pos; return true; }
+        }
+
+        sealed class CapturingJumpPathfinder : IPathfinder
+        {
+            public Vector3 lastGoal;
+            public PathStep NextStep(Vector3 from, Vector3 to, int agentMask)
+            {
+                lastGoal = to;
+                return new PathStep { kind = MoveKind.JumpUp, next = from + Vector3.left + Vector3.up };
+            }
+            public int FloorIdAt(Vector3 position) => 0;
+            public bool ClampToWalkable(Vector3 pos, float maxDist, out Vector3 onMesh)
+            { onMesh = pos; return true; }
+        }
+
         static bool Contains(MacroAction[] actions, int count, MacroActionType type)
         {
             for (int i = 0; i < count; i++) if (actions[i].type == type) return true;
@@ -123,6 +193,78 @@ namespace Game.Sim.Tests
             for (int i = 0; i < count; i++)
                 if (buffer[i].type == MacroActionType.Lunge) lungeCount++;
             Assert.AreEqual(2, lungeCount, "유효 타깃 2명이면 런지 후보도 2개 나와야 함(계약 10장)");
+        }
+
+        /// <summary>
+        /// 런지 유효성 판정을 real Sim(PlayerCombat.CanLunge)에 위임한 이후의 회귀 고정.
+        /// 옛 독립 재구현은 "플레이어의 현재 정면 방향" 기준 cone으로 걸러서, 사거리·높이·LOS가
+        /// 전부 유효해도 플레이어 뒤쪽 적은 후보에서 제외됐다 — 실제 게임에서 마우스로 뒤를
+        /// 보고 런지하면 되는 상황과 어긋났다. CanLunge는 "이 대상을 정확히 바라본다면winner"을
+        /// 가정하고 판정하므로, 현재 정면과 무관하게 사거리·높이·LOS만으로 유효해야 한다.
+        /// </summary>
+        [Test]
+        public void Generate_DoesNotOfferLungeBeyondReducedRange()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(
+                new Vector3(0f, 0f, CombatConfig.LungeMaxRange + 3f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int count = ActionGenerator.Generate(in world, in services, in settings, buffer);
+
+            Assert.IsFalse(Contains(buffer, count, MacroActionType.Lunge),
+                "줄인 최대 사거리 밖에서는 즉시 런지 후보가 열리면 안 된다.");
+        }
+
+        [Test]
+        public void DashMacro_ClosesDistance_AndUnlocksLungeCandidate()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(
+                new Vector3(0f, 0f, CombatConfig.LungeMaxRange + 3f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+            world.enemies[0].combat.bindTicks = PredictionSettings.MacroTicksPerStep + 1;
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int beforeCount = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            Assert.IsFalse(Contains(buffer, beforeCount, MacroActionType.Lunge),
+                "대시 전에는 런지 사거리 밖이어야 한다.");
+
+            MacroAction dash = MacroAction.Simple(MacroActionType.DashForward);
+            for (int tick = 0; tick < PredictionSettings.MacroTicksPerStep; tick++)
+            {
+                InputCmd input = dash.ToInputCmd(0f, tick);
+                SimStep.Run(ref world, in input, in services);
+            }
+
+            int afterCount = ActionGenerator.Generate(in world, in services, in settings, buffer);
+            Assert.IsTrue(Contains(buffer, afterCount, MacroActionType.Lunge),
+                "한 예측 구간의 전방 대시 뒤에는 런지 후보가 열려야 한다.");
+        }
+
+        [Test]
+        public void Generate_ProducesLungeCandidate_ForValidTargetBehindPlayer()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);   // yaw=0 → 정면은 +Z
+            world.AddEnemy(new Vector3(0f, 0f, -3f));        // 정반대 방향(-Z), 사거리·높이는 유효
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int count = ActionGenerator.Generate(in world, in services, in settings, buffer);
+
+            bool hasLunge = false;
+            for (int i = 0; i < count; i++)
+                if (buffer[i].type == MacroActionType.Lunge) hasLunge = true;
+            Assert.IsTrue(hasLunge, "사거리·높이·LOS가 유효하면 정면 밖(뒤쪽) 적도 런지 후보여야 함");
         }
 
         [Test]

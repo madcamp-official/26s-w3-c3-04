@@ -57,6 +57,57 @@ namespace Game.Sim.Tests
                 Assert.AreEqual(first.predictedFrames[i].playerPosition, second.predictedFrames[i].playerPosition, $"틱 {i}: 위치 불일치");
                 Assert.AreEqual(first.predictedFrames[i].playerYaw, second.predictedFrames[i].playerYaw, $"틱 {i}: yaw 불일치");
             }
+            Assert.AreEqual(first.defeatEvents.Length, second.defeatEvents.Length);
+            for (int i = 0; i < first.defeatEvents.Length; i++)
+            {
+                Assert.AreEqual(first.defeatEvents[i].tick, second.defeatEvents[i].tick);
+                Assert.AreEqual(first.defeatEvents[i].enemyId, second.defeatEvents[i].enemyId);
+                Assert.AreEqual(first.defeatEvents[i].worldPosition, second.defeatEvents[i].worldPosition);
+            }
+        }
+
+        [Test]
+        public void Replay_RecordsDefeatAtSameTickAndPosition_AsLegacySecondReplay()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(new Vector3(0f, 0f, 3f));
+            world.enemies[0].combat.health = 1;
+            SimServices services = StubServices.Create();
+            var candidate = new CandidatePath
+            {
+                actions = new[] { MacroAction.LungeTo(world.enemies[0].id) },
+                mapVersion = world.mapVersion,
+            };
+
+            const int replayTicks = 30;
+            Assert.IsTrue(CandidateReplayer.Replay(in world, in services, candidate, replayTicks));
+
+            SimWorld legacy = Snapshot.Clone(in world);
+            bool wasDefeated = !legacy.enemies[0].alive || legacy.enemies[0].combat.gloryStage > 0;
+            int expectedTick = -1;
+            Vector3 expectedPosition = default;
+            for (int tick = 0; tick < replayTicks; tick++)
+            {
+                MacroAction action = candidate.actions[0];
+                float yaw = action.ResolveYaw(in legacy, BeamSearch.ComputeAimYaw(in legacy));
+                InputCmd cmd = action.ToInputCmd(yaw, tick);
+                SimStep.Run(ref legacy, in cmd, in services);
+                bool defeated = !legacy.enemies[0].alive || legacy.enemies[0].combat.gloryStage > 0;
+                if (!wasDefeated && defeated)
+                {
+                    expectedTick = tick;
+                    expectedPosition = legacy.enemies[0].pos;
+                    break;
+                }
+                wasDefeated = defeated;
+            }
+
+            Assert.GreaterOrEqual(expectedTick, 0, "테스트 픽스처가 실제 처치를 만들어야 함");
+            Assert.AreEqual(1, candidate.defeatEvents.Length);
+            Assert.AreEqual(expectedTick, candidate.defeatEvents[0].tick);
+            Assert.AreEqual(world.enemies[0].id, candidate.defeatEvents[0].enemyId);
+            Assert.AreEqual(expectedPosition, candidate.defeatEvents[0].worldPosition);
         }
 
         [Test]
@@ -83,6 +134,31 @@ namespace Game.Sim.Tests
         }
 
         [Test]
+        public void Replay_RecordsLungeEvent_AtRealTriggerTick()
+        {
+            // LungeWindupTicks=0이라 PlayerCombat.Step은 LgNone에서 곧장 LgTravel로 넘어간다
+            // (LgWindup을 절대 거치지 않는다) — DetectEvents가 이 실제 전이를 잡는지 검증.
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(new Vector3(0f, 0f, 3f));
+            SimServices services = StubServices.Create();
+
+            var candidate = new CandidatePath
+            {
+                actions = new[] { MacroAction.LungeTo(world.enemies[0].id) },
+                mapVersion = world.mapVersion,
+            };
+
+            bool ok = CandidateReplayer.Replay(in world, in services, candidate, 15);
+
+            Assert.IsTrue(ok);
+            bool hasLungeEvent = false;
+            foreach (PredictedActionEvent e in candidate.actionEvents)
+                if (e.type == PredictedActionType.Lunge) hasLungeEvent = true;
+            Assert.IsTrue(hasLungeEvent, "런지(우클릭) 발동 이벤트가 기록돼야 함 — LgNone→LgTravel 전이를 잡아야 함");
+        }
+
+        [Test]
         public void Replay_Fails_WhenMapVersionMismatches()
         {
             SimWorld world = SimWorld.Create();
@@ -99,6 +175,72 @@ namespace Game.Sim.Tests
 
             Assert.IsFalse(ok);
             Assert.AreEqual(0, candidate.predictedFrames.Length);
+            Assert.AreEqual(0, candidate.defeatEvents.Length);
+        }
+
+        [TestCase(-3, RhythmJudgement.Perfect)]
+        [TestCase(3, RhythmJudgement.Perfect)]
+        [TestCase(-8, RhythmJudgement.Good)]
+        [TestCase(8, RhythmJudgement.Good)]
+        public void RhythmJudge_UsesInclusivePerfectAndGoodBoundaries(
+            int offset, RhythmJudgement expected)
+        {
+            var judge = new RhythmJudge(new[]
+            {
+                new PredictedActionEvent { tick = 20, type = PredictedActionType.Attack, targetId = -1 }
+            });
+
+            Assert.AreEqual(expected, judge.Submit(PredictedActionType.Attack, 20 + offset));
+            Assert.AreEqual(expected, judge.GetJudgement(0));
+        }
+
+        [Test]
+        public void RhythmJudge_WrongInputDoesNotConsume_AndMissingInputMissesAtGoodWindowEnd()
+        {
+            var judge = new RhythmJudge(new[]
+            {
+                new PredictedActionEvent { tick = 10, type = PredictedActionType.Jump, targetId = -1 }
+            });
+
+            Assert.AreEqual(RhythmJudgement.Pending,
+                judge.Submit(PredictedActionType.Attack, 10));
+            Assert.AreEqual(-1, judge.CompleteTick(10 + RhythmJudge.GoodWindowTicks - 1));
+            Assert.AreEqual(0, judge.CompleteTick(10 + RhythmJudge.GoodWindowTicks));
+            Assert.AreEqual(RhythmJudgement.Miss, judge.GetJudgement(0));
+        }
+
+        [Test]
+        public void RhythmJudge_EarlyInputBuffersOnlyOneNearestMatchingEvent()
+        {
+            var judge = new RhythmJudge(new[]
+            {
+                new PredictedActionEvent { tick = 10, type = PredictedActionType.Attack, targetId = -1 },
+                new PredictedActionEvent { tick = 14, type = PredictedActionType.Attack, targetId = -1 },
+            });
+
+            Assert.AreEqual(RhythmJudgement.Perfect,
+                judge.Submit(PredictedActionType.Attack, 12));
+            Assert.AreEqual(RhythmJudgement.Perfect, judge.GetJudgement(0));
+            Assert.AreEqual(RhythmJudgement.Pending, judge.GetJudgement(1));
+        }
+
+        [Test]
+        public void RhythmJudge_DisplayTimeMapping_AlignsExactVisualTargetWithEventTick()
+        {
+            const int eventTick = 120;
+            const float targetRealTime = 10f;
+            const float lateGoodSeconds = 0.42f;
+
+            Assert.AreEqual(eventTick, RhythmJudge.MapDisplayTimeToTick(
+                targetRealTime, targetRealTime, eventTick, lateGoodSeconds));
+            Assert.AreEqual(eventTick - RhythmJudge.PerfectWindowTicks,
+                RhythmJudge.MapDisplayTimeToTick(
+                    targetRealTime - RhythmJudge.PerfectWindowTicks / (float)SimConfig.TickRate,
+                    targetRealTime, eventTick, lateGoodSeconds));
+            Assert.AreEqual(eventTick + RhythmJudge.GoodWindowTicks,
+                RhythmJudge.MapDisplayTimeToTick(
+                    targetRealTime + lateGoodSeconds,
+                    targetRealTime, eventTick, lateGoodSeconds));
         }
     }
 }

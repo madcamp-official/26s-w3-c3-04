@@ -177,7 +177,10 @@ namespace Game.Sim
                 float sepScale = Mathf.Lerp(AIConfig.SeparationScaleMin, 1f, e.personality);
                 Vector3 steer = dir + sep * (AIConfig.SeparationWeight * sepScale);
                 if (steer.sqrMagnitude > 1e-6f) dir = steer.normalized;
-                horiz = dir * SimConfig.EnemyMoveSpeed * dt;
+                // 돌진몹은 커밋 전 평소 추격만 살짝 느리게(ChargeRun 본 속도는 안 건드림) — 실물 모델 Walk
+                // 애니메이션이 전속력을 못 따라가 미끄러지듯 보이는 문제.
+                float speedMul = e.ai.mobility == MobilityType.Charge ? AIConfig.ChargeChaseSpeedMul : 1f;
+                horiz = dir * SimConfig.EnemyMoveSpeed * speedMul * dt;
             }
             Move(ref e, horiz, in svc, dt);
         }

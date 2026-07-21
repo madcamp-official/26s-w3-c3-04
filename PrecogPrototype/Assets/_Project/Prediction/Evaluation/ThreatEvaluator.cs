@@ -51,12 +51,95 @@ namespace Game.Prediction
                 return s;
             }
 
-            s.safety = world.player.combat.hp * PredictionScoreConfig.HpWeight
+            // 미래 위험/기회 관측은 한 번만 계산해 감점·가점 양쪽에 재사용한다.
+            FutureThreatObservation obs = FutureThreatObserver.Observe(in world);
+
+            int scoredHp = Mathf.Min(world.player.combat.hp, PredictionScoreConfig.ScoredPlayerHpCap);
+            if (world.player.combat.hp > PredictionScoreConfig.ScoredPlayerHpCap)
+                scoredHp = Mathf.Max(0, PredictionScoreConfig.ScoredPlayerHpCap - hitsTaken);
+            s.safety = scoredHp * PredictionScoreConfig.HpWeight
                      + SafetyBonus(in world) * PredictionScoreConfig.SafeDistanceWeight
                      - SurroundedExcess(in world) * PredictionScoreConfig.SurroundedWeight
-                     - ProjectileThreatPenalty(in world);
+                     - SpecialThreatPenalty(in obs);
+
+            // 공중 적 마무리 기회(형태 유도): 아직 피해가 없는 접근/점프 중간 스텝이 Beam에서
+            // 살아남아 실제 처치까지 이어지도록만 돕는 작은 가점. 실제 피해/처치가 항상 더 크다.
+            s.kill += obs.strikeableFlyingEnemyCount * PredictionScoreConfig.AerialOpportunityWeight;
+
             // difficulty는 이번 롤백에서 비움(계약의 대시 보존/반복 페널티가 회귀 원인이라 제외).
             return s;
+        }
+
+        /// <summary>
+        /// 프로필별(안전형/절충형/공격형) 재조정. 기존 Score()가 계산한 세 버킷(safety/kill/
+        /// difficulty)의 내부 로직은 그대로 재사용하고, safety·kill 버킷에 배율 + 최소 킬
+        /// 확보 보너스만 얹는다 — 위험/기회 관측(FutureThreatObserver) 자체를 프로필마다
+        /// 새로 만들지 않는다. 사망(hp≤0)이면 PlayerDeath 센티널을 그대로 보존한다(배율을
+        /// 곱하면 프로필마다 다른 크기의 사망 점수가 나와 폴백 비교 로직이 왜곡된다).
+        /// </summary>
+        public static ScoreBreakdown Score(
+            in SimWorld world,
+            int killCountNormal, int killCountMid, int damageDealt, int hitsTaken,
+            bool isRepeatedAction, in ScoreProfile profile)
+            => Score(in world, killCountNormal, killCountMid, damageDealt, hitsTaken,
+                isRepeatedAction, in profile, includeOpportunityTerminalBonus: true);
+
+        /// <summary>
+        /// Opportunity posture is a terminal-state objective. Intermediate search nodes must not
+        /// earn it merely for preserving an action instead of taking that action.
+        /// </summary>
+        public static ScoreBreakdown Score(
+            in SimWorld world,
+            int killCountNormal, int killCountMid, int damageDealt, int hitsTaken,
+            bool isRepeatedAction, in ScoreProfile profile, bool includeOpportunityTerminalBonus)
+        {
+            ScoreBreakdown s = Score(in world, killCountNormal, killCountMid, damageDealt, hitsTaken, isRepeatedAction);
+            if (world.player.combat.hp <= 0) return s;
+
+            s.safety *= profile.safetyMul;
+            s.kill *= profile.killMul;
+
+            if (profile.minKillThreshold > 0 && killCountNormal + killCountMid >= profile.minKillThreshold)
+                s.kill += profile.minKillBonus;
+
+            if (profile.useOpportunityBonus && includeOpportunityTerminalBonus)
+                s.kill += OpportunityBonus(OpportunityObserver.Observe(in world));
+
+            return s;
+        }
+
+        /// <summary>
+        /// OpportunityObservation을 부호 있는 점수로 변환한다 — 기회형 프로필 전용.
+        /// 우선순위(다음 처치 가능성 > 유리한 위치 > 자원 보존 > 현재 피해)를 값 크기로 반영:
+        /// 처형 임박·런지 가능(다음 처치 가능성)이 가장 크고, 부채꼴·측후방·고지대(유리한 위치)가
+        /// 중간, 자원 보존이 가장 작다. 감점 쪽은 "당장 피해는 됐지만 후속이 막힘"과 "위험한
+        /// 위치에서 종료"를 하나(lockedInDangerousRecovery)로 묶어 반영했다(둘 다 본질적으로
+        /// "조작이 묶인 채 위협에 노출"이라 별도 신호로 안 나눔).
+        /// </summary>
+        static float OpportunityBonus(in OpportunityObservation obs)
+        {
+            float bonus = 0f;
+
+            // 다음 처치 가능성 (최우선)
+            bonus += obs.lungeableCount * PredictionScoreConfig.OpportunityLungeableWeight;
+            bonus += obs.executionReadyLargeCount * PredictionScoreConfig.OpportunityExecutionReadyWeight;
+
+            // 유리한 위치
+            bonus += obs.coneEnemyCount * PredictionScoreConfig.OpportunityConeEnemyWeight;
+            bonus += obs.flankedRangedCount * PredictionScoreConfig.OpportunityFlankWeight;
+            if (obs.hasHeightAdvantage) bonus += PredictionScoreConfig.OpportunityHeightAdvantageBonus;
+
+            // 자원 보존
+            if (obs.dashPreserved) bonus += PredictionScoreConfig.OpportunityResourcePreserveWeight;
+            if (obs.lungePreserved) bonus += PredictionScoreConfig.OpportunityResourcePreserveWeight;
+            if (obs.readyToActNow) bonus += PredictionScoreConfig.OpportunityReadyToActBonus;
+
+            // 감점: 적 무리 중앙 종료, 모든 이동 자원 소진, 위험한 위치에서 조작 묶임
+            bonus -= obs.surroundedExcessCount * PredictionScoreConfig.OpportunitySurroundedCenterPenalty;
+            if (obs.allMobilityResourcesSpent) bonus -= PredictionScoreConfig.OpportunityAllResourcesSpentPenalty;
+            if (obs.lockedInDangerousRecovery) bonus -= PredictionScoreConfig.OpportunityLockedInDangerPenalty;
+
+            return bonus;
         }
 
         static float SafetyBonus(in SimWorld world)
@@ -79,13 +162,23 @@ namespace Game.Prediction
         /// 원거리 솔저 투사체가 명중 궤도(FutureThreatObserver 기준)면, 임박할수록 커지는 감점을 준다.
         /// 명중이 이번 매크로 스텝 시야 밖(더 뒤)이어도 미리 피하도록 유도 — 새 원거리 적 인지용 항목.
         /// </summary>
-        static float ProjectileThreatPenalty(in SimWorld world)
+        static float SpecialThreatPenalty(in FutureThreatObservation obs)
         {
-            FutureThreatObservation obs = FutureThreatObserver.Observe(in world);
-            if (obs.nearestProjectileImpactTicks >= PredictionScoreConfig.ProjectileImpactHorizonTicks)
-                return 0f;
-            int urgency = PredictionScoreConfig.ProjectileImpactHorizonTicks - obs.nearestProjectileImpactTicks;
-            return urgency * PredictionScoreConfig.ProjectileImpactWeight;
+            float penalty = 0f;
+            if (obs.nearestProjectileImpactTicks < PredictionScoreConfig.ProjectileImpactHorizonTicks)
+            {
+                int urgency = PredictionScoreConfig.ProjectileImpactHorizonTicks - obs.nearestProjectileImpactTicks;
+                penalty += urgency * PredictionScoreConfig.ProjectileImpactWeight;
+            }
+            if (obs.nearestChargeImpactTicks < PredictionScoreConfig.ChargeImpactHorizonTicks)
+            {
+                int urgency = PredictionScoreConfig.ChargeImpactHorizonTicks - obs.nearestChargeImpactTicks;
+                penalty += urgency * PredictionScoreConfig.ChargeImpactWeight;
+            }
+            // 조준/발사 중인 공중 적만 감점 — 단순 부유는 회피가 아니라 처치 대상(위 kill 가점 참고).
+            penalty += obs.aimingFlyingEnemyCount * PredictionScoreConfig.FlyingThreatWeight;
+            penalty += obs.activeTraversalCount * PredictionScoreConfig.TraversalCommitmentWeight;
+            return penalty;
         }
 
         static int SurroundedExcess(in SimWorld world)

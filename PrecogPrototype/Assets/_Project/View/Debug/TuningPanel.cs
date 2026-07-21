@@ -60,7 +60,8 @@ namespace Game.View
         {
             var kb = Keyboard.current;
             if (kb == null) return;
-            if (kb.f2Key.wasPressedThisFrame)
+            // F2는 포즈 재생 패널이 쓰므로 NavMesh 시각화는 F6으로 옮겼다(같이 토글되던 충돌 해소).
+            if (kb.f6Key.wasPressedThisFrame)
             {
                 var v = NavMeshDebugView.Toggle();
                 Debug.Log(v != null
@@ -71,6 +72,7 @@ namespace Game.View
             {
                 if (!captured) Capture();
                 open = !open;
+                DevPanels.TuningPanelOpen = open;
                 Cursor.lockState = open ? CursorLockMode.None : CursorLockMode.Locked;
                 Cursor.visible = open;
             }

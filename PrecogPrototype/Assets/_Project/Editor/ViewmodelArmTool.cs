@@ -26,6 +26,7 @@ namespace Game.EditorTools
         bool includeShoulder = true;      // 어깨 포함(팔꿈치에서 자르면 스윙 때 단면이 보임 → 기본 켬)
         float weightThreshold = 0.5f;     // 정점이 팔 뼈에 이만큼 이상 묶여야 "팔"로 인정
         bool strictTriangles = true;      // 삼각형의 세 정점이 모두 팔이어야 유지(경계가 깔끔)
+        bool removeUnusedBones = true;    // 안 쓰는 뼈(다리·척추·머리) GameObject까지 제거
 
         Mesh originalMesh;                // 되돌리기용
 
@@ -52,6 +53,12 @@ namespace Game.EditorTools
             includeShoulder = EditorGUILayout.Toggle(new GUIContent("어깨 포함", "끄면 위팔부터. 스윙 때 단면이 보일 수 있어 켜는 걸 권장"), includeShoulder);
             weightThreshold = EditorGUILayout.Slider(new GUIContent("가중치 임계값", "낮출수록 더 많이 남음"), weightThreshold, 0.05f, 0.95f);
             strictTriangles = EditorGUILayout.Toggle(new GUIContent("경계 엄격", "세 정점이 모두 팔일 때만 유지(경계가 깔끔)"), strictTriangles);
+            removeUnusedBones = EditorGUILayout.Toggle(
+                new GUIContent("안 쓰는 뼈도 제거", "다리·척추·머리 뼈 GameObject까지 삭제해 계층을 정리. Generic 리그에서만 쓰십시오"),
+                removeUnusedBones);
+            if (removeUnusedBones)
+                EditorGUILayout.HelpBox("뼈 제거는 씬 인스턴스에 되돌릴 수 없습니다. 문제가 생기면 fbx를 씬에 다시 드래그하십시오.\n" +
+                                        "(Humanoid 리그로 쓸 계획이면 끄십시오 — Humanoid는 전체 본 세트를 요구합니다.)", MessageType.Warning);
 
             EditorGUILayout.Space();
 
@@ -167,7 +174,95 @@ namespace Game.EditorTools
             target.sharedMesh = dst;
             EditorUtility.SetDirty(target);
 
-            Debug.Log($"[팔만 남기기] 완료 — 삼각형 {kept}/{total} 유지 (팔 본 {keptBoneCount}개 기준)\n  저장: {path}");
+            string boneMsg = "";
+            if (removeUnusedBones) boneMsg = CleanBones(dst, path);
+
+            Debug.Log($"[팔만 남기기] 완료 — 삼각형 {kept}/{total} 유지 (팔 본 {keptBoneCount}개 기준)\n  저장: {path}{boneMsg}");
+        }
+
+        /// <summary>
+        /// 남은 삼각형이 실제로 쓰는 뼈만 남기고 나머지 뼈 GameObject를 제거한다.
+        /// 스킨드 메시는 bones[] 순서와 정점의 본 인덱스가 맞물려 있으므로,
+        /// 단순 삭제가 아니라 <b>인덱스 재매핑 + 바인드포즈 재구성</b>이 필요하다.
+        /// </summary>
+        string CleanBones(Mesh mesh, string meshPath)
+        {
+            Transform[] bones = target.bones;
+            Matrix4x4[] binds = mesh.bindposes;
+            BoneWeight[] bw = mesh.boneWeights;
+
+            // 1) 남은 삼각형이 쓰는 정점 → 그 정점이 쓰는 뼈 수집
+            var used = new bool[bones.Length];
+            for (int sm = 0; sm < mesh.subMeshCount; sm++)
+            {
+                int[] tris = mesh.GetTriangles(sm);
+                foreach (int vi in tris)
+                {
+                    BoneWeight w = bw[vi];
+                    if (w.weight0 > 0f) used[w.boneIndex0] = true;
+                    if (w.weight1 > 0f) used[w.boneIndex1] = true;
+                    if (w.weight2 > 0f) used[w.boneIndex2] = true;
+                    if (w.weight3 > 0f) used[w.boneIndex3] = true;
+                }
+            }
+
+            // 유지 뼈의 조상도 남겨야 계층이 끊기지 않는다? → FP 뷰모델에선 불필요.
+            // 대신 "유지 뼈 중 부모가 유지 대상이 아닌 것"을 최상위로 끌어올린다.
+            var keepSet = new HashSet<Transform>();
+            for (int i = 0; i < bones.Length; i++) if (used[i] && bones[i] != null) keepSet.Add(bones[i]);
+            if (keepSet.Count == 0) return "\n  (뼈 정리 생략 — 사용 뼈 없음)";
+
+            // 2) 최상위 유지 뼈들을 모델 루트로 이동(월드 좌표 유지 → 바인드포즈 유효)
+            Transform modelRoot = target.transform.parent != null ? target.transform.parent : target.transform;
+            Transform oldSkeletonRoot = target.rootBone;
+            var topKept = new List<Transform>();
+            foreach (var b in keepSet)
+                if (b.parent == null || !keepSet.Contains(b.parent)) topKept.Add(b);
+            foreach (var t in topKept)
+                Undo.SetTransformParent(t, modelRoot, "뼈 정리");
+
+            // 3) 남은 스켈레톤(안 쓰는 뼈 전체) 제거
+            int removed = 0;
+            if (oldSkeletonRoot != null && !keepSet.Contains(oldSkeletonRoot))
+            {
+                removed = oldSkeletonRoot.GetComponentsInChildren<Transform>(true).Length;
+                Undo.DestroyObjectImmediate(oldSkeletonRoot.gameObject);
+            }
+
+            // 4) bones[]·bindposes 재구성 + 정점 본 인덱스 재매핑
+            var map = new int[bones.Length];
+            var newBones = new List<Transform>();
+            var newBinds = new List<Matrix4x4>();
+            for (int i = 0; i < bones.Length; i++)
+            {
+                if (used[i] && bones[i] != null)
+                {
+                    map[i] = newBones.Count;
+                    newBones.Add(bones[i]);
+                    newBinds.Add(i < binds.Length ? binds[i] : Matrix4x4.identity);
+                }
+                else map[i] = 0;   // 안 쓰는 뼈를 참조하던 정점은 0번으로(가중치 0이라 영향 없음)
+            }
+
+            for (int v = 0; v < bw.Length; v++)
+            {
+                BoneWeight w = bw[v];
+                w.boneIndex0 = map[w.boneIndex0];
+                w.boneIndex1 = map[w.boneIndex1];
+                w.boneIndex2 = map[w.boneIndex2];
+                w.boneIndex3 = map[w.boneIndex3];
+                bw[v] = w;
+            }
+            mesh.boneWeights = bw;
+            mesh.bindposes   = newBinds.ToArray();
+            EditorUtility.SetDirty(mesh);
+            AssetDatabase.SaveAssets();
+
+            target.bones = newBones.ToArray();
+            target.rootBone = topKept.Count > 0 ? topKept[0] : null;
+            EditorUtility.SetDirty(target);
+
+            return $"\n  뼈 정리: {newBones.Count}개 유지 · {removed}개 제거 (최상위 {topKept.Count}개를 루트로 이동)";
         }
 
         static void EnsureFolder(string path)

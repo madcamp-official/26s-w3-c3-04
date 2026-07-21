@@ -34,7 +34,7 @@ namespace Game.View
         [Tooltip("스폰 주기(틱, 60틱=1초)")]
         public int intervalTicks = 45;
         [Tooltip("동시 최대 적 수")]
-        public int cap = 40;
+        public int cap = 12;
         [Tooltip("스폰 지점 + 그 지점에서 나올 종류")]
         public SpawnEntry[] entries;
 
