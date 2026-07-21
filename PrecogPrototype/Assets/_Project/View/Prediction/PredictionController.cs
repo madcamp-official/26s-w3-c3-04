@@ -292,9 +292,9 @@ namespace Game.View
         void UpdateRhythmTimeScale()
         {
             float target = 1f;
-            if (state == State.Following && rhythmJudge != null)
+            if (state == State.Following)
             {
-                int pending = rhythmJudge.FirstPendingIndex;
+                int pending = rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1;
                 if (pending >= 0)
                 {
                     if (pending != rhythmSegmentEventIndex)
@@ -315,6 +315,16 @@ namespace Game.View
 
                     int eventTick = rhythmJudge.GetEvent(pending).tick;
                     target = ApplyMovementPacing(followingIndex, eventTick, target);
+                }
+                else
+                {
+                    // [예측 세션 수정, 2026-07-21] 판정 대상 액션이 하나도 없는 구간(적이 없거나
+                    // 남은 액션을 모두 처리한 뒤)엔 이 블록 자체가 안 돌아서 걷기 가속·회전 감쇠가
+                    // 전혀 적용되지 않고 내내 1배속이었다 — "적 없을 때 예측을 따라가면 밋밋하게
+                    // 멈췄다 간다"는 피드백의 원인. eventTick을 충분히 멀리 잡아서(가짜 값) 아래
+                    // ApplyMovementPacing이 항상 "판정 임박 아님" 분기(걷기 가속)를 타게 한다.
+                    int farEventTick = followingIndex + PredictionConfig.RhythmApproachTicks + 1;
+                    target = ApplyMovementPacing(followingIndex, farEventTick, target);
                 }
             }
             Time.timeScale = target;
