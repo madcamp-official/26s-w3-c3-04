@@ -74,14 +74,19 @@ namespace Game.EditorTools
             // ── 봉인 박스(봉인해제 컷신용 임시 프롭) ──
             Box("Restraint", new Vector3(0f, 2.5f, 0f), new Vector3(3f, 5f, 2f), propMat);
 
+            // ── 컷신 리그(Rig/VCam/Director/Manager + 타임라인)까지 설치 ──
+            CutsceneRigTool.InstallRig();
+
             // ── 저장 ──
             System.IO.Directory.CreateDirectory(SceneDir);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.Refresh();
 
             Debug.Log($"[컷신 스튜디오] 생성 완료: {ScenePath}\n" +
-                      "  Game 뷰 = 1인칭 화면. Main Camera 자식의 KatanaViewmodel > PoseTarget 에 키프레임을 찍으십시오.\n" +
-                      "  Ctrl+6(Animation 창) → 루트 선택 → 클립 선택 → PoseTarget 선택 → 녹화(●).");
+                      "  Game 뷰 = 1인칭 화면.\n" +
+                      "  · 칼 스윙 authoring: Main Camera > KatanaViewmodel > PoseTarget 에 키프레임(Ctrl+6)\n" +
+                      "  · 컷신 authoring: CutsceneDirector 선택 → Timeline 창 → CutsceneVCam 트랙 녹화\n" +
+                      "  · 재생 확인: Play 후 C 키");
         }
 
         /// <summary>콜라이더 포함 박스 생성(맵 지형용).</summary>

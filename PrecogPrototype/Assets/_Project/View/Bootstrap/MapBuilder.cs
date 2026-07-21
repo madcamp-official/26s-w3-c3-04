@@ -12,6 +12,7 @@ namespace Game.View
         public List<Vector3> spawns = new();
         public Vector3 playerSpawn;
         public ArenaMapBake predictionMap;
+        public float playerYaw = 180f;   // 시작 시 바라보는 방향(PlayerSpawnPoint의 Y회전). 없으면 남쪽.
     }
 
     /// <summary>
@@ -117,22 +118,42 @@ namespace Game.View
         public static MapResult BuildFromScene(Vector3 refPoint)
         {
             Physics.SyncTransforms();
-            var surface = new GameObject("NavMeshSurface").AddComponent<NavMeshSurface>();
-            surface.collectObjects = CollectObjects.All;
-            surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-            surface.BuildNavMesh();
 
+            // 에디터에서 미리 구운 NavMesh(NavMeshSurface + 저장된 데이터)가 있으면 그대로 쓴다 →
+            // Play 즉시 시작. 없을 때만 런타임 베이크로 폴백(예전 씬·임시 씬 호환).
             var tri = NavMesh.CalculateTriangulation();
-            Debug.Log(tri.vertices != null && tri.vertices.Length > 0
-                ? $"[Map] 씬 지형 NavMesh 베이크(콜라이더) — 정점 {tri.vertices.Length}"
-                : "[Map] 씬 지형 NavMesh 실패 — 콜라이더 확인");
+            if (tri.vertices == null || tri.vertices.Length == 0)
+            {
+                var surface = new GameObject("NavMeshSurface(런타임)").AddComponent<NavMeshSurface>();
+                surface.collectObjects = CollectObjects.All;
+                surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+                surface.BuildNavMesh();
+                tri = NavMesh.CalculateTriangulation();
+                Debug.Log(tri.vertices != null && tri.vertices.Length > 0
+                    ? $"[Map] 런타임 NavMesh 베이크 — 정점 {tri.vertices.Length}  (Tools/맵 굽기 로 미리 구우면 Play가 즉시 시작됩니다)"
+                    : "[Map] NavMesh 베이크 실패 — 콜라이더를 확인하십시오");
+            }
+            else Debug.Log($"[Map] 미리 구운 NavMesh 사용 — 정점 {tri.vertices.Length}");
 
             var r = new MapResult();
             ArenaMapAuthoring authored = Object.FindFirstObjectByType<ArenaMapAuthoring>();
             if (authored != null)
                 r.predictionMap = authored.BuildBake();
-            if (NavMesh.SamplePosition(refPoint, out var p, 80f, NavMesh.AllAreas))
+
+            // 플레이어 시작점: 씬의 PlayerSpawnPoint 우선. 없으면 예전 방식(카메라 위치)으로 폴백.
+            var sp = Object.FindFirstObjectByType<PlayerSpawnPoint>();
+            Vector3 want = sp != null ? sp.transform.position : refPoint;
+            if (sp != null) r.playerYaw = sp.transform.eulerAngles.y;
+            else Debug.LogWarning("[Map] PlayerSpawnPoint가 없어 카메라 위치 기준으로 스폰합니다. " +
+                                  "빈 오브젝트에 PlayerSpawnPoint를 붙이면 시작 위치·방향이 고정됩니다.");
+
+            if (NavMesh.SamplePosition(want, out var p, 80f, NavMesh.AllAreas))
                 r.playerSpawn = p.position;
+            else
+            {
+                r.playerSpawn = want;   // navmesh를 못 찾아도 (0,0,0)으로 떨어지지 않게 지정 좌표 유지
+                Debug.LogWarning("[Map] 시작점 근처에 NavMesh가 없습니다 — 좌표를 그대로 사용합니다. 콜라이더/베이크를 확인하십시오.");
+            }
             for (int i = 0; i < 5; i++)
             {
                 float a = i / 5f * Mathf.PI * 2f;

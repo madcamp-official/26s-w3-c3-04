@@ -171,8 +171,12 @@ namespace Game.View
                 baseData.cameraStack.Add(accentCamera);
         }
 
-        /// <summary>Main.Update에서 매 프레임 호출.</summary>
-        public void Tick(in SimWorld w)
+        /// <summary>
+        /// Main.Update에서 매 프레임 호출.
+        /// inputBlocked=true면 키·마우스 입력을 무시한다(개발 콘솔에 타이핑 중 등).
+        /// 표시·카메라 갱신은 계속 돌아야 하므로 입력만 막는다.
+        /// </summary>
+        public void Tick(in SimWorld w, bool inputBlocked = false)
         {
             fx.Update();
             UpdateRhythmTimeScale();
@@ -183,14 +187,15 @@ namespace Game.View
 
             if (state == State.Idle)
             {
-                if (kb.fKey.wasPressedThisFrame) Enter(in w);
+                if (!inputBlocked && kb.fKey.wasPressedThisFrame) Enter(in w);
                 return;
             }
 
             if (state == State.Following)
             {
-                if (kb.escapeKey.wasPressedThisFrame)
-                { Exit(); return; }
+                if (!inputBlocked &&
+                    (kb.escapeKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame)))
+                { Exit(); return; }   // 건너뛰기
                 CaptureRhythmInputs(kb, mouse);
 
                 // 실제 이동·전투는 Main.FixedUpdate가 TryConsumeFollowingInput으로 구동한다.
@@ -200,6 +205,7 @@ namespace Game.View
             }
 
             // ── Preview 중 ──
+            if (inputBlocked) return;
             if (kb.escapeKey.wasPressedThisFrame) { Exit(); return; }
             if (mouse != null && mouse.leftButton.wasPressedThisFrame) { Confirm(in w); return; }
             if (kb.fKey.wasPressedThisFrame && routes.Count > 0)

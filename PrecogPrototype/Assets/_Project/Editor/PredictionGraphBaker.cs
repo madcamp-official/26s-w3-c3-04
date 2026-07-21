@@ -50,10 +50,13 @@ namespace Game.EditorTools
 
         void OnGUI()
         {
-            if (!Application.isPlaying)
+            // NavMesh만 있으면 굽는다. Tools/맵 굽기로 미리 구웠으면 정지 상태에서도 가능하고,
+            // 안 구웠으면 Play 중에 런타임 베이크된 NavMesh를 쓰면 된다.
+            bool navReady = HasNavMesh();
+            if (!navReady)
                 EditorGUILayout.HelpBox(
-                    "Play 중에만 구울 수 있습니다.\n" +
-                    "이 프로젝트의 NavMesh는 런타임에 생성되므로, 에디터 정지 상태에는 지형 정보가 없습니다.",
+                    "NavMesh가 없어 구울 수 없습니다.\n" +
+                    "Tools/맵 굽기 → ① NavMesh 굽기 를 먼저 실행하거나, Play 중에 구우십시오.",
                     MessageType.Warning);
 
             EditorGUILayout.LabelField("노드 생성", EditorStyles.boldLabel);
@@ -87,7 +90,7 @@ namespace Game.EditorTools
             savePath = EditorGUILayout.TextField("저장 폴더", savePath);
 
             EditorGUILayout.Space(8);
-            using (new EditorGUI.DisabledScope(!Application.isPlaying))
+            using (new EditorGUI.DisabledScope(!navReady))
             using (new EditorGUILayout.HorizontalScope())
             {
                 if (GUILayout.Button("분석 (개수만)")) Run(false);
@@ -101,12 +104,26 @@ namespace Game.EditorTools
             }
         }
 
+        // NavMesh 존재 여부. CalculateTriangulation은 무거워서 1초 간격으로만 확인한다(매 리페인트 방지).
+        double navCheckAt;
+        bool   navCached;
+        bool HasNavMesh()
+        {
+            if (EditorApplication.timeSinceStartup - navCheckAt > 1.0)
+            {
+                var t = NavMesh.CalculateTriangulation();
+                navCached = t.vertices != null && t.vertices.Length > 0;
+                navCheckAt = EditorApplication.timeSinceStartup;
+            }
+            return navCached;
+        }
+
         // ── 실행 ──
         void Run(bool save)
         {
             var tri = NavMesh.CalculateTriangulation();
             if (tri.vertices == null || tri.vertices.Length == 0)
-            { report = "NavMesh가 없습니다. Play 중인지 확인하십시오."; return; }
+            { report = "NavMesh가 없습니다. Tools/맵 굽기 → ① NavMesh 굽기 를 먼저 실행하십시오."; return; }
 
             var markers = Object.FindObjectsByType<TraversalLink>(FindObjectsSortMode.None);
 

@@ -1,0 +1,105 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &7668967242848915917
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -7234036389225066848, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 76cf1b0a1faccc544af55dd8f7f0491e, type: 2}
+    - target: {fileID: -4971318604532821219, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 76cf1b0a1faccc544af55dd8f7f0491e, type: 2}
+    - target: {fileID: 919132149155446097, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_Name
+      value: Crates
+      objectReference: {fileID: 0}
+    - target: {fileID: 2408179146481421001, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4628968406333180013, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 76cf1b0a1faccc544af55dd8f7f0491e, type: 2}
+    m_RemovedComponents: []
+    m_RemovedGameObjects:
+    - {fileID: 4868692788856346845, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+    m_AddedGameObjects: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: -2166793257550195704, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 6407184207066244006}
+  m_SourcePrefab: {fileID: 100100000, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+--- !u!1 &829687147108730309 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: -2166793257550195704, guid: fd86025830587a74d8a5d699eed867b0, type: 3}
+  m_PrefabInstance: {fileID: 7668967242848915917}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &6407184207066244006
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 829687147108730309}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 4.020996, y: 1.7017906, z: 1.8869278}
+  m_Center: {x: -0.021164298, y: -0.0035262103, z: -0.19188684}
