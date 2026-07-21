@@ -16,6 +16,15 @@ namespace Game.Sim
         bool SampleGround(Vector3 feet, float maxDown, out float groundY);
         bool HasLineOfSight(Vector3 from, Vector3 to);
         bool CanOccupyCapsule(Vector3 feet, float radius, float height);
+
+        /// <summary>
+        /// 캡슐이 지오메트리에 파고들어 있으면 빠져나올 보정 벡터를 낸다(안 겹치면 zero).
+        ///
+        /// 스윕 캐스트만으로는 관통을 막을 수 없다 — 유니티 스윕은 <b>시작 시점에 이미 겹친
+        /// 콜라이더를 무시</b>하기 때문에, 한 번 안에 들어가면 그 벽이 없는 것처럼 통과한다.
+        /// 매 틱 이걸 불러 밀어내면 "낀 상태" 자체가 성립하지 않아 관통이 원천 차단된다.
+        /// </summary>
+        Vector3 Depenetrate(Vector3 feet, float radius, float height);
     }
 
     public enum MoveKind : byte { None, Walk, JumpUp, Drop, Boost }

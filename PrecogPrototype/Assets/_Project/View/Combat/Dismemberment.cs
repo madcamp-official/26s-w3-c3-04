@@ -38,8 +38,11 @@ namespace Game.View
         ParticleSystem blood;
 
         const float CorpseLife = 5f;
-        // EntityViews.ChargeVisualScaleMul과 반드시 같은 값 — 살아있을 때 보이는 크기와 시체 크기를 맞추기 위함.
+        // EntityViews의 같은 이름 상수들과 반드시 같은 값 — 살아있을 때 보이는 크기와 시체 크기를 맞추기 위함.
         const float ChargeVisualScaleMul = 1.4f;
+        const float MeleeVisualScaleMul  = 1.4f;
+        const float RangedVisualScaleMul = 1.4f;
+        const float FlyingVisualScaleMul = 1.2f;
         // 절단 평면 법선: 위 + 정면(로컬) 살짝 → 사선. 두 절단은 이 법선을 위/아래로만 오프셋(평행 → 3조각).
         static readonly Vector3 CutN = (Vector3.up + Vector3.forward * 0.35f).normalized;
 
@@ -56,7 +59,18 @@ namespace Game.View
         {
             capsuleSrc = BuildScaledCapsule();
             shellMat = Mat(new Color(0.5f, 0.05f, 0.05f), false);
-            fleshMat = Mat(new Color(0.30f, 0.02f, 0.02f), true);
+            // ★ 절단면 — 로봇이므로 살점이 아니라 <b>칼에 지져진 금속 단면</b>이다.
+            //   어두운 금속 바탕 + HDR 주황 발광 → 갓 잘려 달아오른 자리처럼 보인다.
+            //   (HDR 1 초과라야 Bloom threshold 1.05에 걸려 번진다)
+            fleshMat = Mat(new Color(0.10f, 0.10f, 0.11f), true);
+            if (fleshMat.HasProperty("_Metallic"))   fleshMat.SetFloat("_Metallic", 0.9f);
+            if (fleshMat.HasProperty("_Smoothness")) fleshMat.SetFloat("_Smoothness", 0.55f);
+            if (fleshMat.HasProperty("_EmissionColor"))
+            {
+                fleshMat.EnableKeyword("_EMISSION");
+                fleshMat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                fleshMat.SetColor("_EmissionColor", new Color(3.6f, 0.75f, 0.12f));   // 백열 주황
+            }
             BuildRealMeshSources();
             BuildBlood();
         }
@@ -65,19 +79,26 @@ namespace Game.View
         // 실제 텍스처 머티리얼도 같이 기억해뒀다가 시체 겉면에 그대로 써서 "그 몹이 잘린" 것처럼 보이게 한다.
         void BuildRealMeshSources()
         {
-            var flyingPrefab = Resources.Load<GameObject>("Enemies/FlyingEnemy");
-            if (flyingPrefab != null)
+            // ★ 비행몹은 예전에 리깅 없는 정적 메시(MeshFilter)였으나, 리깅된 모델로 교체됐다.
+            //   MeshFilter만 찾으면 flyingSrc가 null로 남아 <b>비행몹을 죽여도 근접몹 시체가 나온다</b>.
+            //   그래서 스킨 메시를 먼저 보고, 없을 때만 옛 경로(정적 메시)로 떨어진다.
+            flyingSrc = BakeHumanoidPrefab("Enemies/FlyingEnemy", out flyingShellMat);
+            if (flyingSrc == null)
             {
-                var t = Instantiate(flyingPrefab);
-                var mf = t.GetComponentInChildren<MeshFilter>();
-                var mr = t.GetComponentInChildren<MeshRenderer>();
-                if (mf != null && mr != null)
+                var flyingPrefab = Resources.Load<GameObject>("Enemies/FlyingEnemy");
+                if (flyingPrefab != null)
                 {
-                    // 임포트 시 축변환으로 붙은 로컬 회전만 반영(Animator가 없어 언제 재도 안전).
-                    flyingSrc = BakeStaticSubmesh(mf.sharedMesh, mf.transform.localRotation, SimConfig.EnemyHeight);
-                    flyingShellMat = mr.sharedMaterial;
+                    var t = Instantiate(flyingPrefab);
+                    var mf = t.GetComponentInChildren<MeshFilter>();
+                    var mr = t.GetComponentInChildren<MeshRenderer>();
+                    if (mf != null && mr != null)
+                    {
+                        // 임포트 시 축변환으로 붙은 로컬 회전만 반영(Animator가 없어 언제 재도 안전).
+                        flyingSrc = BakeStaticSubmesh(mf.sharedMesh, mf.transform.localRotation, SimConfig.EnemyHeight);
+                        flyingShellMat = mr.sharedMaterial;
+                    }
+                    Destroy(t);
                 }
-                Destroy(t);
             }
 
             chargeSrc = BakeHumanoidPrefab("Enemies/ChargeEnemy", out chargeShellMat);
@@ -141,8 +162,14 @@ namespace Game.View
             var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
             m.vertices = outV;
             if (hasN) m.normals = rotN; else m.RecalculateNormals();
+            // ★ UV를 반드시 옮겨야 한다. 여기서 빠지면 시체가 텍스처의 한 점(0,0)만 샘플링해
+            //   <b>단색 회색 덩어리</b>가 되고, 베이스 텍스처에서 빨강을 골라 빛내는 셰이더도
+            //   추출할 색이 없어 발광이 통째로 죽는다. 슬라이서를 고쳐도 원본이 이러면 소용없다.
+            var uv = src.uv;
+            if (uv != null && uv.Length == v.Length) m.uv = uv;
             m.triangles = src.triangles;
             m.RecalculateBounds();
+            m.RecalculateTangents();   // 노멀맵이 뒤집히지 않게
             return m;
         }
 
@@ -150,15 +177,17 @@ namespace Game.View
         void GetVictimAssets(MobilityType mobility, CombatType combat, float radiusScale, float height,
                               out Mesh src, out Material shell, out float scale)
         {
+            // ★ 배율은 EntityViews의 같은 이름 상수와 반드시 일치해야 한다 — 어긋나면 죽는 순간 시체 크기가 튄다.
+            float baseScale = height / SimConfig.EnemyHeight;
             if (mobility == MobilityType.Flying && flyingSrc != null)
-            { src = flyingSrc; shell = flyingShellMat; scale = height / SimConfig.EnemyHeight; return; }
+            { src = flyingSrc; shell = flyingShellMat; scale = baseScale * FlyingVisualScaleMul; return; }
             if (mobility == MobilityType.Charge && chargeSrc != null)
-            { src = chargeSrc; shell = chargeShellMat; scale = height / SimConfig.EnemyHeight * ChargeVisualScaleMul; return; }
+            { src = chargeSrc; shell = chargeShellMat; scale = baseScale * ChargeVisualScaleMul; return; }
             // 층이동(Traversal)도 EntityViews와 동일하게 combat 기준으로 몸체를 고른다(총/칼 모델 일치).
             if (combat == CombatType.Ranged && rangedSrc != null)
-            { src = rangedSrc; shell = rangedShellMat; scale = height / SimConfig.EnemyHeight; return; }
+            { src = rangedSrc; shell = rangedShellMat; scale = baseScale * RangedVisualScaleMul; return; }
             if (combat != CombatType.Ranged && meleeSrc != null)
-            { src = meleeSrc; shell = meleeShellMat; scale = height / SimConfig.EnemyHeight; return; }
+            { src = meleeSrc; shell = meleeShellMat; scale = baseScale * MeleeVisualScaleMul; return; }
             src = capsuleSrc; shell = shellMat; scale = radiusScale;
         }
 
@@ -262,7 +291,7 @@ namespace Game.View
                 pc.Release(imp, Random.insideUnitSphere * 6f);
             }
             blood.transform.position = v.center;
-            blood.Emit(60);
+            blood.Emit(140);   // 처형 — 가장 큰 순간이라 넉넉히
             victims[i] = null;
         }
 
@@ -274,6 +303,30 @@ namespace Game.View
             victims[i] = null;
         }
 
+        // ── 시체 발광 ──
+        // 몹 셰이더(Game/EnemyBody)는 발광 강도를 MaterialPropertyBlock으로 <b>런타임에</b> 받는다.
+        // 시체 조각은 EnemyGlow가 관리하지 않으니 그 값이 0이라 빨간 라인이 꺼지고 회색이 된다.
+        // 죽는 순간이 가장 눈에 띄는 장면인데 오히려 밋밋해지므로, 조각에도 직접 넣어준다.
+        static readonly int IdGlowInt   = Shader.PropertyToID("_GlowIntensity");
+        static readonly int IdGlowColor = Shader.PropertyToID("_GlowColor");
+        static MaterialPropertyBlock corpseMpb;
+
+        /// <summary>죽은 직후 발광 배수 — 살아있을 때보다 밝게 터뜨려 처치를 강조한다.</summary>
+        public static float CorpseGlowMul = 1.6f;
+
+        static void ApplyCorpseGlow(Renderer r)
+        {
+            if (r == null || r.sharedMaterial == null) return;
+            if (r.sharedMaterial.shader == null || r.sharedMaterial.shader.name != "Game/EnemyBody") return;
+
+            if (corpseMpb == null) corpseMpb = new MaterialPropertyBlock();
+            r.GetPropertyBlock(corpseMpb);
+            var g = EntityViews.Glow;
+            corpseMpb.SetFloat(IdGlowInt, Mathf.Max(0f, g.baseIntensity * CorpseGlowMul));
+            corpseMpb.SetColor(IdGlowColor, g.baseColor);
+            r.SetPropertyBlock(corpseMpb);
+        }
+
         CorpsePiece HeldPiece(Mesh mesh, Vector3 center, Quaternion rot, float scale, Material shell)
         {
             var go = new GameObject("GloryPiece");
@@ -282,7 +335,9 @@ namespace Game.View
             go.transform.localScale = Vector3.one * scale;
 
             go.AddComponent<MeshFilter>().mesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterials = new[] { shell, fleshMat };
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterials = new[] { shell, fleshMat };
+            ApplyCorpseGlow(mr);   // 시체도 빨간 라인이 살아 있어야 한다
 
             // ★ 실물 모델 슬라이스는 정점이 수천 개라 MeshCollider(convex) 훌 계산이 킬마다 수십~백 ms씩
             // 걸려 순간 렉으로 보였다(실측 85ms). 파편은 굴러다니다 사라지는 연출용이라 정확한 모양의
@@ -322,7 +377,7 @@ namespace Game.View
             MakePiece(belowM, center, rot, -worldN, scale, shell);
 
             blood.transform.SetPositionAndRotation(center, Quaternion.LookRotation(worldN));
-            blood.Emit(40);
+            blood.Emit(90);    // 일반 처치
         }
 
         void MakePiece(Mesh mesh, Vector3 pos, Quaternion rot, Vector3 pushDir, float scale, Material shell)
@@ -333,7 +388,9 @@ namespace Game.View
             go.transform.localScale = Vector3.one * scale;
 
             go.AddComponent<MeshFilter>().mesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterials = new[] { shell, fleshMat };
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterials = new[] { shell, fleshMat };
+            ApplyCorpseGlow(mr);   // 잘려 날아가는 조각도 빨간 라인 유지
 
             // ★ HeldPiece와 같은 이유로 MeshCollider(convex) 대신 바운즈 박스 콜라이더 사용.
             var bc = go.AddComponent<BoxCollider>();
@@ -343,6 +400,16 @@ namespace Game.View
             rb.mass = 3f * scale;
             rb.AddForce(pushDir * 2.2f + Vector3.up * 1.5f, ForceMode.VelocityChange);
             rb.AddTorque(Random.insideUnitSphere * 4f, ForceMode.VelocityChange);
+
+            // 일반 처치 조각도 서서히 식게 한다(처형 조각과 같은 연출).
+            // Init 직후 곧바로 Release해 물리는 이미 걸린 상태를 유지한다.
+            // ★ Init이 rb.isKinematic=true 로 물리를 끄므로, 속도를 기억했다가 되돌려준다.
+            //   (안 그러면 방금 준 힘이 사라져 조각이 제자리에 뚝 떨어진다)
+            Vector3 keepVel = rb.linearVelocity, keepAng = rb.angularVelocity;
+            var cp = go.AddComponent<CorpsePiece>();
+            cp.Init(pos, rot, scale);
+            cp.ReleaseImmediate();
+            rb.linearVelocity = keepVel; rb.angularVelocity = keepAng;
 
             Destroy(go, CorpseLife);
         }
@@ -375,29 +442,45 @@ namespace Game.View
             return res;
         }
 
+        /// <summary>
+        /// 절단 순간 분출. ★ 몹이 로봇이라 피가 아니라 <b>불꽃·파편</b>이 튄다.
+        /// HDR 색으로 띄워 Bloom에 걸리게 하고, Stretch 렌더로 불똥이 늘어지게 한다.
+        /// </summary>
         void BuildBlood()
         {
-            var go = new GameObject("BloodBurst");
+            var go = new GameObject("SparkBurst");
             go.transform.SetParent(transform, false);
             blood = go.AddComponent<ParticleSystem>();
             blood.Stop();
 
             var m = blood.main;
-            m.startLifetime   = 0.6f;
-            m.startSpeed      = 5f;
-            m.startSize       = 0.1f;
-            m.startColor      = new Color(0.45f, 0.02f, 0.02f);
-            m.gravityModifier = 1.5f;
-            m.maxParticles    = 400;
+            m.startLifetime   = new ParticleSystem.MinMaxCurve(0.25f, 0.7f);
+            m.startSpeed      = new ParticleSystem.MinMaxCurve(4f, 11f);
+            m.startSize       = new ParticleSystem.MinMaxCurve(0.02f, 0.06f);
+            // 흰 → 주황으로 식는 불꽃. 1을 넘겨야 번진다.
+            m.startColor      = new ParticleSystem.MinMaxGradient(
+                                    new Color(5f, 3.4f, 1.4f), new Color(4.2f, 1.2f, 0.2f));
+            m.gravityModifier = 2.2f;
+            m.maxParticles    = 500;
             m.simulationSpace = ParticleSystemSimulationSpace.World;
             m.playOnAwake     = false;
 
             var em = blood.emission; em.enabled = false;
-            var sh = blood.shape; sh.shapeType = ParticleSystemShapeType.Cone; sh.angle = 35f; sh.radius = 0.1f;
+            var sh = blood.shape; sh.shapeType = ParticleSystemShapeType.Cone; sh.angle = 42f; sh.radius = 0.12f;
+
+            // 수명 끝으로 갈수록 사라지게(툭 끊기면 싸구려로 보인다)
+            var col = blood.colorOverLifetime; col.enabled = true;
+            var grad = new Gradient();
+            grad.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 0.55f), new GradientAlphaKey(0f, 1f) });
+            col.color = new ParticleSystem.MinMaxGradient(grad);
 
             var r = blood.GetComponent<ParticleSystemRenderer>();
-            var s = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Sprites/Default");
-            if (s != null) r.material = new Material(s);
+            r.renderMode = ParticleSystemRenderMode.Stretch;
+            r.velocityScale = 0.05f;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.material = WireMaterials.Spark;   // 전선 스파크와 같은 가산합성 재질
         }
 
         static Material Mat(Color c, bool doubleSided)
@@ -420,16 +503,34 @@ namespace Game.View
         bool held = true;
         Rigidbody rb;
 
+        // ── 식어가는 연출 ──
+        // 잘린 로봇이 계속 벌겋게 빛난 채 굳어 있으면 어색하다. 전원이 끊긴 것처럼 서서히 죽는다.
+        static readonly int IdGlow = Shader.PropertyToID("_GlowIntensity");
+        static MaterialPropertyBlock coolMpb;
+        Renderer rend;
+        float glow0, coolT;
+        const float CoolTime = 2.2f;
+
         public void Init(Vector3 pos, Quaternion rot, float scale)
         {
             home = pos; homeRot = rot; this.scale = scale;
             seed = pos.x * 13.1f + pos.z * 7.7f;
             rb = GetComponent<Rigidbody>();
             rb.isKinematic = true;
+
+            rend = GetComponent<Renderer>();
+            if (rend != null && rend.sharedMaterial != null &&
+                rend.sharedMaterial.shader != null && rend.sharedMaterial.shader.name == "Game/EnemyBody")
+            {
+                if (coolMpb == null) coolMpb = new MaterialPropertyBlock();
+                rend.GetPropertyBlock(coolMpb);
+                glow0 = coolMpb.GetFloat(IdGlow);
+            }
         }
 
         void Update()
         {
+            Cool();
             if (!held) return;
             float t = Time.time;
             float wob = 0.02f * scale;
@@ -438,6 +539,28 @@ namespace Game.View
                                       Mathf.Cos(t * 21f + seed)) * wob;
             transform.position = home + off;
             transform.rotation = homeRot * Quaternion.Euler(off * 300f);
+        }
+
+        /// <summary>전원이 끊긴 것처럼 발광이 서서히 죽는다. 마지막엔 몇 번 깜빡인다.</summary>
+        void Cool()
+        {
+            if (rend == null || glow0 <= 0f || coolT >= 1f) return;
+            coolT += Time.deltaTime / CoolTime;
+            float k = Mathf.Clamp01(coolT);
+            // 뒤로 갈수록 급격히 꺼지고, 꺼지기 직전 지직거림
+            float flicker = k > 0.6f ? Mathf.Lerp(1f, Random.Range(0.15f, 1f), (k - 0.6f) / 0.4f) : 1f;
+            float v = glow0 * (1f - k * k) * flicker;
+
+            rend.GetPropertyBlock(coolMpb);
+            coolMpb.SetFloat(IdGlow, Mathf.Max(0f, v));
+            rend.SetPropertyBlock(coolMpb);
+        }
+
+        /// <summary>물리는 이미 걸려 있고 "붙잡힘"만 푼다(일반 처치 조각용).</summary>
+        public void ReleaseImmediate()
+        {
+            held = false;
+            if (rb != null) rb.isKinematic = false;
         }
 
         public void Release(Vector3 impulse, Vector3 torque)

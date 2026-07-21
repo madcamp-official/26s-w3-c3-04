@@ -21,6 +21,11 @@ namespace Game.View
     /// 레이어가 없으면 설치를 건너뛰고 근평면만 낮추는 <b>대체 모드</b>로 동작한다.
     /// 레이어 생성은 Tools/뷰모델/① 뷰모델 카메라 설치 에서 한다.
     /// </summary>
+    // ★ 실행 순서를 Brain 뒤로 민다.
+    //   오버레이 카메라는 메인 카메라의 FOV를 복사하는데, 메인 FOV는 CinemachineBrain이
+    //   LateUpdate에서 갱신한다. 순서가 앞서면 <b>직전 프레임 FOV</b>를 쓰게 되어,
+    //   FOV 킥이 들어오는 동안 팔·칼만 한 프레임씩 어긋나 덜덜 떨린다.
+    [DefaultExecutionOrder(1000)]
     [DisallowMultipleComponent]
     public class ViewmodelCamera : MonoBehaviour
     {

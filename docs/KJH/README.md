@@ -11,6 +11,7 @@
 
 - **게임 디자인**: [design/GDD.md](design/GDD.md) — 계속 갱신되는 정본
 - **기술 구조**: `design/ARCHITECTURE.md` — 아직 없음 (프로토타입 구조 확정 후 작성 예정)
+- **몹 비주얼 작업 계획**: [design/몹_비주얼_작업계획.md](design/몹_비주얼_작업계획.md) — 애니메이션·파손·텍스처 진행 상황과 남은 일
 - **게임 ↔ 예측 인터페이스 계약**: [../shared/PREDICTION_CONTRACT.md](../shared/PREDICTION_CONTRACT.md) — 구현 기준 SSOT
 - **몹·층이동 계약 초안**: [../shared/ENEMY_SYSTEM.md](../shared/ENEMY_SYSTEM.md) — 게임 개발자 승인 대기 항목 포함
 

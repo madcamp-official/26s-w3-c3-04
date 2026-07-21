@@ -52,7 +52,12 @@ namespace Game.Sim
         public static int   DashReserveWindow = 9;      // 대시 막판 이 틱 이내 입력 → 예약(끝나면 즉시 다음 대시)
 
         // 적. 크기 축소(부피 ~1/4), 튜닝 대상
-        public const float EnemyMoveSpeed  = 6f;    // 근접 그런트 = 플레이어 7의 ~0.85× (원거리는 자체 4)
+        // ★ F10(몹 밸런스) 패널에서 실시간으로 만지므로 static이다(PlayerMoveSpeed와 같은 이유).
+        //   예지가 도는 중에는 바꾸지 말 것 — 포크 앞뒤 틱이 다른 규칙으로 굴러 결과가 어긋난다.
+        // 6 → 4.5 : 걷기 클립의 실측 보폭(1.33 m/s)에 비해 너무 빨라 다리가 팽이처럼 돌았다.
+        // 4.5면 배속 3.4배 — 여전히 빠르지만 걷기 클립 하나로 버틸 수 있는 선.
+        // (근본 해결은 달리기 클립 추가 → 컨트롤러에 IsRunning 붙이면 코드는 이미 배선돼 있다)
+        public static float EnemyMoveSpeed = 4.5f;  // 근접 그런트 = 플레이어 9.17의 ~0.49× (원거리는 자체 4)
         public const float EnemyRadius     = 0.32f;
         public const float EnemyHeight     = 1.4375f;   // 1.15 × 1.25 (키 상향 실험, 모든 몹 비례 확대)
         public const float EnemyAggroRange = 40f;

@@ -24,6 +24,7 @@ namespace Game.Sim.Tests
         public bool HasLineOfSight(Vector3 from, Vector3 to) => true;
 
         public bool CanOccupyCapsule(Vector3 feet, float radius, float height) => true;
+        public Vector3 Depenetrate(Vector3 feet, float radius, float height) => Vector3.zero;   // 벽 없음 → 겹칠 일 없음
     }
 
     /// <summary>from→to 직선만 반환하는 최소 IPathfinder. 정적 그래프 대신 테스트용.</summary>

@@ -36,6 +36,9 @@ namespace Game.View
         /// <summary>디버그용: 살아있는 적 전부 제거(예측 미리보기 시나리오 리셋용).</summary>
         public void ClearAllEnemies() => world.enemyCount = 0;
 
+        /// <summary>디버그용: 몹 뷰를 전부 버려 다음 프레임에 새로 만들게 한다(파손 변형 교체 반영).</summary>
+        public void RebuildEnemyViews() => views.InvalidateViews();
+
         /// <summary>웨이브 런타임용: 지정 위치·조합으로 스폰하고 부여된 적 id를 돌려준다(-1 = 실패).</summary>
         public int SpawnEnemyAt(Vector3 pos, CombatType combat, MobilityType mobility, SizeClass size)
         {
@@ -132,6 +135,9 @@ namespace Game.View
             // 하이브리드: 평상시 = 런타임 NavMesh(연속 경로·나비 매끄러움).
             // 예측 검색·following 재생 = 고정 그래프(포크·결정론). 둘 다 EnemyMovement가 그대로 씀.
             var collision = new PhysicsCollision(Physics.DefaultRaycastLayers);
+            // 전선(파손 연출)도 같은 마스크로 지형만 친다. 몹·플레이어엔 콜라이더가 없으므로
+            // 이 마스크만으로 "지형에만 걸리고 캐릭터는 무시"가 자동으로 성립한다.
+            DanglingWire.SetTerrainMask(Physics.DefaultRaycastLayers);
             var navPathfinder = new NavMeshPathfinder();
             ValidatePredictionMapAgainstNavMesh(predictionMap, navPathfinder);
 
@@ -203,6 +209,14 @@ namespace Game.View
 
         void Update()
         {
+            // ★ 시선을 내가 소유하지 않는 구간에서는 마우스 시점을 동결한다(버튼 버퍼는 계속 받음).
+            //   · 히트스톱  — sim 틱을 건너뛰므로 그동안의 마우스 이동이 쌓였다가 풀릴 때 튄다
+            //   · 찌르기 락온 — CombatCamera가 시선을 덮어쓰는데 그 위에 델타가 계속 더해진다
+            //   동결을 안 하면 "얼음이 풀리는 순간 그동안 휘두른 양이 한꺼번에" 반영돼 뚝 끊긴다.
+            input.FreezeLook = HitStop.FrozenTicks > 0
+                            || world.player.combat.lungePhase != CombatConfig.LgNone
+                            || world.player.combat.gloryPhase != CombatConfig.GlNone;
+
             // 콘솔 열림 중엔 게임 입력·시점 정지(sim은 계속 돌아 소환한 몹 관찰 가능). 컷신 중엔 조작 잠금.
             if (!prediction.Frozen && !ConsoleOpen && !Cutscene.Active) input.PollFrame();
 
@@ -251,6 +265,24 @@ namespace Game.View
             prediction.RestoreNormalTimeScale();
         }
 
+        /// <summary>
+        /// 몹 절차 애니메이션(시선 추적 등)은 여기서 적용한다.
+        /// Animator는 Update 이후·LateUpdate 이전에 클립을 써 넣으므로,
+        /// Update에서 본을 돌리면 그 직후 전부 덮어써진다. 반드시 LateUpdate여야 한다.
+        /// </summary>
+        void LateUpdate()
+        {
+            if (Cutscene.Active) return;
+            views.LateSync(in world, PlayerAimPoint());
+        }
+
+        /// <summary>
+        /// 몹이 바라볼 지점 = <b>플레이어 눈높이</b>.
+        /// 카메라와 같은 높이여야 "눈을 마주친다"가 성립한다(가슴을 보면 고개를 숙여 노려보는 느낌이 죽는다).
+        /// </summary>
+        Vector3 PlayerAimPoint()
+            => world.player.pos + Vector3.up * eyeHeight;
+
         void FixedUpdate()
         {
             // >>> [예측 세션 변경, 2026-07-18] 원래 코드는 아래 두 줄이었다:
@@ -282,10 +314,13 @@ namespace Game.View
                 cmd = InputCmd.Empty;
                 cmd.yaw = input.Yaw;
                 cmd.pitch = input.Pitch;
+                // 개발 패널이 열려 있어도 자동 콤보 테스트는 공격을 넣을 수 있게 한다
+                if (DevInput.ConsumeAttack()) cmd.attack = true;
             }
             else
             {
                 cmd = input.Consume();
+                if (DevInput.ConsumeAttack()) cmd.attack = true;
             }
 
             prevWorld = Snapshot.Clone(in world);
@@ -385,6 +420,14 @@ namespace Game.View
             var brain = cam.GetComponent<CinemachineBrain>() ?? cam.gameObject.AddComponent<CinemachineBrain>();
             // FPS 게임플레이 카메라는 블렌드 금지 → 진입/전환 시 즉시 컷(잠깐 확대돼 보이는 블렌드 인 제거).
             brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f);
+
+            // ★ 갱신 시점을 LateUpdate로 못 박는다.
+            //   기본값 SmartUpdate는 "타깃이 어떻게 움직이는가"를 보고 FixedUpdate/LateUpdate를
+            //   자동으로 고르는데, 우리 vcam은 Main.Update(프레임)에서 pose를 쓰므로 FixedUpdate로
+            //   샘플링되면 프레임률(가변)과 틱(고정 60Hz)이 어긋나 화면이 끊겨 보인다.
+            //   FOV 킥처럼 프레임 단위로 변하는 값은 이 어긋남이 특히 크게 드러난다.
+            brain.UpdateMethod = CinemachineBrain.UpdateMethods.LateUpdate;
+            brain.BlendUpdateMethod = CinemachineBrain.BrainUpdateMethods.LateUpdate;
 
             var vgo = new GameObject("GameplayVCam");
             gameplayVcam = vgo.AddComponent<CinemachineCamera>();

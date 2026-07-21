@@ -69,6 +69,11 @@ namespace Game.View
                     s.capsule = go.transform;
                     s.feetRooted = go.GetComponentInChildren<Animator>() != null;
                     s.handBone = FindBone(go.transform, "RightHand");
+                    // 몸이 새로 잡혔으면 예전 몸에 붙어 있던 무기 참조는 전부 무효다
+                    s.built = false;
+                    s.weaponInst = null;
+                    s.swordChild = null;
+                    s.pivot = null;
                 }
 
                 // ★ 근접(칼)·원거리(총)만 무기를 든다 — 돌진/공중은 맨몸. Monolith 원거리 바디엔 총이
@@ -80,6 +85,13 @@ namespace Game.View
                     if (s.weaponInst != null) s.weaponInst.gameObject.SetActive(false);
                     continue;
                 }
+
+                // ★ 적 뷰가 파괴·재사용되면(사망·clear·풀 재활용) 손 본 밑의 홀더도 함께 사라진다.
+                //   그런데 built는 true라 재생성이 안 되고, swordChild==null이 되면서 폴백 경로(Pose)로
+                //   빠지는데 그쪽이 쓰는 pivot도 null이라 NullReference가 났다. 유실을 감지해 다시 만든다.
+                if (s.built && s.weaponInst == null) s.built = false;
+                if (s.handBone == null && s.capsule != null)
+                    s.handBone = FindBone(s.capsule, "RightHand");   // 본도 같이 날아갔으면 다시 찾는다
 
                 if (!s.built || s.combat != e.ai.combat)
                     BuildWeapon(s, e.ai.combat);
@@ -129,6 +141,10 @@ namespace Game.View
         // ── 포즈 + 월드 배치 ──
         void Pose(Slot s, in EnemySim e)
         {
+            // 폴백 경로는 pivot·capsule이 반드시 있어야 한다. 유실됐으면 다음 프레임에
+            // 재생성되도록 표시만 하고 이번 프레임은 건너뛴다(예전엔 여기서 NullReference).
+            if (s.pivot == null || s.capsule == null) { s.built = false; return; }
+
             if (s.recoilT > 0f) s.recoilT = Mathf.MoveTowards(s.recoilT, 0f, Time.deltaTime / 0.18f);
 
             Vector3 hand; Quaternion swing;

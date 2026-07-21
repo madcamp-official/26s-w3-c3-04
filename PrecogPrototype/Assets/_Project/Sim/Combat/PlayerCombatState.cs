@@ -13,6 +13,24 @@ namespace Game.Sim
         public int  attackPhaseTicks;
         public bool attackHitDone;
 
+        // ── 2연타 콤보 ──
+        // comboStep은 "지금 진행 중인/다음에 나갈" 단계다. 0=평타1, 1=평타2.
+        // 평타1이 끝나면 comboStep=1 + comboWindow를 열고, 창이 만료되면 0으로 되돌린다.
+        // 평타2가 끝나면 창을 열지 않는다 — 그래야 후딜이 실제로 체감된다.
+        public byte attackStep;         // 진행 중인 공격이 몇 단계인가 (0=평타1, 1=평타2)
+        public byte comboStep;          // 다음 좌클릭이 낼 단계 (0=평타1, 1=평타2)
+        public int  comboWindow;        // >0이면 평타2 유효. 매 틱 감소
+        public bool attackBuffered;     // 선입력 — 공격 중 누른 클릭을 기억했다가 끝나면 발동
+
+        // 구 방식은 활성 틱마다 판정하므로 "이 스윙에서 이미 때린 적"을 기억해야 한다.
+        // MaxEnemies=128 → ulong 2개로 비트마스크. 스윙 시작 시 0으로 초기화.
+        public ulong attackHitMask0;    // 적 인덱스 0~63
+        public ulong attackHitMask1;    // 적 인덱스 64~127
+
+        /// <summary>공격 시작(윈드업 진입)부터의 경과 틱. 즉발 판정창을 재는 기준.
+        /// attackPhaseTicks는 페이즈마다 0으로 리셋되므로 별도로 센다.</summary>
+        public int attackElapsed;
+
         // 체력·피격 (적용은 CombatResolve가)
         public int  hp;
         public int  hitStunTicks;       // >0이면 피격 경직(수평 조작 제한)

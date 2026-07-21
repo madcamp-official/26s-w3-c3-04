@@ -47,7 +47,33 @@ namespace Game.Sim
             using (SimStepProfiler.MeasureNavigationClamp())
                 ClampToNavMesh(ref w, in svc);   // 틱 끝: 밀려난 지상몹을 걷기 가능 표면으로 되당김(다리 낙하 방지)
 
+            ResolveOverlaps(ref w, in svc);      // 맨 마지막: 지오메트리에 낀 것을 밀어냄(관통 원천 차단)
+
             w.tick++;
+        }
+
+        /// <summary>
+        /// 틱 끝 겹침 해소 — 지오메트리에 파고든 캐릭터를 밀어낸다.
+        ///
+        /// 이동은 스윕 캐스트로 벽을 막지만, 유니티 스윕은 <b>시작 시점에 이미 겹친 콜라이더를
+        /// 무시</b>한다. 그래서 한 번 벽 안으로 들어가면(얇은 판·밀침·되당김·순간이동 등) 그 벽이
+        /// 없는 것처럼 계속 통과해 버린다. 여기서 매 틱 빼내면 그 상태 자체가 성립하지 않는다.
+        ///
+        /// 제외: 공중 도약 중(스크립트 궤적이라 밀면 궤적이 깨짐) · 발사 중(웨이브 배관 펄스).
+        /// </summary>
+        static void ResolveOverlaps(ref SimWorld w, in SimServices svc)
+        {
+            CharacterMotor.ResolveOverlap(svc.Collision, ref w.player.pos,
+                                          SimConfig.PlayerRadius, SimConfig.PlayerHeight);
+
+            for (int i = 0; i < w.enemyCount; i++)
+            {
+                ref EnemySim e = ref w.enemies[i];
+                if (!e.alive) continue;
+                if (e.traversalPhase == TraversalPhase.Airborne) continue;   // 도약 궤적 중
+                if (e.launchTicks > 0) continue;                             // 스폰 펄스로 날아가는 중
+                CharacterMotor.ResolveOverlap(svc.Collision, ref e.pos, e.radius, e.height);
+            }
         }
 
         /// <summary>

@@ -10,6 +10,10 @@ namespace Game.View
     /// 플레이어 대시/런지 시작에도 셰이크.
     /// ※ 히트스톱은 HitStop.cs 담당(A안=sim 틱 스킵, timeScale 안 건드림). 카메라 고정·HUD도 SIM 세션 몫.
     /// </summary>
+    // ★ Brain(실행 순서 0)보다 먼저 돌아야 한다.
+    //   vcam 렌즈에 FOV 킥을 얹는데, Brain이 그걸 읽어 실제 카메라에 반영하기 때문이다.
+    //   순서가 뒤면 킥이 한 프레임 늦게 반영되어 화면이 끊겨 보인다.
+    [DefaultExecutionOrder(-50)]
     public class CombatFeedback : MonoBehaviour
     {
         // 셰이크 = Cinemachine Impulse (방향·세기 파라미터). vcam의 ImpulseListener가 수신.
@@ -25,6 +29,8 @@ namespace Game.View
         float prevVelY;
 
         static CombatFeedback inst;
+        /// <summary>튜닝 패널이 대시 연출 값을 만지기 위한 접근자.</summary>
+        public static CombatFeedback Instance => inst;
         /// <summary>다른 연출(플레이어 피격 등)이 같은 셰이크 시스템을 쓰게 하는 정적 진입점.</summary>
         public static void Shake(float amp) { if (inst != null) inst.AddShake(amp); }
 
@@ -42,14 +48,81 @@ namespace Game.View
 
         // 대시 FOV 킥 (둠식 속도감)
         const float FovKickAmount = 10f;
-        const float FovKickDecay  = 7f;
         float fovKick, baseFov = -1f;
+
+        // 아래 기본값은 실제 플레이로 튜닝해 확정한 값이다.
+        [Tooltip("FOV 킥이 0으로 돌아오는 속도. 작을수록 천천히 풀린다")]
+        public float fovKickDecay = 5.31f;
+        [Tooltip("킥이 최대치에 도달하는 속도. 작을수록 부드럽게 들어간다(0=즉시)")]
+        public float fovKickAttack = 22.39f;
+
+        float fovKickTarget;   // 목표치 — 여기로 부드럽게 다가간 뒤 0으로 풀린다
+
+        // ── 대시 방향별 연출 ──
+        // 예전엔 방향과 무관하게 fovKick=1(넓어짐)이라, 뒤로 빠져도 앞으로 튀어나가는 느낌이었다.
+        //   앞 : FOV 넓어짐 — 속도감
+        //   뒤 : FOV 좁아짐 — 물러나는 느낌
+        //   옆 : FOV 거의 그대로, 대신 <b>롤(기울임)</b> 로 표현
+        [Tooltip("앞뒤 대시 FOV 킥 크기")]
+        public float dashFovFwd = 1.69f;
+        // 사람 눈은 FOV가 좁아지는 것을 넓어지는 것보다 훨씬 둔하게 느낀다.
+        // 그래서 뒤 대시는 앞과 <b>같은 크기 이상</b>이어야 겨우 비슷하게 체감된다 — 기본 1.4배.
+        [Tooltip("뒤 대시에서 좁아지는 비율(앞 대비). 1보다 커야 앞뒤가 비슷하게 느껴진다")]
+        public float dashFovBackScale = 1.4f;
+        [Tooltip("옆 대시 롤 각도(도)")]
+        public float dashRoll = 3.94f;
+        [Tooltip("롤이 풀리는 속도")]
+        public float dashRollDecay = 3.01f;
+
+        [Tooltip("FOV 킥 부호 뒤집기 — 체감이 반대라고 느껴지면 켠다")]
+        public bool dashFovInvert;
+
+        // ── 찌르기 FOV (둠 글로리킬식) ──
+        // Travel~히트스톱 동안 FOV를 좁혀 대상에 빨려드는 압박을 주고,
+        // 얼음이 풀려 조작이 돌아오는 순간 <b>확 넓혔다가</b> 천천히 제자리로 — 해방감.
+        [Tooltip("찌르기 돌진~히트스톱 동안 좁아지는 정도(도). 이동 시작부터 걸려 끝까지 유지된다")]
+        public float lungeZoomIn = 15f;
+        [Tooltip("좁아지는 데 걸리는 시간(초). 돌진 시작과 함께 이만큼에 걸쳐 조인다")]
+        public float lungeZoomInTime = 0.08f;
+        [Tooltip("히트스톱이 풀린 뒤 원래대로 돌아오는 시간(초)")]
+        public float lungeZoomOutTime = 0.4f;
+
+        // 해제 순간 한 번 터지던 확장 킥 — 실플레이에서 별로여서 기본 0(사실상 끔).
+        // 구조는 남겨 두어 필요하면 F1에서 다시 켤 수 있다.
+        [Tooltip("히트스톱이 풀리는 순간 추가로 넓어지는 정도(도). 0 = 안 씀")]
+        public float lungeZoomOut = 0f;
+        // ★ "속도"가 아니라 "시간(초)"으로 둔다. 예전엔 속도라서 슬라이더를 최대로 올리면
+        //   오히려 더 빨리 돌아왔다(의미가 직관과 반대).
+        [Tooltip("확장이 최대까지 벌어지는 시간(초). 0이면 즉시 — 즉시는 계단처럼 튀어 끊겨 보인다")]
+        public float lungeReleaseRise = 0.07f;
+        [Tooltip("확장이 원래대로 돌아오는 시간(초). 클수록 여운이 길다")]
+        public float lungeReleaseFall = 0.45f;
+
+        float lungeFov;        // 찌르기 구간에서 유지되는 FOV 오프셋(음수=좁아짐)
+        float releaseKick;     // 해제 순간 터지는 확장(양수=넓어짐)
+        float releaseT = -1f;  // 확장 진행 시간(초). 음수 = 비활성
+        bool  wasFrozen;       // 직전 프레임에 히트스톱이 걸려 있었는가
+
+        float rollCur;   // 현재 롤(도) — 옆 대시에서 기울었다가 풀린다
+
+        // ── 진단(F1 표시용) — 추측 대신 실제 값을 본다 ──
+        public float LastDashFwd  { get; private set; }   // +앞 / −뒤
+        public float LastDashSide { get; private set; }   // +오른쪽 / −왼쪽
+        public float FovKickNow   => fovKick;
+        public float RollNow      => rollCur;
+        /// <summary>현재 실제로 얹히는 FOV 변화량(도). +면 넓어짐.</summary>
+        public float FovDeltaNow  => FovKickAmount * fovKick + lungeFov + releaseKick;
+        public float LungeFovNow  => lungeFov;
+        public float ReleaseNow   => releaseKick;
 
         ParticleSystem sparks;
 
         void Awake()
         {
             inst = this;
+            // 저장값 자동 로드는 씬 로드 '전'에 돌아 이 컴포넌트가 아직 없다.
+            // inst를 세운 뒤 한 번 더 읽어야 FOV 연출 값까지 복원된다(CombatCamera와 같은 이유).
+            CombatTuningSave.Load();
             BuildSparks();
             impulseSource = gameObject.AddComponent<CinemachineImpulseSource>();
             impulseSource.DefaultVelocity = new Vector3(0.4f, 0.4f, 0.15f);   // 기본 쉐이크 방향(힘으로 스케일)
@@ -83,10 +156,94 @@ namespace Game.View
 
             // ── 플레이어 액션 셰이크(방향성) + 대시 FOV 킥 ──
             bool dash = w.player.dashTicks > 0;
-            if (dash && !prevDash) { AxisShake(w.player.dashDir, 0.10f); fovKick = 1f; }   // 대시 방향으로 훅
+            if (dash && !prevDash)
+            {
+                AxisShake(w.player.dashDir, 0.10f);   // 대시 방향으로 훅
+
+                // 대시 방향을 카메라 기준 전후/좌우 성분으로 분해해 연출을 나눈다
+                float yr = w.player.yaw * Mathf.Deg2Rad;
+                Vector3 fwd   = new Vector3(Mathf.Sin(yr), 0f, Mathf.Cos(yr));
+                Vector3 right = new Vector3(fwd.z, 0f, -fwd.x);
+                Vector3 d = w.player.dashDir; d.y = 0f;
+                if (d.sqrMagnitude > 1e-6f) d.Normalize();
+
+                float f = Vector3.Dot(d, fwd);      // +앞 / −뒤
+                float s = Vector3.Dot(d, right);    // +오른쪽 / −왼쪽
+                LastDashFwd = f; LastDashSide = s;  // 진단용 기록
+
+                // 둠식 speed FOV — 앞으로 빠를수록 FOV를 <b>넓혀</b> 화면 가장자리 흐름을 빠르게 만든다.
+                // (둠 이터널 옵션에 "Dash FOV"가 따로 있고 멀미 때문에 끄는 사람이 있다는 것 자체가
+                //  기본이 넓어짐이라는 뜻이다. 체감이 약했던 건 부호가 아니라 킥이 너무 빨리 사라져서였다)
+                fovKick = f >= 0f ? f * dashFovFwd
+                                  : f * dashFovFwd * dashFovBackScale;
+                if (dashFovInvert) fovKick = -fovKick;
+                // 옆 성분만큼 화면을 기울인다 — 오른쪽 대시면 화면이 왼쪽으로 눕는다
+                rollCur = -s * dashRoll;
+
+                fovKickTarget = fovKick;
+                if (fovKickAttack > 0.01f) fovKick = 0f;   // 0에서 목표로 부드럽게 올라간다
+            }
             prevDash = dash;
-            if (fovKick > 0f)
-                fovKick = Mathf.MoveTowards(fovKick, 0f, FovKickDecay * Time.unscaledDeltaTime);
+
+            // 들어갈 때는 fovKickAttack, 풀릴 때는 fovKickDecay — 속도를 따로 준다.
+            // 예전엔 하나뿐이라 "확 켜졌다 확 꺼지는" 느낌이었다.
+            float dtu = Time.unscaledDeltaTime;
+            if (Mathf.Abs(fovKickTarget) > 0.001f)
+            {
+                float ka = 1f - Mathf.Exp(-Mathf.Max(0.01f, fovKickAttack) * dtu);
+                fovKick = Mathf.Lerp(fovKick, fovKickTarget, ka);
+                // 목표에 거의 닿으면 이제 0으로 풀기 시작
+                if (Mathf.Abs(fovKick - fovKickTarget) < Mathf.Abs(fovKickTarget) * 0.08f) fovKickTarget = 0f;
+            }
+            else
+            {
+                float kd = 1f - Mathf.Exp(-Mathf.Max(0.01f, fovKickDecay) * dtu);
+                fovKick = Mathf.Lerp(fovKick, 0f, kd);
+                if (Mathf.Abs(fovKick) < 0.002f) fovKick = 0f;
+            }
+            rollCur = Mathf.MoveTowards(rollCur, 0f, dashRollDecay * dashRoll * dtu);
+
+            // ── 찌르기 FOV: 돌진·히트스톱 동안 좁힘 → 풀리는 순간 확장 ──
+            // "조작이 돌아오는 시점"의 기준은 히트스톱 해제다. 히트스톱은 sim 틱을 건너뛰므로
+            // 그동안 마우스 입력도 sim에 안 들어간다 — 즉 얼음이 풀리는 순간이 곧 조작 복귀다.
+            bool frozen  = HitStop.FrozenTicks > 0;
+            bool lunging = w.player.combat.lungePhase != CombatConfig.LgNone;
+            bool holding = lunging || frozen;          // 좁혀 두는 구간
+
+            if (wasFrozen && !frozen) releaseT = 0f;   // ★ 풀리는 순간 확장 시작(계단 아님)
+            wasFrozen = frozen;
+
+            // 좁힘 — 시간 기반. "몇 초에 걸쳐"가 직관적이라 지수 감쇠 대신 선형 속도로 민다.
+            //   돌진 시작 → lungeZoomInTime 에 걸쳐 -lungeZoomIn 까지
+            //   히트스톱 해제 → lungeZoomOutTime 에 걸쳐 0 까지
+            float wantLunge = holding ? -lungeZoomIn : 0f;
+            float span = holding ? Mathf.Max(0.01f, lungeZoomInTime)
+                                 : Mathf.Max(0.01f, lungeZoomOutTime);
+            // 목표까지의 전체 폭을 span 초에 주파하는 속도(도/초)
+            float rate = Mathf.Max(0.01f, lungeZoomIn) / span;
+            lungeFov = Mathf.MoveTowards(lungeFov, wantLunge, rate * dtu);
+
+            // 해제 확장 — 시간 기반 포락선(0 → 최대 → 0). 계단이 아니라 곡선이라 안 튄다.
+            if (releaseT >= 0f)
+            {
+                releaseT += dtu;
+                float rise = Mathf.Max(0.001f, lungeReleaseRise);
+                float fall = Mathf.Max(0.001f, lungeReleaseFall);
+                float env;
+                if (releaseT < rise)
+                {
+                    float u = releaseT / rise;
+                    env = u * u * (3f - 2f * u);                       // smoothstep 상승
+                }
+                else
+                {
+                    float u = (releaseT - rise) / fall;
+                    if (u >= 1f) { releaseT = -1f; env = 0f; }
+                    else { float v = 1f - u; env = v * v * (3f - 2f * v); }   // smoothstep 하강
+                }
+                releaseKick = lungeZoomOut * env;
+            }
+            else releaseKick = 0f;
 
             byte lg = w.player.combat.lungePhase;
             if (lg != prevLunge)
@@ -120,8 +277,29 @@ namespace Game.View
             // FOV 킥은 vcam 렌즈에 얹는다(Brain이 실카메라에 반영). 쉐이크는 Impulse가 처리(여기 없음).
             var vcam = Main.Instance != null ? Main.Instance.GameplayVcam : null;
             if (vcam == null) return;
+
+            // 컷신은 렌즈를 통째로 바꾼다 — 여기서 매 프레임 FOV를 되돌리면 서로 싸운다.
+            if (Cutscene.Active) { baseFov = -1f; return; }
+
+            // 옆 대시 롤 — Dutch(화면 기울임)에 얹는다.
+            // 롤이 0으로 잦아든 뒤에도 Dutch에 잔값이 남으면 화면이 계속 기운 채로 있으므로,
+            // 남아 있을 때는 0을 한 번 더 써서 확실히 편다.
+            if (Mathf.Abs(rollCur) > 0.001f || Mathf.Abs(vcam.Lens.Dutch) > 0.001f)
+                vcam.Lens.Dutch = Mathf.Abs(rollCur) > 0.001f ? rollCur : 0f;
+
+            // 대시 킥 + 찌르기 좁힘 + 해제 확장을 합산한다(도 단위).
+            float delta = FovKickAmount * fovKick + lungeFov + releaseKick;
+
+            // ★ 변화가 없으면 아예 손대지 않는다.
+            //   예전엔 조건 없이 매 프레임 baseFov로 덮어써서, 다른 곳(컷신·인스펙터)이
+            //   FOV를 바꿔도 즉시 되돌아가고 baseFov가 낡으면 영구히 잘못된 값에 고정됐다.
+            if (Mathf.Abs(delta) <= 0.01f)
+            {
+                baseFov = -1f;                     // 다음 킥 때 현재 FOV를 새로 기준 삼는다
+                return;
+            }
             if (baseFov < 0f) baseFov = vcam.Lens.FieldOfView;
-            vcam.Lens.FieldOfView = baseFov + FovKickAmount * fovKick;
+            vcam.Lens.FieldOfView = Mathf.Clamp(baseFov + delta, 5f, 170f);
         }
 
         void OnHit(Vector3 pos)
