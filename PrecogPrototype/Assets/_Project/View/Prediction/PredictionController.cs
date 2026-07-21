@@ -23,7 +23,7 @@ namespace Game.View
     /// 실제 위치·시선을 따라간다(Following). Preview 중 경로는 이동하며 페이드되는 트레일로
     /// 보여주고, 실제 행동이 시작되는 ActionEvent 틱마다 정지 잔상을 겹쳐 찍는다(고정 간격
     /// 아님 — 2026-07-20 변경, PREDICTION_CONTRACT.md §3.1.1의 "30틱 간격/선택 후보만" 서술과는
-    /// 다름). 액션 이벤트는 ±3틱 Perfect, ±8틱 Good이며 미입력은 Miss로 직접 조작 전환한다.
+    /// 다름). 액션 이벤트는 ±8틱 Perfect, ±22틱 Good이며 미입력은 Miss로 직접 조작 전환한다.
     /// </summary>
     public class PredictionController
     {
@@ -104,6 +104,11 @@ namespace Game.View
         const int PreWarmMarksPerRoute = 24;
         float previewRevealStartRealTime;
         float previewRevealProgress;
+        // [예측 세션 추가, 2026-07-21] Enter() 시점부터 재는 1인칭→3인칭 궤도 전환(pull-back)
+        // 타이머 — PlaceCamera가 여기서부터 경과 시간을 읽어 위치/회전 이징에 쓴다.
+        float enterTransitionStartRealTime;
+        Vector3 enterStartCamPos;
+        Quaternion enterStartCamRot;
 
         public void Init(Camera camera, Transform pose)
         {
@@ -193,9 +198,12 @@ namespace Game.View
 
             if (state == State.Following)
             {
-                if (!inputBlocked &&
-                    (kb.escapeKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame)))
-                { Exit(); return; }   // 건너뛰기
+                // [버그 수정, 2026-07-21] 예전엔 좌클릭도 "건너뛰기"로 잡아 Exit()시켰는데, 좌클릭은
+                // 리듬 공격 입력(Attack)이기도 해서 화면의 "L-CLICK 공격" 프롬프트가 절대 먹지 않았다
+                // — 누르는 순간 CaptureRhythmInputs에 도달하기 전에 예측이 종료됐다. 취소/건너뛰기는
+                // Esc 전용으로 두고, 좌클릭은 그대로 리듬 입력으로 흘려보낸다.
+                if (!inputBlocked && kb.escapeKey.wasPressedThisFrame)
+                { Exit(); return; }   // 건너뛰기(취소)
                 CaptureRhythmInputs(kb, mouse);
 
                 // 실제 이동·전투는 Main.FixedUpdate가 TryConsumeFollowingInput으로 구동한다.
@@ -231,12 +239,25 @@ namespace Game.View
 
         void Enter(in SimWorld w)
         {
+            if (camPose != null)
+            {
+                enterStartCamPos = camPose.position;
+                enterStartCamRot = camPose.rotation;
+            }
+            else
+            {
+                float p = Main.Instance != null ? Main.Instance.LookPitch : 0f;
+                enterStartCamPos = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
+                enterStartCamRot = Quaternion.Euler(p, w.player.yaw, 0f);
+            }
+
             routes = RealRoutePreview.Build(in w, Main.Instance.Services, PredictionConfig.RouteColors);
             if (routes.Count == 0)
             {
                 state = State.Idle;
                 fx.SetExecution(false);
                 fx.SetActive(false);
+                RadialInvertFx.SetRadius(0f, PredictionConfig.RadialInvertMaxRadius);
                 SetVisible(false);
                 RestoreNormalTimeScale();
                 Debug.LogWarning("[예측] 유효한 경로를 만들지 못해 미리보기를 취소했습니다.");
@@ -261,12 +282,8 @@ namespace Game.View
             BuildLines();
             orbitYaw = w.player.yaw; orbitPitch = PredictionConfig.OrbitPitchInit;   // 플레이어 뒤에서 시작
             Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;        // 마우스=궤도 회전
-            // [버그 수정, 2026-07-20] 예전엔 이 타임스탬프를 Build() 직후(=SetVisible/BuildLines
-            // 등 나머지 진입 준비 작업 전)에 찍었다 — 그 나머지 작업도 같은 프레임 안에서 실시간을
-            // 잡아먹는데, reveal 진행률은 실시간 기준이라 그 시간만큼 이미 흘러간 채로 첫 프레임이
-            // 그려졌다. 그 결과 스윕의 앞부분이 렌더링될 기회 없이 스킵되고 뒷부분만 보였다 —
-            // 화면에 그릴 준비가 실제로 끝난 지금 시점에서 타이머를 시작한다.
             previewRevealStartRealTime = Time.unscaledTime;
+            enterTransitionStartRealTime = -1f; // 다음 프레임부터 전환 타이머 시작(Build 연산 프레임 건너뜀)
             Debug.Log($"[예측] 진입 — 사정권 {PredictionConfig.Range}, 루트 {routes.Count}개. (F 순환 · 좌클릭 확정 · Esc 취소)");
             LogSelected();
         }
@@ -289,6 +306,7 @@ namespace Game.View
             if (Main.Instance != null) Main.Instance.SetPredictionSpawnLocked(false);
             fx.SetExecution(false);
             fx.SetActive(false);
+            RadialInvertFx.SetRadius(0f, PredictionConfig.RadialInvertMaxRadius);   // 카메라와 함께 즉시 스냅
             SetSwordExecutionStyle(false);
             ToggleSword(true);         // 1인칭 칼 복구
             SetVisible(false);
@@ -926,10 +944,13 @@ namespace Game.View
         void PlaceCamera(in SimWorld w)
         {
             if (camPose == null) return;
+            if (enterTransitionStartRealTime < 0f)
+                enterTransitionStartRealTime = Time.unscaledTime;
+
             Vector3 pivot = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
-            Quaternion rot = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
-            Vector3 direction = -(rot * Vector3.forward);
-            float distance = PredictionConfig.CamDist;
+            Quaternion targetRot = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
+            Vector3 direction = -(targetRot * Vector3.forward);
+            float targetDistance = PredictionConfig.CamDist;
             int collisionMask = Physics.DefaultRaycastLayers & ~(1 << PredictionAccentLayer);
             if (Physics.SphereCast(
                 pivot,
@@ -940,13 +961,24 @@ namespace Game.View
                 collisionMask,
                 QueryTriggerInteraction.Ignore))
             {
-                distance = Mathf.Clamp(
+                targetDistance = Mathf.Clamp(
                     hit.distance - PredictionConfig.CamCollisionPadding,
                     PredictionConfig.CamCollisionMinDistance,
                     PredictionConfig.CamDist);
             }
-            camPose.position = pivot + direction * distance;
-            camPose.rotation = rot;
+
+            Vector3 targetPos = pivot + direction * targetDistance;
+
+            // 진입 시점 1인칭 카메라 위치·회전에서 3인칭 궤도 시점까지 위치와 회전을 동시에 부드럽게 이징
+            float pullbackElapsed = Time.unscaledTime - enterTransitionStartRealTime;
+            float pullbackT = Mathf.Clamp01(pullbackElapsed / PredictionConfig.EnterOrbitPullbackSeconds);
+            float pullbackEased = 1f - (1f - pullbackT) * (1f - pullbackT) * (1f - pullbackT);
+
+            camPose.position = Vector3.Lerp(enterStartCamPos, targetPos, pullbackEased);
+            camPose.rotation = Quaternion.Slerp(enterStartCamRot, targetRot, pullbackEased);
+
+            // 같은 진행률로 화면 중심에서 산데비스탄 펄스 레이어가 퍼짐
+            RadialInvertFx.SetRadius(pullbackEased, PredictionConfig.RadialInvertMaxRadius);
         }
 
         /// <summary>
@@ -1322,18 +1354,27 @@ namespace Game.View
             }
 
             // Preview: 경로 색으로 후보를 구분하고, 선택된 후보만 또렷하게 강조한다
-            // (다른 시각 요소인 라인·트레일의 RouteDimMul 감쇠와 동일한 규칙).
+            // (산데비스탄 어두운 그린 배경 위에서 잔상 실루엣이 뚜렷하게 시인성을 가짐).
             bool sel = routeIndex == selected;
             float previewPathProgress = route.path.Count > 1
                 ? frame.tick / (float)(route.path.Count - 1)
                 : 0f;
             Color previewColor = PreviewPathColor(previewPathProgress);
-            previewColor.a = sel ? 0.62f : 0.3f;
-            if (!sel) previewColor = new Color(
-                previewColor.r * PredictionConfig.RouteDimMul,
-                previewColor.g * PredictionConfig.RouteDimMul,
-                previewColor.b * PredictionConfig.RouteDimMul,
-                previewColor.a);
+            if (sel)
+            {
+                // 선택 잔상은 밝기/화이트를 살짝 보강하고 알파를 높여 또렷하게 표출
+                previewColor = Color.Lerp(previewColor, Color.white, 0.15f);
+                previewColor.a = 0.72f;
+            }
+            else
+            {
+                previewColor.a = 0.32f;
+                previewColor = new Color(
+                    previewColor.r * PredictionConfig.RouteDimMul,
+                    previewColor.g * PredictionConfig.RouteDimMul,
+                    previewColor.b * PredictionConfig.RouteDimMul,
+                    previewColor.a);
+            }
             return previewColor;
         }
 

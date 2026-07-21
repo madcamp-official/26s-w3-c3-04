@@ -22,6 +22,10 @@ namespace Game.View
         public const float CamCollisionRadius = 0.28f;
         public const float CamCollisionPadding = 0.12f;
         public const float CamCollisionMinDistance = 0.45f;
+        // [예측 세션 추가, 2026-07-21] 진입 시 1인칭→3인칭 궤도 전환 연출 — 예전엔 목표 거리로
+        // 즉시 스냅해서 "탁 하고 한 번에" 바뀌어 보였다. 초반엔 빠르게 멀어지다 후반부로
+        // 갈수록 감속하는 완급(ease-out)을 줘서 자연스럽게 3인칭으로 빠져나가게 한다.
+        public const float EnterOrbitPullbackSeconds = 0.55f;
 
         // 루트 색 (순서: PredictionPlanner.PlanByProfile이 고정하는 안전형/기회형/공격형)
         public static readonly Color[] RouteColors =
@@ -59,14 +63,19 @@ namespace Game.View
         public static readonly Color GhostColor = new Color(0.5f, 0.9f, 1f, 0.5f);   // 정지 잔상(반투명)
         public static readonly Color StartMarkerColor = new Color(0.85f, 1f, 0.75f);  // 시작점(=나), 불투명 밝은 연두
 
-        // 정지 포스트fx (흑백 + 청록 틴트 + 비네트)
-        public const float FxSaturation      = -100f;
+        // 정지 포스트fx (산데비스탄 에메랄드 틴트 + 비네트)
+        public const float FxSaturation      = 0f;
         public const float FxExposure        = -0.3f;
-        public static readonly Color FxTint  = new Color(0.62f, 0.82f, 1f);
-        public const float FxVignette        = 0.5f;
+        public static readonly Color FxTint  = new Color(0.75f, 0.95f, 0.85f);
+        public const float FxVignette        = 0.55f;
         public const float FxVignetteSmooth  = 0.65f;
-        public static readonly Color FxVignetteColor = new Color(0.03f, 0.07f, 0.12f);
+        public static readonly Color FxVignetteColor = new Color(0.02f, 0.08f, 0.05f);
         public const float FxWeightSpeed     = 8f;   // 정지 진입/해제 페이드 속도
+
+        // [2026-07-21 추가] 정지 진입 색반전(RadialInvertFeature) — 카메라 pull-back 진행률(0~1)에
+        // 맞춰 화면 중심에서 원이 자라며 반전된다. MaxRadius는 화면비 보정 UV 기준 화면 대각선의
+        // 절반(1인칭 중심 기준 코너까지 거리)보다 넉넉하게 잡아 초광각 화면에서도 t=1에 완전히 덮게 한다.
+        public const float RadialInvertMaxRadius = 1.35f;
 
         // Following(자동실행) 1인칭 카메라 회전 제한(도/초) — 예측이 겨냥을 홱 바꿔도 화면이
         // 순간이동하듯 스냅되지 않고, 사용자가 지금 무슨 방향으로 도는지 눈으로 따라올 수
@@ -107,9 +116,10 @@ namespace Game.View
         // [예측 세션 추가, 2026-07-21] 판정이 한참 남은 순수 이동 구간 전용 상한 — 걷는 속도감을
         // 더 키워달라는 피드백으로 RhythmMaxTimeScale(1.7)보다 한 단계 더 빠르게 잡는다.
         public const float RhythmWalkTimeScale = 2.6f;
-        // [예측 세션 수정, 2026-07-21] 0.42 → 0.6: 판정이 너무 빡세다는 피드백 — 이벤트 도달 후
-        // 입력을 기다려주는 실시간 유예를 늘려서 Miss로 강제 전환(직접 조작行)되기까지 여유를 준다.
-        public const float RhythmWaitGoodSeconds = 0.6f;
+        // [예측 세션 수정, 2026-07-21] 0.42 → 0.6 → 0.85: 판정이 너무 빡세다는 피드백 — 이벤트
+        // 도달 후 입력을 기다려주는 실시간 유예를 늘려서 Miss로 강제 전환(직접 조작行)되기까지
+        // 여유를 준다. RhythmJudge.GoodWindowTicks(22)와 짝을 맞춰 재조정.
+        public const float RhythmWaitGoodSeconds = 0.85f;
         // 예측 경로 확정 직후의 첫 박자는 시간 제한 없이 사용자가 원하는 순간에 직접 누른다
         // (TryConsumeFollowingInput이 pending==0일 때 Miss 판정을 걸지 않음) — 이 값은 오직
         // 접근링 연출 속도용이며 실제 입력 마감과는 무관하다.

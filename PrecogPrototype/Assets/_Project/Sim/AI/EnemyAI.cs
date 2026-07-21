@@ -279,7 +279,12 @@ namespace Game.Sim
             // 조준/발사 진행 중 → 제자리 호버 + 기존 원거리 시퀀스
             if (ai.state == EnemyState.Aim || ai.state == EnemyState.Fire)
             {
-                e.yaw = Mathf.Atan2(ai.committedDir.x, ai.committedDir.z) * Mathf.Rad2Deg;
+                // ★ 지상 원거리와 동일 — 응시는 플레이어 정면, 발사 방향(committedDir)은 그대로 리드+빗맞힘.
+                Vector3 faceP = w.player.pos - e.pos; faceP.y = 0f;
+                float faceD = faceP.magnitude;
+                e.yaw = faceD > 1e-4f
+                    ? Mathf.Atan2(faceP.x, faceP.z) * Mathf.Rad2Deg
+                    : Mathf.Atan2(ai.committedDir.x, ai.committedDir.z) * Mathf.Rad2Deg;
                 ai.stateTicks++;
                 if (ai.state == EnemyState.Aim)
                 {
@@ -389,7 +394,13 @@ namespace Game.Sim
             ref EnemyAI ai = ref e.ai;
             ai.stateTicks++;
 
-            e.yaw = Mathf.Atan2(ai.committedDir.x, ai.committedDir.z) * Mathf.Rad2Deg;
+            // ★ 시각(응시)은 항상 플레이어 정면 — 발사 방향(committedDir, 리드+빗맞힘 포함)과 분리.
+            // SpawnProjectile은 committedDir을 직접 쓰므로 여기서 e.yaw만 바꿔도 탄도엔 영향 없음.
+            Vector3 faceP = w.player.pos - e.pos; faceP.y = 0f;
+            float faceD = faceP.magnitude;
+            e.yaw = faceD > 1e-4f
+                ? Mathf.Atan2(faceP.x, faceP.z) * Mathf.Rad2Deg
+                : Mathf.Atan2(ai.committedDir.x, ai.committedDir.z) * Mathf.Rad2Deg;
 
             switch (ai.state)
             {

@@ -28,7 +28,8 @@ namespace Game.Sim
         public const float ChargeWallStopFrac = 0.4f;  // 이번 틱 이동이 의도의 이 비율 미만 = 벽 정지
         // 평소(돌진 커밋 전) 추격 속도만 낮춤 — 실물 모델 Walk 애니메이션이 SimConfig.EnemyMoveSpeed
         // 전속력엔 못 따라가 미끄러지듯 보였다. ChargeRun 자체 속도(ChargeSpeed)는 그대로 둔다.
-        public const float ChargeChaseSpeedMul = 0.65f;
+        // ★ 0.65(=3.9)도 여전히 빠르다는 피드백 — 육중하게 천천히 걷는 느낌으로 더 낮춤.
+        public const float ChargeChaseSpeedMul = 0.35f;
 
         // ── 몹 분리(boids Rule 1): 겹치기 전에 이웃 반대방향으로 미리 조향. 결정론(난수 X) ──
         public static float SeparationRadius  = 1.6f;  // 몸(반경 합) 밖으로 이만큼까지 개인공간

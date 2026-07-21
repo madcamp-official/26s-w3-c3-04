@@ -23,18 +23,30 @@ namespace Game.View
         static readonly Color WindupColor    = new Color(1f, 0.95f, 0.4f);    // 공격 선딜 텔레그래프 (밝은 노랑)
         static readonly Color AttackColor    = new Color(1f, 0.15f, 0.05f);   // 타격 순간 (강렬 빨강)
 
-        // 몹 시각 종류. Ground/Traversal은 아직 실제 모델이 없어 캡슐 유지.
-        enum ViewKind { Capsule, Flying, Charge }
+        // 몹 시각 종류. Traversal은 아직 실제 모델이 없어 캡슐 유지.
+        enum ViewKind { Capsule, Flying, Charge, Melee, Ranged }
 
-        // FlyingEnemy/ChargeEnemy 프리팹: 래퍼 루트(스케일 1, yaw만 회전) + 자식이 임포트 시 축변환·스케일을 그대로 들고 1m 기준으로 맞춰져 있음.
-        // Sync에서 wrapper.localScale = Vector3.one * e.height 로 개체별 크기(대형몹 3배 등)를 반영한다.
-        static GameObject flyingPrefab, chargePrefab;
+        // FlyingEnemy/ChargeEnemy/MeleeEnemy/RangedEnemy 프리팹: 래퍼 루트(스케일 1, yaw만 회전) + 자식이 임포트 시
+        // 축변환·스케일을 그대로 들고 1m 기준으로 맞춰져 있음. Sync에서 wrapper.localScale = Vector3.one * e.height
+        // 로 개체별 크기(대형몹 3배 등)를 반영한다.
+        static GameObject flyingPrefab, chargePrefab, meleePrefab, rangedPrefab;
         static bool prefabsLoaded;
 
         // 돌진몹 원점은 모델 피벗이 발밑보다 살짝 위라 그냥 두면 발이 땅속에 파묻힘.
         // ★ Play 모드에서 Walk+Run 전체 사이클을 프레임별로 샘플링해 실측한 값(최저점 -0.182, 편차 거의 없음).
         //   이전의 0.24는 여유를 과하게 잡아 반대로 살짝 공중에 뜨는 원인이 됐다.
         const float ChargeFeetLift = 0.182f;
+        // 근접/원거리 병사도 같은 방식(Play 모드에서 Walk+공격 사이클 전체 샘플링)으로 실측.
+        // ★ applyRootMotion=true였을 때 잰 값(0.132)은 루트모션 드리프트가 섞여 부풀려진 값이었다 —
+        //   그걸 끄고 나서 재니 실제로는 이만큼만 필요했다(계속 가라앉던 원인도 같은 버그).
+        const float MeleeFeetLift  = 0.073f;
+        const float RangedFeetLift = 0.128f;   // ★ 마찬가지로 applyRootMotion 끈 뒤 재측정한 값.
+
+        // Monolith(원거리) Aim(Gunplay) 포즈는 총을 몸통 정면 기준 몹의 왼쪽으로 약 45° 든다(레이즈드
+        // 아이밍 스탠스). e.yaw로 몸통은 플레이어를 향하므로, 조준 중에만 몸을 +45° 돌려 총구를
+        // 플레이어에 맞춘다(플레이 모드 실측·렌더로 확정 — 총열이 정확히 정면을 향하는 각). 몸통은 살짝
+        // 비스듬해지지만 총구는 정확히 플레이어 조준. 여전히 어긋나면 이 값만 조정.
+        const float RangedAimYawOffset = 45f;
 
         // 돌진몹만 시각적으로 더 크게(가독성/위협감) — 히트박스(e.radius/e.height)는 그대로, 렌더 크기만 배율.
         // ★ 1.8배까지 키웠더니 일반 크기 몹이 실제 키 3m를 넘어 충돌 캡슐(지름 ~1.15m)보다 훨씬 넓어져
@@ -45,8 +57,12 @@ namespace Game.View
         // Walk/Run 클립은 제자리 걸음(루트 모션 없음)이라 "이 클립이 가정하는 실제 보폭 속도"를 몰라
         // 임의로 가정한 값(m/s) — 실제 이동 속도와 비교해 재생 속도를 맞추는 데만 쓴다. 미끄러져 보이면 이 값을 낮추고,
         // 다리가 너무 빨리 움직이면 값을 올린다.
-        const float WalkClipPace = 1.6f;
+        const float WalkClipPace = 1.8f;
         const float RunClipPace  = 4.0f;
+        // 평소 걷기는 재생속도 범위를 좁게 잡아 다리가 실제 이동 속도보다 서두르지 않게(육중한 느낌).
+        // 돌진 스프린트(Run)는 실제 속도 폭이 넓어(전속 14 vs 평소 2.1) 넓은 범위가 그대로 필요.
+        const float WalkSpeedClampMin = 0.6f, WalkSpeedClampMax = 1.5f;
+        const float RunSpeedClampMin  = 0.5f, RunSpeedClampMax  = 4.0f;
 
         // 걷는 동안 실제 속도 벡터를 그대로 몸통 방향에 쓰면 분리(separation) 스티어링의 매 틱 잔떨림이
         // 그대로 회전으로 튀어나와 "대각선으로 홱홱 도는" 느낌이 났다. 초당 최대 회전각을 제한해 부드럽게 돈다.
@@ -57,6 +73,8 @@ namespace Game.View
             if (prefabsLoaded) return;
             flyingPrefab = Resources.Load<GameObject>("Enemies/FlyingEnemy");
             chargePrefab = Resources.Load<GameObject>("Enemies/ChargeEnemy");
+            meleePrefab  = Resources.Load<GameObject>("Enemies/MeleeEnemy");
+            rangedPrefab = Resources.Load<GameObject>("Enemies/RangedEnemy");
             prefabsLoaded = true;
         }
 
@@ -81,8 +99,7 @@ namespace Game.View
             while (enemyViews.Count < w.enemyCount)
             {
                 int idx = enemyViews.Count;
-                MobilityType mobility = idx < w.enemyCount ? w.enemies[idx].ai.mobility : MobilityType.Ground;
-                AddView($"Enemy_{idx}", KindFor(mobility), w.enemies[idx].yaw);
+                AddView($"Enemy_{idx}", KindFor(w.enemies[idx].ai.mobility, w.enemies[idx].ai.combat), w.enemies[idx].yaw);
             }
 
             for (int i = 0; i < enemyViews.Count; i++)
@@ -91,8 +108,8 @@ namespace Game.View
                 bool active = i < w.enemyCount && w.enemies[i].alive && w.enemies[i].combat.gloryStage == 0;
                 if (i < w.enemyCount)
                 {
-                    // 개체 풀 재사용으로 이동방식이 바뀐 슬롯 → 시각을 다시 만든다.
-                    ViewKind wantKind = KindFor(w.enemies[i].ai.mobility);
+                    // 개체 풀 재사용으로 이동방식/전투방식이 바뀐 슬롯 → 시각을 다시 만든다.
+                    ViewKind wantKind = KindFor(w.enemies[i].ai.mobility, w.enemies[i].ai.combat);
                     if (viewKinds[i] != wantKind) ReplaceView(i, $"Enemy_{i}", wantKind, w.enemies[i].yaw);
                 }
                 enemyViews[i].gameObject.SetActive(active);
@@ -109,26 +126,36 @@ namespace Game.View
                 else
                 {
                     // 실물 모델은 프리팹을 1m 기준으로 미리 맞춰뒀으므로 wrapper 스케일 = e.height 하나로 충분.
-                    // Flying은 원점이 모델 중심(=캡슐과 동일하게 절반 올림), Charge는 원점이 발 근처지만
-                    // 살짝 위라 chargeFeetLift만큼 더 들어올려야 발이 바닥에 파묻히지 않는다.
+                    // Flying은 원점이 모델 중심(=캡슐과 동일하게 절반 올림), 나머지 바이페드는 원점이 발 근처지만
+                    // 살짝 위라 종류별 FeetLift만큼 더 들어올려야 발이 바닥에 파묻히지 않는다.
                     float visualScale = e.height * (kind == ViewKind.Charge ? ChargeVisualScaleMul : 1f);
+                    float feetLift = kind == ViewKind.Melee ? MeleeFeetLift
+                                    : kind == ViewKind.Ranged ? RangedFeetLift
+                                    : ChargeFeetLift;
                     // 발 오프셋은 실제로 그려지는 크기(visualScale) 기준이어야 커진 만큼 같이 들어올려진다.
                     enemyViews[i].position = kind == ViewKind.Flying
                         ? ep + Vector3.up * (e.height * 0.5f)
-                        : ep + Vector3.up * (ChargeFeetLift * visualScale);
+                        : ep + Vector3.up * (feetLift * visualScale);
                     enemyViews[i].localScale = new Vector3(visualScale, visualScale, visualScale);
                 }
-                bool isChargeRun = kind == ViewKind.Charge && e.ai.state == EnemyState.ChargeRun;
+                bool isChargeRun  = kind == ViewKind.Charge  && e.ai.state == EnemyState.ChargeRun;
+                bool isAttacking  = kind == ViewKind.Melee   && (e.ai.state == EnemyState.Windup || e.ai.state == EnemyState.Active || e.ai.state == EnemyState.Recovery);
+                bool isAiming     = kind == ViewKind.Ranged  && (e.ai.state == EnemyState.Aim || e.ai.state == EnemyState.Fire);
+                // "커밋된 텔레그래프 방향을 그대로 봐야 하는" 상태 — 그 외엔 실제 이동 방향(속도)을 봐야 자연스럽다.
+                bool faceCommitted = isChargeRun || isAttacking || isAiming;
                 float bodyYaw = e.yaw;
-                if (kind == ViewKind.Charge && !isChargeRun)
+                // 근접·돌진은 이동 방향(속도)을 봐야 자연스럽다(플레이어에게 달려드는 몹). e.yaw는 sim에서
+                // "플레이어 응시"라 그대로 쓰면 대각선/옆으로 걷는 것처럼 보인다.
+                // ★ 원거리(총병)는 예외 — 후진하며 조준선을 유지하는 게 자연스러우므로 걸을 때도 플레이어를
+                //   계속 본다(이동 방향으로 안 돌린다). e.yaw가 이미 플레이어를 향하고 있다.
+                if (IsBiped(kind) && kind != ViewKind.Ranged && !faceCommitted)
                 {
-                    // e.yaw는 sim에서 "플레이어를 응시"(텔레그래프용)라 그대로 쓰면 대각선/옆으로 걷는 것처럼
-                    // 보임 — 걷는 동안만은 실제 이동 방향(속도 벡터)을 봐야 자연스럽다. 돌진 중엔 committedDir과
-                    // e.yaw가 같은 방향이라 그대로 써도 된다. e.yaw 자체(사거리/명중 판정용)는 건드리지 않는다.
                     Vector3 horizVel = new Vector3(e.vel.x, 0f, e.vel.z);
                     if (horizVel.sqrMagnitude > 0.01f) bodyYaw = Mathf.Atan2(horizVel.x, horizVel.z) * Mathf.Rad2Deg;
                 }
-                if (kind == ViewKind.Charge)
+                // 조준 중인 원거리 몹만 총구 정면 보정(부드럽게 돌도록 smoothing 전에 target에 반영).
+                if (kind == ViewKind.Ranged && isAiming) bodyYaw += RangedAimYawOffset;
+                if (IsBiped(kind))
                 {
                     // 분리 스티어링 잔떨림을 걸러내는 회전 속도 제한(시각 전용, e.yaw/전투 판정엔 영향 없음).
                     viewYaw[i] = Mathf.MoveTowardsAngle(viewYaw[i], bodyYaw, BodyTurnDegPerSec * Time.deltaTime);
@@ -152,11 +179,35 @@ namespace Game.View
                     //   실제 이동 속도와의 비율만큼 재생 속도를 올린다.
                     float horizSpeed = new Vector3(e.vel.x, 0f, e.vel.z).magnitude;
                     float clipPace = isChargeRun ? RunClipPace : WalkClipPace;
-                    anim.speed = Mathf.Clamp(horizSpeed / clipPace, 0.5f, 4f);
+                    anim.speed = isChargeRun
+                        ? Mathf.Clamp(horizSpeed / clipPace, RunSpeedClampMin, RunSpeedClampMax)
+                        : Mathf.Clamp(horizSpeed / clipPace, WalkSpeedClampMin, WalkSpeedClampMax);
+                }
+                else if (kind == ViewKind.Melee)
+                {
+                    Animator anim = viewAnimators[i];
+                    anim.SetBool("IsAttacking", isAttacking);
+                    if (!isAttacking)
+                    {
+                        float horizSpeed = new Vector3(e.vel.x, 0f, e.vel.z).magnitude;
+                        anim.speed = Mathf.Clamp(horizSpeed / WalkClipPace, WalkSpeedClampMin, WalkSpeedClampMax);
+                    }
+                    else anim.speed = 1f;   // 공격 모션은 판정 타이밍과 맞춰야 하니 배속 없이 그대로 재생.
+                }
+                else if (kind == ViewKind.Ranged)
+                {
+                    Animator anim = viewAnimators[i];
+                    anim.SetBool("IsAiming", isAiming);
+                    if (!isAiming)
+                    {
+                        float horizSpeed = new Vector3(e.vel.x, 0f, e.vel.z).magnitude;
+                        anim.speed = Mathf.Clamp(horizSpeed / WalkClipPace, WalkSpeedClampMin, WalkSpeedClampMax);
+                    }
+                    else anim.speed = 1f;
                 }
 
                 // 우선순위: 피격/스턴 > 공격 선딜(경고) > 타격 > 하강 단계 색
-                // 실물 모델(Flying/Charge)은 원래 텍스처 색을 그대로 유지 — 캡슐만 상태별로 틴트.
+                // 실물 모델은 원래 텍스처 색을 그대로 유지 — 캡슐만 상태별로 틴트.
                 if (kind == ViewKind.Capsule)
                 {
                     Color col;
@@ -173,12 +224,16 @@ namespace Game.View
         static Color PhaseColor(DescentPhase p)
             => p == DescentPhase.Leaping ? LeapColor : ChaseColor;
 
-        static ViewKind KindFor(MobilityType m) => m switch
+        static ViewKind KindFor(MobilityType m, CombatType c)
         {
-            MobilityType.Flying => ViewKind.Flying,
-            MobilityType.Charge => ViewKind.Charge,
-            _                   => ViewKind.Capsule,
-        };
+            if (m == MobilityType.Flying) return ViewKind.Flying;
+            if (m == MobilityType.Charge) return ViewKind.Charge;
+            // 층이동(Traversal)은 전용 모델이 없어 한때 전부 근접 모델로 통일했었다.
+            // 이제 원거리 몸체(Ranged)도 실물 모델이 있으므로, 전투 판정(combat)에 맞춰 총/칼을 가른다.
+            return c == CombatType.Ranged ? ViewKind.Ranged : ViewKind.Melee;
+        }
+
+        static bool IsBiped(ViewKind k) => k == ViewKind.Charge || k == ViewKind.Melee || k == ViewKind.Ranged;
 
         void AddView(string name, ViewKind kind, float initialYaw)
         {
@@ -198,6 +253,8 @@ namespace Game.View
             // 프리팹이 없으면(Resources 미배치 등) 캡슐로 대체 — 크래시 대신 예전 모습으로 폴백.
             if (kind == ViewKind.Flying && flyingPrefab == null) kind = ViewKind.Capsule;
             if (kind == ViewKind.Charge && chargePrefab == null) kind = ViewKind.Capsule;
+            if (kind == ViewKind.Melee  && meleePrefab  == null) kind = ViewKind.Capsule;
+            if (kind == ViewKind.Ranged && rangedPrefab == null) kind = ViewKind.Capsule;
 
             Transform t;
             Renderer  r;
@@ -210,6 +267,16 @@ namespace Game.View
                     break;
                 case ViewKind.Charge:
                     t = Object.Instantiate(chargePrefab).transform;
+                    r = t.GetComponentInChildren<Renderer>();
+                    a = t.GetComponentInChildren<Animator>();
+                    break;
+                case ViewKind.Melee:
+                    t = Object.Instantiate(meleePrefab).transform;
+                    r = t.GetComponentInChildren<Renderer>();
+                    a = t.GetComponentInChildren<Animator>();
+                    break;
+                case ViewKind.Ranged:
+                    t = Object.Instantiate(rangedPrefab).transform;
                     r = t.GetComponentInChildren<Renderer>();
                     a = t.GetComponentInChildren<Animator>();
                     break;

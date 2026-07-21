@@ -28,12 +28,13 @@ namespace Game.View
         readonly float[]        prevHeight   = new float[SimConfig.MaxEnemies];
         readonly float[]        prevScale    = new float[SimConfig.MaxEnemies];
         readonly MobilityType[] prevMobility = new MobilityType[SimConfig.MaxEnemies];
+        readonly CombatType[]   prevCombat   = new CombatType[SimConfig.MaxEnemies];
         int slashParity;
 
-        Mesh capsuleSrc;                 // 그런트 기준 캡슐(슬라이스 원본, Ground/Traversal 폴백). 대형은 transform 스케일로 확대.
-        Mesh flyingSrc, chargeSrc;        // 실물 모델 원본(EntityViews의 FlyingEnemy/ChargeEnemy 프리팹을 SimConfig.EnemyHeight 절대 크기로 구움)
-        Material shellMat, fleshMat;              // 캡슐 겉면/단면 머티리얼
-        Material flyingShellMat, chargeShellMat;  // 실물 모델 겉면 = 원래 텍스처 머티리얼(잘려도 그 몹처럼 보이도록)
+        Mesh capsuleSrc;                 // 그런트 기준 캡슐(슬라이스 원본, Traversal 폴백). 대형은 transform 스케일로 확대.
+        Mesh flyingSrc, chargeSrc, meleeSrc, rangedSrc;   // 실물 모델 원본(EntityViews 프리팹을 SimConfig.EnemyHeight 절대 크기로 구움)
+        Material shellMat, fleshMat;                        // 캡슐 겉면/단면 머티리얼
+        Material flyingShellMat, chargeShellMat, meleeShellMat, rangedShellMat;  // 실물 모델 겉면 = 원래 텍스처(잘려도 그 몹처럼 보이도록)
         ParticleSystem blood;
 
         const float CorpseLife = 5f;
@@ -79,24 +80,34 @@ namespace Game.View
                 Destroy(t);
             }
 
-            var chargePrefab = Resources.Load<GameObject>("Enemies/ChargeEnemy");
-            if (chargePrefab != null)
+            chargeSrc = BakeHumanoidPrefab("Enemies/ChargeEnemy", out chargeShellMat);
+            meleeSrc  = BakeHumanoidPrefab("Enemies/MeleeEnemy",  out meleeShellMat);
+            rangedSrc = BakeHumanoidPrefab("Enemies/RangedEnemy", out rangedShellMat);
+        }
+
+        /// <summary>
+        /// ★ Humanoid Animator가 붙으면 본 계층의 localScale이 아바타 정규화로 즉시 바뀌어
+        /// 부모 트랜스폼 체인을 곱하는 방식(TransformPoint)은 신뢰할 수 없다(테스트 중 정점이
+        /// 거의 원점(0,0,0)으로 뭉개지는 걸로 확인). BakeMesh 결과 자체가 이미 포즈가 반영된
+        /// 자체 좌표라 회전 보정 없이 자기 바운즈 기준으로만 재배율한다.
+        /// </summary>
+        static Mesh BakeHumanoidPrefab(string resourcePath, out Material shellMat)
+        {
+            shellMat = null;
+            var prefab = Resources.Load<GameObject>(resourcePath);
+            if (prefab == null) return null;
+            var t = Instantiate(prefab);
+            var smr = t.GetComponentInChildren<SkinnedMeshRenderer>();
+            Mesh result = null;
+            if (smr != null)
             {
-                var t = Instantiate(chargePrefab);
-                var smr = t.GetComponentInChildren<SkinnedMeshRenderer>();
-                if (smr != null)
-                {
-                    // ★ Humanoid Animator가 붙으면 본 계층의 localScale이 아바타 정규화로 즉시 바뀌어
-                    //   부모 트랜스폼 체인을 곱하는 방식(TransformPoint)은 신뢰할 수 없다(테스트 중 정점이
-                    //   거의 원점(0,0,0)으로 뭉개지는 걸로 확인). BakeMesh 결과 자체가 이미 포즈가 반영된
-                    //   자체 좌표라 회전 보정 없이 자기 바운즈 기준으로만 재배율한다.
-                    var baked = new Mesh();
-                    smr.BakeMesh(baked);   // 현재(기본) 포즈 스냅샷 — 스키닝 없는 정적 메시로 변환
-                    chargeSrc = BakeStaticSubmesh(baked, Quaternion.identity, SimConfig.EnemyHeight);
-                    chargeShellMat = smr.sharedMaterial;
-                }
-                Destroy(t);
+                var baked = new Mesh();
+                smr.BakeMesh(baked);   // 현재(기본) 포즈 스냅샷 — 스키닝 없는 정적 메시로 변환
+                result = BakeStaticSubmesh(baked, Quaternion.identity, SimConfig.EnemyHeight);
+                shellMat = smr.sharedMaterial;
             }
+            Destroy(t);
+            return result;
         }
 
         /// <summary>
@@ -135,14 +146,19 @@ namespace Game.View
             return m;
         }
 
-        /// <summary>피해자 이동방식에 맞는 슬라이스 원본 메시·겉면 머티리얼·최종 스케일을 고른다(없으면 캡슐 폴백).</summary>
-        void GetVictimAssets(MobilityType mobility, float radiusScale, float height,
+        /// <summary>피해자 이동/전투 방식에 맞는 슬라이스 원본 메시·겉면 머티리얼·최종 스케일을 고른다(없으면 캡슐 폴백).</summary>
+        void GetVictimAssets(MobilityType mobility, CombatType combat, float radiusScale, float height,
                               out Mesh src, out Material shell, out float scale)
         {
             if (mobility == MobilityType.Flying && flyingSrc != null)
             { src = flyingSrc; shell = flyingShellMat; scale = height / SimConfig.EnemyHeight; return; }
             if (mobility == MobilityType.Charge && chargeSrc != null)
             { src = chargeSrc; shell = chargeShellMat; scale = height / SimConfig.EnemyHeight * ChargeVisualScaleMul; return; }
+            // 층이동(Traversal)도 EntityViews와 동일하게 combat 기준으로 몸체를 고른다(총/칼 모델 일치).
+            if (combat == CombatType.Ranged && rangedSrc != null)
+            { src = rangedSrc; shell = rangedShellMat; scale = height / SimConfig.EnemyHeight; return; }
+            if (combat != CombatType.Ranged && meleeSrc != null)
+            { src = meleeSrc; shell = meleeShellMat; scale = height / SimConfig.EnemyHeight; return; }
             src = capsuleSrc; shell = shellMat; scale = radiusScale;
         }
 
@@ -165,8 +181,8 @@ namespace Game.View
                     bool departed = prevAlive[i] && (!e.alive || !sameId);
                     if (departed && prevGlory[i] == 0)
                     {
-                        if (sameId) SliceCorpse(e.pos, e.yaw, e.height, e.radius / SimConfig.EnemyRadius, e.ai.mobility);
-                        else        SliceCorpse(prevPos[i], prevYaw[i], prevHeight[i], prevScale[i], prevMobility[i]);
+                        if (sameId) SliceCorpse(e.pos, e.yaw, e.height, e.radius / SimConfig.EnemyRadius, e.ai.mobility, e.ai.combat);
+                        else        SliceCorpse(prevPos[i], prevYaw[i], prevHeight[i], prevScale[i], prevMobility[i], prevCombat[i]);
                     }
 
                     // 글로리 단계 전이는 동일 적일 때만. 재사용이면 이전 글로리 잔여 정리.
@@ -182,6 +198,7 @@ namespace Game.View
                 prevHeight[i] = e.height;
                 prevScale[i] = e.radius / SimConfig.EnemyRadius;
                 prevMobility[i] = e.ai.mobility;
+                prevCombat[i]   = e.ai.combat;
             }
         }
 
@@ -200,7 +217,7 @@ namespace Game.View
 
         void GloryStart(int i, in EnemySim e)
         {
-            GetVictimAssets(e.ai.mobility, e.radius / SimConfig.EnemyRadius, e.height,
+            GetVictimAssets(e.ai.mobility, e.ai.combat, e.radius / SimConfig.EnemyRadius, e.height,
                             out Mesh src, out Material shell, out float scale);
             Vector3 center = e.pos + Vector3.up * (e.height * 0.5f);
             Quaternion rot = Quaternion.Euler(0f, e.yaw, 0f);
@@ -267,8 +284,11 @@ namespace Game.View
             go.AddComponent<MeshFilter>().mesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterials = new[] { shell, fleshMat };
 
-            var mc = go.AddComponent<MeshCollider>();
-            mc.sharedMesh = mesh; mc.convex = true;
+            // ★ 실물 모델 슬라이스는 정점이 수천 개라 MeshCollider(convex) 훌 계산이 킬마다 수십~백 ms씩
+            // 걸려 순간 렉으로 보였다(실측 85ms). 파편은 굴러다니다 사라지는 연출용이라 정확한 모양의
+            // 충돌이 필요 없음 — 바운즈만큼의 박스 콜라이더로 대체(생성 비용 거의 0).
+            var bc = go.AddComponent<BoxCollider>();
+            bc.center = mesh.bounds.center; bc.size = mesh.bounds.size;
 
             var rb = go.AddComponent<Rigidbody>();
             rb.mass = 3f * scale;
@@ -282,7 +302,7 @@ namespace Game.View
 
         // ───────────────────────── 일반 처치(2조각 즉시) ─────────────────────────
 
-        void SliceCorpse(Vector3 feet, float yaw, float height, float radiusScale, MobilityType mobility)
+        void SliceCorpse(Vector3 feet, float yaw, float height, float radiusScale, MobilityType mobility, CombatType combat)
         {
             Vector3 center = feet + Vector3.up * (height * 0.5f);
             Quaternion rot = Quaternion.Euler(0f, yaw, 0f);
@@ -294,7 +314,7 @@ namespace Game.View
             Vector3 worldN = (Quaternion.AngleAxis(slashParity == 0 ? 45f : -45f, fwd) * up).normalized;
             Vector3 localN = (Quaternion.Inverse(rot) * worldN).normalized;
 
-            GetVictimAssets(mobility, radiusScale, height, out Mesh src, out Material shell, out float scale);
+            GetVictimAssets(mobility, combat, radiusScale, height, out Mesh src, out Material shell, out float scale);
             if (!MeshSlicer.Slice(src, Vector3.zero, localN, out Mesh aboveM, out Mesh belowM))
                 return;
 
@@ -315,8 +335,9 @@ namespace Game.View
             go.AddComponent<MeshFilter>().mesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterials = new[] { shell, fleshMat };
 
-            var mc = go.AddComponent<MeshCollider>();
-            mc.sharedMesh = mesh; mc.convex = true;
+            // ★ HeldPiece와 같은 이유로 MeshCollider(convex) 대신 바운즈 박스 콜라이더 사용.
+            var bc = go.AddComponent<BoxCollider>();
+            bc.center = mesh.bounds.center; bc.size = mesh.bounds.size;
 
             var rb = go.AddComponent<Rigidbody>();
             rb.mass = 3f * scale;
