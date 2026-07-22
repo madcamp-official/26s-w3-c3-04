@@ -87,6 +87,13 @@ namespace Game.View
 
             Slider("골반 낙차(앉는 깊이)", ref TitleActor.KneelDrop, 0f, 1f);
 
+            GUILayout.Label("<b>▸ 움직임</b>  <size=12>숨쉬기 · 흔들림 (0이면 정지)</size>", Head());
+            Slider("숨쉬기 진폭", ref TitleActor.BreathAmount, 0f, 0.15f, true);
+            Slider("숨쉬기 속도", ref TitleActor.BreathSpeed, 0.2f, 2f);
+            Slider("몸 오르내림(m)", ref TitleActor.BreathBob, 0f, 0.03f, true);
+            Slider("흔들림 진폭", ref TitleActor.SwayAmount, 0f, 0.12f, true);
+            Slider("흔들림 속도", ref TitleActor.SwaySpeed, 0.1f, 1.5f);
+
             GUILayout.Label("<b>▸ 칼</b>  <size=12>각도 · 위치 · 크기</size>", Head());
             Slider("각도 X(끝 올리기/내리기)", ref TitleActor.BladeTilt.x, -180f, 180f, true);
             Slider("각도 Y(좌우 스윙)", ref TitleActor.BladeTilt.y, -180f, 180f, true);
@@ -180,6 +187,8 @@ namespace Game.View
             sb.AppendLine($"ActorYaw = {TitleActor.ActorYaw:0.0}f;  KneelDrop = {TitleActor.KneelDrop:0.00}f;");
             sb.AppendLine($"BladeTilt = new Vector3({TitleActor.BladeTilt.x:0.0}f, {TitleActor.BladeTilt.y:0.0}f, {TitleActor.BladeTilt.z:0.0}f);");
             sb.AppendLine($"BladeOffset = new Vector3({TitleActor.BladeOffset.x:0.000}f, {TitleActor.BladeOffset.y:0.000}f, {TitleActor.BladeOffset.z:0.000}f);  BladeScale = {TitleActor.BladeScale:0.00}f;");
+            sb.AppendLine($"BreathAmount = {TitleActor.BreathAmount:0.000}f;  BreathSpeed = {TitleActor.BreathSpeed:0.00}f;  BreathBob = {TitleActor.BreathBob:0.000}f;");
+            sb.AppendLine($"SwayAmount = {TitleActor.SwayAmount:0.000}f;  SwaySpeed = {TitleActor.SwaySpeed:0.00}f;");
             sb.AppendLine("PoseValues =");
             sb.AppendLine("{");
             for (int i = 0; i < TitleActor.PoseValues.Length; i++)

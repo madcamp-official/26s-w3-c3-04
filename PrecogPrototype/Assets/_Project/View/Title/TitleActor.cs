@@ -174,12 +174,13 @@ namespace Game.View
         int[] swayIndex;
 
         /// <summary>흔들림 진폭(근육 단위). 0이면 완전히 굳는다.</summary>
-        public static float SwayAmount = 0.055f;
+        public static float SwayAmount = 0.022f;
         /// <summary>흔들림 속도. 호흡과 다른 주기여야 둘이 겹쳐 보이지 않는다.</summary>
         public static float SwaySpeed = 0.37f;
 
-        /// <summary>숨쉬기 진폭(근육 단위). 0이면 완전히 멈춘다.</summary>
-        public static float BreathAmount = 0.09f;
+        /// <summary>숨쉬기 진폭(근육 단위). 0이면 완전히 멈춘다.
+        /// 0.09는 과했다(머리가 46mm 흔들렸다) — 0.035면 "살아 있다"만 읽히고 눈에 걸리지 않는다.</summary>
+        public static float BreathAmount = 0.035f;
         /// <summary>숨쉬기 속도(라디안/초). 사람 안정 시 호흡이 분당 12~16회라 0.9 언저리가 자연스럽다.</summary>
         public static float BreathSpeed = 0.9f;
         /// <summary>
