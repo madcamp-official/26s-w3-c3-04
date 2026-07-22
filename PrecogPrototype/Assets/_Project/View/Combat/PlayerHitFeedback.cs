@@ -13,6 +13,9 @@ namespace Game.View
     {
         int prevHp = int.MinValue;
 
+        /// <summary>이 이하로 남으면 위험 연출. HoloHud의 적색 전환 기준(1칸)과 같은 값.</summary>
+        const int LowHpWarn = 1;
+
         void Update()
         {
             var main = Main.Instance;
@@ -24,8 +27,13 @@ namespace Game.View
                 ScreenFx.Hurt();
                 CombatFeedback.Shake(0.16f);
                 CombatAudio.PlayerHurt();
+                // 좌하단 게이지만으로는 전투 중에 안 읽힌다 — 화면 중앙에 깎인 양을 띄운다.
+                if (HoloHud.Instance != null) HoloHud.Instance.ShowHurt(prevHp - hp, hp);
             }
             prevHp = hp;
+
+            // 마지막 한 칸 — 맞은 순간뿐 아니라 살아 있는 동안 계속 붉게 숨쉬게 한다.
+            if (hp > 0 && hp <= LowHpWarn) ScreenFx.LowHealth(1f);
         }
     }
 

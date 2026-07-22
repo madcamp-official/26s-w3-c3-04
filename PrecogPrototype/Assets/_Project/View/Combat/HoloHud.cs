@@ -32,21 +32,28 @@ namespace Game.View
         public static HoloHud Instance { get; private set; }
 
         // ── 색 ───────────────────────────────────────────────────────────
+        // [팔레트 개정, 2026-07-23] 축을 <b>두 개로만</b> 줄인다 — 시안 = 자원(체력·대시),
+        // 앰버 = 능력(우클릭). 단색 홀로그램은 정보가 뭉개지기 쉬워서, 세 번째 색인 적색은
+        // 오직 "체력 1칸" 위험 상태에서만 등장한다. 그래야 붉은색이 경보로 읽힌다.
         static readonly Color Cyan   = new Color(0.42f, 0.92f, 1f);
-        static readonly Color Health = new Color(1f, 0.44f, 0.30f);
+        static readonly Color Health = new Color(0.35f, 0.90f, 1f);
         static readonly Color Dash   = new Color(0.38f, 0.86f, 1f);
-        static readonly Color Lunge  = new Color(0.35f, 1f, 0.86f);
-        static readonly Color Danger = new Color(1f, 0.22f, 0.16f);
+        static readonly Color Lunge  = new Color(1f, 0.79f, 0.42f);
+        static readonly Color Danger = new Color(1f, 0.30f, 0.37f);
 
-        // ── 배치 (기준 해상도 1920x1080의 픽셀) ──────────────────────────
+        // ── 배치 (기준 해상도 1920x1080의 픽셀, 좌하단 원점) ─────────────
+        // 목업(1280x720)을 1.5배 한 값. 자동 계산하지 말고 실측 상수로 박아둔다.
         const float RefW = 1920f, RefH = 1080f;
-        const float BarX = 96f;            // 바 왼쪽 끝
-        const float BarW = 420f, BarH = 15f;
-        const float BarGapY = 40f;         // 바 사이 세로 간격
-        const float BarsBottom = 96f;      // 맨 아래 바의 y(바닥에서)
-        const float DialR = 92f;           // 예지 링 반지름
-        const float DialMargin = 132f;     // 화면 우상단에서 링 중심까지
+        const float BarX = 72f;                        // 세 바 공통 왼쪽 끝
+        const float HealthY = 228f, HealthW = 483f, HealthH = 45f;
+        const float MinorY  = 138f, MinorW  = 246f, MinorH  = 24f;   // 대시
+        const float LungeY  = 72f;                                   // 우클릭(같은 폭·높이)
         const float LabelSize = 15f;
+
+        // 예지 링 — 우상단 앵커. 화면비가 바뀌어도 모서리에서 같은 거리를 유지한다.
+        const float DialR = 81f;                       // 바깥 반지름(눈금은 이 안쪽)
+        const float DialMarginX = 177f, DialMarginY = 189f;
+        const float DialLabelR = 110f;                 // 초 라벨이 놓이는 반지름
 
         Canvas canvas;
         GameObject root;
@@ -57,6 +64,14 @@ namespace Game.View
         Text dialText;
         RectTransform dialTextRect;
         Text healthValue;
+
+        // 피격 팝업 — 좌하단 게이지는 전투 중 시선이 안 가는 자리라, 깎인 순간만 화면 한복판에
+        // 숫자를 띄운다. 조준선은 가리지 않게 중앙에서 아래로 내려 잡는다.
+        Text hurtText;
+        RectTransform hurtRect;
+        float hurtT;
+        const float HurtShowTime = 1.1f;
+        static readonly Vector2 HurtBase = new Vector2(0f, -168f);
 
         // 표시값은 목표치로 부드럽게 따라간다 — 프레임마다 딱딱 끊기지 않게.
         float shownHealth = -1f, shownDash = -1f, shownLunge = -1f, shownDial = -1f;
@@ -100,68 +115,122 @@ namespace Game.View
             Stretch(scan.rectTransform);
             scan.color = Cyan;
 
-            health = NewBar("Health", rootRt, 2, Health);
-            dash   = NewBar("Dash",   rootRt, 1, Dash);
-            lunge  = NewBar("Lunge",  rootRt, 0, Lunge);
-            health.segments = 24; dash.segments = 8; lunge.segments = 6;
+            // 칸 수는 시뮬 상한과 그대로 맞물린다 — 체력 3, 대시 2, 런지 2.
+            health = NewBar("Health", rootRt, HealthY, HealthW, HealthH, Health, CombatConfig.PlayerMaxHp);
+            dash   = NewBar("Dash",   rootRt, MinorY,  MinorW,  MinorH,  Dash,  SimConfig.DashMaxCharges);
+            lunge  = NewBar("Lunge",  rootRt, LungeY,  MinorW,  MinorH,  Lunge, CombatConfig.LungeMaxStacks);
 
-            NewLabel("HEALTH", rootRt, 2);
-            NewLabel("DASH",   rootRt, 1);
-            NewLabel("LUNGE",  rootRt, 0);
+            NewLabel("VITALITY", "",      rootRt, HealthY, HealthW, HealthH, Cyan,  LabelSize);
+            NewLabel("DASH",     "SHIFT", rootRt, MinorY,  MinorW,  MinorH,  Cyan,  LabelSize - 2f);
+            NewLabel("LUNGE",    "RMB",   rootRt, LungeY,  MinorW,  MinorH,  Lunge, LabelSize - 2f);
 
-            // 체력 수치는 바 오른쪽 끝에 붙여 숫자로도 읽히게 한다.
-            healthValue = NewText("HealthValue", rootRt, 20, TextAnchor.MiddleRight);
+            // 체력은 칸으로도 읽히지만, 남은 칸 수를 숫자로 한 번 더 준다("02 / 03").
+            healthValue = NewText("HealthValue", rootRt, 26, TextAnchor.LowerRight);
             SetRect((RectTransform)healthValue.transform,
-                BarX + BarW - 150f, BarsBottom + 2 * (BarH + BarGapY) + BarH + 6f, 150f, 24f);
-            healthValue.color = new Color(Health.r, Health.g, Health.b, 0.85f);
+                BarX + HealthW - 200f, HealthY + HealthH + 4f, 200f, 30f);
+            healthValue.color = new Color(Health.r, Health.g, Health.b, 0.9f);
 
             BuildDial(rootRt);
+            BuildHurt(rootRt);
         }
 
-        HoloBar NewBar(string name, RectTransform parent, int row, Color c)
+        void BuildHurt(RectTransform parent)
+        {
+            hurtText = NewText("HurtPopup", parent, 64, TextAnchor.MiddleCenter);
+            hurtRect = (RectTransform)hurtText.transform;
+            hurtRect.anchorMin = hurtRect.anchorMax = new Vector2(0.5f, 0.5f);
+            hurtRect.pivot = new Vector2(0.5f, 0.5f);
+            hurtRect.sizeDelta = new Vector2(640f, 170f);
+            hurtRect.anchoredPosition = HurtBase;
+            hurtText.color = Danger;
+            hurtText.gameObject.SetActive(false);
+        }
+
+        /// <summary>체력이 깎인 순간 호출. 감소량과 남은 체력을 화면 중앙에 띄운다.</summary>
+        public void ShowHurt(int amount, int hpAfter)
+        {
+            if (hurtText == null || amount <= 0) return;
+            hurtT = HurtShowTime;
+            hurtText.text = "-" + amount +
+                "\n<size=22><color=#FF9AA2>VITALITY  " + Two(Mathf.Max(0, hpAfter)) +
+                " / " + Two(CombatConfig.PlayerMaxHp) + "</color></size>";
+            hurtText.gameObject.SetActive(true);
+            health.Punch();
+        }
+
+        HoloBar NewBar(string name, RectTransform parent, float y, float w, float h, Color c, int cells)
         {
             var bar = NewGraphic<HoloBar>(name, parent);
-            SetRect(bar.rectTransform, BarX, BarsBottom + row * (BarH + BarGapY), BarW, BarH);
+            SetRect(bar.rectTransform, BarX, y, w, h);
             bar.color = c;
+            bar.cells = Mathf.Max(1, cells);
             return bar;
         }
 
-        void NewLabel(string text, RectTransform parent, int row)
+        /// <summary>바 위에 붙는 라벨 한 줄. 왼쪽은 이름, 오른쪽은 조작키 힌트.</summary>
+        void NewLabel(string text, string key, RectTransform parent, float y, float w, float h, Color c, float size)
         {
-            var t = NewText(text + "Label", parent, LabelSize, TextAnchor.LowerLeft);
-            SetRect((RectTransform)t.transform,
-                BarX, BarsBottom + row * (BarH + BarGapY) + BarH + 4f, 260f, 22f);
+            var t = NewText(text + "Label", parent, size, TextAnchor.LowerLeft);
+            SetRect((RectTransform)t.transform, BarX, y + h + 4f, 300f, 22f);
             t.text = text;
-            t.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.5f);
+            t.color = new Color(c.r, c.g, c.b, 0.85f);
+
+            if (string.IsNullOrEmpty(key)) return;
+            var k = NewText(text + "Key", parent, size - 2f, TextAnchor.LowerRight);
+            SetRect((RectTransform)k.transform, BarX + w - 200f, y + h + 4f, 200f, 22f);
+            k.text = key;
+            k.color = new Color(c.r, c.g, c.b, 0.45f);
         }
 
         void BuildDial(RectTransform parent)
         {
             dial = NewGraphic<HoloArc>("Prediction", parent);
-            var rt = dial.rectTransform;
-            // 우상단 고정 — 앵커를 오른쪽 위에 붙여 화면비가 바뀌어도 모서리에서 같은 거리.
-            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(-DialMargin, -DialMargin);
-            rt.sizeDelta = new Vector2(DialR * 2f, DialR * 2f);
+            var rt = DialAnchored(dial.rectTransform, Vector2.zero, new Vector2(DialR * 2f, DialR * 2f));
             dial.color = Cyan;
+            dial.MinUsable = PredictionConfig.ChargeMinToUse;
 
             dialTextRect = (RectTransform)NewText("Seconds", parent, 40, TextAnchor.MiddleCenter).transform;
             dialText = dialTextRect.GetComponent<Text>();
-            dialTextRect.anchorMin = dialTextRect.anchorMax = new Vector2(1f, 1f);
-            dialTextRect.pivot = new Vector2(0.5f, 0.5f);
-            dialTextRect.anchoredPosition = new Vector2(-DialMargin, -DialMargin);
-            dialTextRect.sizeDelta = new Vector2(DialR * 1.6f, DialR * 0.9f);
+            DialAnchored(dialTextRect, Vector2.zero, new Vector2(DialR * 1.6f, DialR * 0.9f));
             dialText.color = Cyan;
 
-            var label = NewText("PredLabel", parent, 14, TextAnchor.MiddleCenter);
-            var lrt = (RectTransform)label.transform;
-            lrt.anchorMin = lrt.anchorMax = new Vector2(1f, 1f);
-            lrt.pivot = new Vector2(0.5f, 0.5f);
-            lrt.anchoredPosition = new Vector2(-DialMargin, -DialMargin - DialR - 16f);
-            lrt.sizeDelta = new Vector2(240f, 20f);
-            label.text = "PRECOGNITION";
-            label.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.45f);
+            // 숫자 아래 작은 첨자 — 이 링이 "초"를 재고 있다는 걸 한 번 못박아 둔다.
+            var unit = NewText("HorizonLabel", parent, 11, TextAnchor.MiddleCenter);
+            DialAnchored((RectTransform)unit.transform, new Vector2(0f, -36f), new Vector2(140f, 18f));
+            unit.text = "H O R I Z O N";
+            unit.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.45f);
+
+            // 이름표는 링 왼쪽 — 우상단 모서리 밖으로 글자가 밀려나지 않게 안쪽으로 눕힌다.
+            var label = NewText("PredLabel", parent, 16, TextAnchor.MiddleRight);
+            var lrt = DialAnchored((RectTransform)label.transform, new Vector2(-117f, 0f), new Vector2(300f, 24f));
+            lrt.pivot = new Vector2(1f, 0.5f);
+            label.text = "P R E C O G";
+            label.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.7f);
+
+            // 초 눈금 라벨. 게이지 0%가 곧 1초라(ChargeToSeconds) 한 바퀴는 1→5초이고,
+            // 90도가 정확히 1초다 — 12시=5초(최대), 3·6·9시가 2·3·4초.
+            DialTick("5", 0f, DialLabelR);
+            DialTick("2", DialLabelR, 0f);
+            DialTick("3", 0f, -DialLabelR);
+            DialTick("4", -DialLabelR, 0f);
+        }
+
+        void DialTick(string s, float dx, float dy)
+        {
+            var t = NewText("Tick" + s, (RectTransform)root.transform, 14, TextAnchor.MiddleCenter);
+            DialAnchored((RectTransform)t.transform, new Vector2(dx, dy), new Vector2(28f, 20f));
+            t.text = s;
+            t.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.5f);
+        }
+
+        /// <summary>링 중심을 기준으로 오프셋 배치. 앵커는 화면 우상단에 고정된다.</summary>
+        static RectTransform DialAnchored(RectTransform rt, Vector2 offset, Vector2 size)
+        {
+            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(-DialMarginX + offset.x, -DialMarginY + offset.y);
+            rt.sizeDelta = size;
+            return rt;
         }
 
         // ── 갱신 ─────────────────────────────────────────────────────────
@@ -183,6 +252,7 @@ namespace Game.View
             UpdateDash(in p, dt);
             UpdateLunge(in c, dt);
             UpdateDial(main.PredictionCharge01, dt, now);
+            UpdateHurtPopup(dt);
 
             // 프레임·스캔선은 값과 무관하게 계속 살아 움직인다.
             frame.Flicker = 0.92f + 0.08f * Mathf.Sin(now * 11.3f) * Mathf.Sin(now * 3.7f);
@@ -208,15 +278,36 @@ namespace Game.View
             if (c.hp != lastHpShown)
             {
                 lastHpShown = c.hp;
-                healthValue.text = Mathf.Max(0, c.hp).ToString();
+                healthValue.text = Two(Mathf.Max(0, c.hp)) +
+                    "<size=17><color=#7FD4E8> / " + Two(CombatConfig.PlayerMaxHp) + "</color></size>";
             }
 
-            // 낮을수록 붉게, 위험 수위 아래에선 맥박이 뛴다(밝기로).
-            float danger = 1f - Mathf.InverseLerp(0.16f, 0.34f, f);
-            health.color = Color.Lerp(Health, Danger, danger);
-            health.Intensity = f <= 0.16f ? 0.75f + 0.5f * Mathf.Abs(Mathf.Sin(now * 4.2f)) : 1f;
+            // 마지막 한 칸에서만 적색으로 갈아타고 맥박이 뛴다 — 그 전까지는 시안을 유지해야
+            // 붉은색이 "경보"로 읽힌다. 칸이 3개뿐이라 비율이 아니라 칸 수로 판정한다.
+            bool critical = c.hp <= 1;
+            health.color = critical ? Danger : Health;
+            health.Intensity = critical ? 0.75f + 0.5f * Mathf.Abs(Mathf.Sin(now * 4.2f)) : 1f;
             health.Value = Approach(ref shownHealth, f, dt);
             health.Tick(dt);
+        }
+
+        /// <summary>
+        /// 뜰 때 크게 튀고, 천천히 떠오르며, 뒤늦게 사라진다 — 앞부분에서 눈을 끌고
+        /// 뒷부분에서 조용히 비켜준다. 알파는 리치텍스트 색과 곱해지므로 한 번만 만지면 된다.
+        /// </summary>
+        void UpdateHurtPopup(float dt)
+        {
+            if (hurtT <= 0f) return;
+            hurtT -= dt;
+            if (hurtT <= 0f) { hurtText.gameObject.SetActive(false); return; }
+
+            float t = 1f - hurtT / HurtShowTime;                         // 0→1 진행
+            float fade = t < 0.55f ? 1f : 1f - (t - 0.55f) / 0.45f;
+            float pop  = t < 0.16f ? Mathf.Lerp(1.35f, 1f, t / 0.16f) : 1f;
+
+            hurtText.color = new Color(Danger.r, Danger.g, Danger.b, fade);
+            hurtRect.anchoredPosition = HurtBase + new Vector2(0f, 34f * (1f - Mathf.Pow(1f - t, 3f)));
+            hurtRect.localScale = new Vector3(pop, pop, 1f);
         }
 
         void UpdateDash(in PlayerSim p, float dt)
@@ -275,6 +366,8 @@ namespace Game.View
             dialTextRect.localScale = new Vector3(s, s, 1f);
         }
 
+        static string Two(int n) => n < 10 ? "0" + n : n.ToString();
+
         const int MaxTenths = 60;
         static string[] SecondsCache;
 
@@ -292,7 +385,14 @@ namespace Game.View
         // ── UGUI 유틸 ────────────────────────────────────────────────────
         static T NewGraphic<T>(string name, Transform parent) where T : Graphic
         {
-            var go = new GameObject(name, typeof(RectTransform), typeof(T));
+            // ★ [버그 수정, 2026-07-23] CanvasRenderer를 <b>명시적으로</b> 넣는다.
+            //   Graphic에 [RequireComponent(typeof(CanvasRenderer))]가 걸려 있어도, 타입을
+            //   나열하는 이 GameObject 생성자 경로는 그 처리를 <b>건너뛴다</b>. 빌트인 Text·Image는
+            //   붙는데 우리가 만든 파생 클래스(HoloFrame·HoloBar·HoloArc·HoloScan)는 안 붙었고,
+            //   그래서 <b>홀로그램 HUD의 게이지·링이 지금까지 한 번도 그려지지 않았다</b>
+            //   — 라벨(Text)만 떠서 "글자만 있고 막대가 없는" 화면이 됐다. 에러가 안 나므로
+            //   조용히 안 보일 뿐이었다.
+            var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(T));
             go.transform.SetParent(parent, false);
             var g = go.GetComponent<T>();
             g.raycastTarget = false;
@@ -488,14 +588,15 @@ namespace Game.View
 
     // ─────────────────────────────────────────────────────────────────────
     /// <summary>
-    /// 하우징 없는 순수 홀로그램 바. 기울어진 세그먼트가 왼쪽부터 켜지고, 채움 경계에는
-    /// 밝은 선두가 선다. 꺼진 칸도 아주 옅게 남겨 "총량"이 읽히게 한다.
+    /// 하우징 없는 순수 홀로그램 바. 시뮬 상한과 같은 수의 <b>칸</b>으로 나뉘며, 칸 하나가
+    /// 자원 하나다(체력 3, 대시 2, 런지 2). 빈 칸은 지우지 않고 껍데기로 남긴다 —
+    /// 최대치가 형태로 남아야 "3칸짜리 체력"이라는 리듬이 읽힌다.
     /// </summary>
     public class HoloBar : HoloGraphic
     {
         public float Value;        // 0~1
         public float Intensity = 1f;
-        public int segments = 20;
+        public int cells = 3;
 
         float flash;
 
@@ -507,64 +608,75 @@ namespace Game.View
             SetVerticesDirty();
         }
 
-        const float Slant = 5f;    // 위쪽이 오른쪽으로 밀린 평행사변형
-        const float GapRatio = 0.34f;
+        const float SlantRatio = 0.25f;   // 높이 대비 위쪽이 오른쪽으로 밀리는 양(≈14도)
+        const float GapRatio = 0.073f;    // 칸 피치 대비 사이 간격
+        const float Line = 1.8f;          // 껍데기 외곽선 두께
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
             vh.Clear();
             Rect r = GetPixelAdjustedRect();
-            int n = Mathf.Max(1, segments);
+            int n = Mathf.Max(1, cells);
             float pitch = r.width / n;
             float w = pitch * (1f - GapRatio);
-            Color lit = new Color(color.r, color.g, color.b, color.a * Intensity);
-            Color off = new Color(color.r, color.g, color.b, 0.07f * Intensity);
+            float h = r.height;
+            float s = h * SlantRatio;
+
+            Color lit  = new Color(color.r, color.g, color.b, color.a * Intensity);
+            Color husk = new Color(color.r, color.g, color.b, 0.09f * Intensity);
+            Color edge = new Color(color.r, color.g, color.b, 0.45f * Intensity);
 
             for (int i = 0; i < n; i++)
             {
                 float x = r.xMin + i * pitch;
-                float t0 = i / (float)n, t1 = (i + 1) / (float)n;
-                float k = Mathf.Clamp01((Value - t0) / Mathf.Max(0.0001f, t1 - t0));
-                if (k <= 0f)
-                {
-                    // 꺼진 칸 — 바닥에 실선만 남긴다.
-                    Quad(vh, x, r.yMin, w, 1.5f, off, Slant * 0.2f);
-                    continue;
-                }
+                float k = Mathf.Clamp01((Value - i / (float)n) * n);
 
-                Color c = lit;
-                if (k < 1f) c.a *= 0.35f + 0.65f * k;    // 경계 칸은 차오르는 중
-                GlowRect(vh, x, r.yMin, w, r.height, c, Slant);
-            }
+                // 껍데기 먼저 — 차 있든 비었든 칸의 자리는 항상 그려진다.
+                Quad(vh, x, r.yMin, w, h, husk, s);
+                Outline(vh, x, r.yMin, w, h, s, Line, k > 0f ? lit : edge);
 
-            // 채움 선두 — 한 칸 굵기의 밝은 세로선. 눈이 "지금 어디까지"를 잡는 지점이다.
-            if (Value > 0.001f && Value < 0.999f)
-            {
-                float hx = r.xMin + r.width * Value;
-                GlowRect(vh, hx - 1f, r.yMin - 3f, 2f, r.height + 6f,
-                    new Color(1f, 1f, 1f, 0.55f * Intensity), Slant);
+                if (k <= 0.001f) continue;
+                GlowRect(vh, x, r.yMin, w * k, h, lit, s);
+
+                // 차오르는 중인 칸에만 밝은 선두를 세운다 — 눈이 "지금 어디까지"를 잡는 점.
+                if (k < 0.999f)
+                    GlowRect(vh, x + w * k - 1.5f, r.yMin - 3f, 3f, h + 6f,
+                        new Color(1f, 1f, 1f, 0.6f * Intensity), s);
             }
 
             // 피격·소모 순간의 흰 번쩍임
             if (flash > 0.001f)
-                Quad(vh, r.xMin, r.yMin, r.width, r.height,
-                    new Color(1f, 1f, 1f, flash * 0.5f), Slant);
+                Quad(vh, r.xMin, r.yMin, r.width, h,
+                    new Color(1f, 1f, 1f, flash * 0.5f), s);
 
             // 바 아래 기준선 — 게이지가 비어도 자리를 잃지 않게.
-            Quad(vh, r.xMin, r.yMin - 5f, r.width, 1f,
+            Quad(vh, r.xMin, r.yMin - 7f, r.width, 1f,
                 new Color(color.r, color.g, color.b, 0.16f));
+        }
+
+        /// <summary>평행사변형 한 칸의 테두리. 세로변은 본체와 같은 각도로 눕는다.</summary>
+        static void Outline(VertexHelper vh, float x, float y, float w, float h, float s, float t, Color c)
+        {
+            Quad(vh, x, y, w, t, c);                    // 아래
+            Quad(vh, x + s, y + h - t, w, t, c);        // 위
+            Quad(vh, x, y, t, h, c, s);                 // 왼쪽(기울어진 세로변)
+            Quad(vh, x + w - t, y, t, h, c, s);         // 오른쪽
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────
     /// <summary>
-    /// 예지 게이지 링. 12시에서 시계방향으로 눈금이 켜지고, 그 위를 스캔 눈금이 훑는다.
+    /// 예지 게이지 링(도넛). 12시에서 시계방향으로 한 바퀴가 예측 지평 1→5초이고,
+    /// <b>90도가 정확히 1초</b>다. 그래서 각도만 봐도 "몇 초짜리를 볼 수 있나"가 읽힌다.
+    /// 채움 끝에는 밝은 캐럿이 서고, 그 위를 스캔 눈금이 훑는다.
     /// </summary>
     public class HoloArc : HoloGraphic
     {
         public float Value;
         public float Intensity = 1f;
         public float Sweep;
+        /// <summary>이 아래로는 F가 안 먹는 구간. 트랙을 더 죽여 "아직 못 쓴다"를 보여준다.</summary>
+        public float MinUsable;
 
         float flash;
 
@@ -576,10 +688,16 @@ namespace Game.View
             SetVerticesDirty();
         }
 
-        const int Ticks = 44;
-        const float InnerFrac = 0.80f;   // 눈금 안쪽 반지름 비율
-        const float OuterFrac = 0.97f;
-        const float TickGapDeg = 1.6f;
+        const int Cells = 4;              // 1초짜리 칸(1→5초)
+        const int PerCell = 9;            // 칸 하나를 이루는 눈금 수
+        const int Ticks = Cells * PerCell;
+        const float InnerFrac = 0.74f;    // 눈금 안쪽 반지름 비율
+        const float OuterFrac = 0.96f;
+        const float TickGapDeg = 1.2f;
+        const float CellGapDeg = 4.5f;    // 초 경계에서 더 크게 벌린다
+
+        /// <summary>지평이 길수록 따뜻해진다 — 시선을 안 줘도 주변시로 "길게 볼 수 있다"가 잡힌다.</summary>
+        static readonly Color Warm = new Color(1f, 0.92f, 0.72f);
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
@@ -588,34 +706,54 @@ namespace Game.View
             Vector2 c0 = r.center;
             float half = Mathf.Min(r.width, r.height) * 0.5f;
             float ri = half * InnerFrac, ro = half * OuterFrac;
-            Color lit = new Color(color.r, color.g, color.b, color.a * Intensity);
-            Color off = new Color(color.r, color.g, color.b, 0.09f * Intensity);
 
             float step = 360f / Ticks;
             for (int i = 0; i < Ticks; i++)
             {
                 float t0 = i / (float)Ticks;
                 float k = Mathf.Clamp01((Value - t0) * Ticks);
-                Color c = k <= 0f ? off : lit;
-                if (k > 0f && k < 1f) c.a *= 0.35f + 0.65f * k;
+
+                Color baseC = Color.Lerp(color, Warm, t0 * 0.55f);
+                Color c;
+                if (k <= 0f)
+                {
+                    // 꺼진 눈금 — 못 쓰는 구간은 한 단계 더 죽인다.
+                    float a = t0 < MinUsable ? 0.045f : 0.10f;
+                    c = new Color(baseC.r, baseC.g, baseC.b, a * Intensity);
+                }
+                else
+                {
+                    c = new Color(baseC.r, baseC.g, baseC.b, color.a * Intensity);
+                    if (k < 1f) c.a *= 0.35f + 0.65f * k;
+                }
 
                 // 스캔 눈금이 지나가는 자리는 잠깐 밝아진다.
                 float d = Mathf.Abs(Mathf.DeltaAngle(t0 * 360f, Sweep * 360f));
                 if (d < 26f) c.a += (1f - d / 26f) * 0.35f * Intensity;
 
-                float a0 = i * step + TickGapDeg * 0.5f;
-                float a1 = (i + 1) * step - TickGapDeg * 0.5f;
-                RadialQuad(vh, c0, ri, ro, a0, a1, c);
-                if (k > 0f) RadialQuad(vh, c0, ri - 3f, ro + 3f, a0, a1,
+                // 초 경계에 붙은 눈금은 그쪽 변만 더 물러나 컷처럼 보인다.
+                float g0 = (i % PerCell == 0 ? CellGapDeg : TickGapDeg) * 0.5f;
+                float g1 = ((i + 1) % PerCell == 0 ? CellGapDeg : TickGapDeg) * 0.5f;
+                RadialQuad(vh, c0, ri, ro, i * step + g0, (i + 1) * step - g1, c);
+                if (k > 0f) RadialQuad(vh, c0, ri - 3f, ro + 3f, i * step + g0, (i + 1) * step - g1,
                     new Color(c.r, c.g, c.b, c.a * 0.22f));   // 번짐 한 겹
             }
 
             // 바깥 얇은 원 — 눈금이 다 꺼져도 링의 자리가 남는다.
             Ring(vh, c0, half, 1.2f, new Color(color.r, color.g, color.b, 0.18f));
-            // 안쪽 짧은 눈금 4개(12·3·6·9시) — 계기판 느낌의 기준점.
-            for (int q = 0; q < 4; q++)
-                RadialQuad(vh, c0, half * 0.60f, half * 0.68f, q * 90f - 0.9f, q * 90f + 0.9f,
-                    new Color(color.r, color.g, color.b, 0.4f * Intensity));
+
+            // 초 경계 바깥 눈금 — 링 밖에 놓인 초 라벨(2·3·4·5)과 짝을 맞춘다.
+            for (int q = 0; q < Cells; q++)
+                RadialQuad(vh, c0, ro + 5f, ro + 13f, q * 90f - 0.7f, q * 90f + 0.7f,
+                    new Color(color.r, color.g, color.b, 0.5f * Intensity));
+
+            // 채움 끝 캐럿 — 링을 가로질러 삐져나오는 흰 선. 정확한 현재값을 집어준다.
+            if (Value > 0.002f && Value < 0.998f)
+            {
+                float a = Value * 360f;
+                RadialQuad(vh, c0, ri - 7f, ro + 7f, a - 0.9f, a + 0.9f,
+                    new Color(1f, 0.98f, 0.9f, 0.85f * Intensity));
+            }
 
             if (flash > 0.001f)
                 Ring(vh, c0, half * 0.985f, 4f, new Color(1f, 1f, 1f, flash * 0.45f));

@@ -1149,6 +1149,17 @@ namespace Game.View
                     break;
                 }
 
+                case "intro":
+                {
+                    // 등장 컷신은 "새 게임"에서만 뜬다 — 손보는 동안 매번 타이틀을 거치지 않게 재생 훅을 연다.
+                    if (p.Length >= 2 && p[1] == "off") { IntroStyle.PlayOnNewGame = false; Print("등장 컷신 off"); break; }
+                    if (p.Length >= 2 && p[1] == "on")  { IntroStyle.PlayOnNewGame = true;  Print("등장 컷신 on");  break; }
+                    if (IntroCutscene.Instance != null) { Print("이미 재생 중"); break; }
+                    IntroCutscene.Play();
+                    Print("등장 컷신 재생 (ENTER 건너뛰기)");
+                    break;
+                }
+
                 case "vfx":
                 {
                     if (p.Length >= 2 && p[1] == "list")
