@@ -410,15 +410,13 @@ namespace Game.View
                     ViewKind wantKind = KindFor(w.enemies[i].ai.mobility, w.enemies[i].ai.combat);
                     if (viewKinds[i] != wantKind) ReplaceView(i, $"Enemy_{i}", wantKind, w.enemies[i].yaw);
 
-                    // 스폰 실체화 VFX — 이 슬롯에 '새 몹'(id 변경)이 들어왔고 낙하/펄스 스폰이면 재생.
-                    // 슬롯 재사용에도 확실히 발동한다(새 뷰 생성에만 의존하지 않음).
+                    // 스폰 실체화 VFX — 이 슬롯에 '새 몹'(id 변경)이 들어오면 재생. 트리거는 sim 순간
+                    // 상태가 아니라 '플레이어가 처음 본 순간'(SpawnMaterialize 내부 레이캐스트). 슬롯 재사용·
+                    // 스폰 방식과 무관하게 확실히 발동한다.
                     if (w.enemies[i].alive && viewSpawnedId[i] != w.enemies[i].id)
                     {
                         viewSpawnedId[i] = w.enemies[i].id;
-                        bool dropping = w.enemies[i].traversalPhase != TraversalPhase.None;
-                        bool launched = w.enemies[i].launchTicks > 0;
-                        if (dropping)       SpawnMaterialize.Play(enemyViews[i], 0f,   waitForDescent: true);  // 지상: 하강 시작에 맞춰
-                        else if (launched)  SpawnMaterialize.Play(enemyViews[i], 0.5f, waitForDescent: false); // 공중: 0.5초 뒤
+                        SpawnMaterialize.Play(enemyViews[i]);
                     }
                 }
                 enemyViews[i].gameObject.SetActive(active);

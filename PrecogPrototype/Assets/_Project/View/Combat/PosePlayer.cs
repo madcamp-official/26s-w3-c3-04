@@ -120,6 +120,16 @@ namespace Game.View
         /// <summary>재생 중인가 — ViewmodelMotion이 루트를 양보할지 판단용.</summary>
         public bool IsPlaying => playing;
 
+        /// <summary>지금 재생 중인 시퀀스가 이 접두어로 시작하는가(기본포즈 복귀 전까지 true).
+        /// sim의 lungePhase는 0틱이라 금방 끝나지만, 포즈 애니메이션은 그 뒤로도 이어진다.
+        /// 칼 단면 클리핑처럼 "애니메이션이 끝날 때까지" 유지할 것들이 이걸 본다.</summary>
+        public bool IsPlayingPrefix(string prefix)
+        {
+            if (!playing || string.IsNullOrEmpty(prefix) || lastNames == null) return false;
+            foreach (var n in lastNames) if (n.StartsWith(prefix)) return true;
+            return false;
+        }
+
         // 서로 다른 애니메이션 경계 = 순간이동(블렌드 없이 뚝 끊김) 세그먼트
         readonly HashSet<int> snapSegs = new HashSet<int>();
         /// <summary>이 세그먼트가 순간이동 경계인가(F3 표시용).</summary>

@@ -425,6 +425,30 @@ namespace Game.View
                 }
 
                 // ── 이동·상황 자세 (급선회·가감속·휘청·반동·뱅킹·저체력) ──
+                case "allproc":
+                case "mobproc":
+                {
+                    // 몹 절차 애니 전부 on/off — 경사 덜컹이 절차 때문인지 가르는 진단용.
+                    string psub = p.Length >= 2 ? p[1].ToLowerInvariant() : "";
+                    bool on;
+                    if (psub == "on") on = true;
+                    else if (psub == "off") on = false;
+                    else on = !(EntityViews.MoveposeEnabled || EntityViews.PoseEnabled
+                             || EntityViews.LookAtEnabled || EntityViews.ChargeAnimEnabled || EntityViews.RustEnabled);
+                    EntityViews.MoveposeEnabled   = on;
+                    EntityViews.PoseEnabled       = on;
+                    EntityViews.LookAtEnabled     = on;
+                    EntityViews.ChargeAnimEnabled = on;
+                    EntityViews.RustEnabled       = on ? EntityViews.RustEnabled : false;  // 끌 땐 녹슨관절도 확실히 끔
+                    Print(on ? "[allproc] 몹 절차 전부 켬" : "[allproc] 몹 절차 전부 끔 → 순수 클립만");
+                    Print($"  이동자세={(EntityViews.MoveposeEnabled ? "켬" : "끔")}"
+                        + $" 텔레그래프={(EntityViews.PoseEnabled ? "켬" : "끔")}"
+                        + $" 시선={(EntityViews.LookAtEnabled ? "켬" : "끔")}"
+                        + $" 돌진={(EntityViews.ChargeAnimEnabled ? "켬" : "끔")}"
+                        + $" 녹슨관절={(EntityViews.RustEnabled ? "켬" : "끔")}");
+                    break;
+                }
+
                 case "mv":
                 {
                     ref var mset = ref EntityViews.Movepose;

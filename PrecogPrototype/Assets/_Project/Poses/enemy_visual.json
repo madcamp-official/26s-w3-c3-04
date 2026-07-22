@@ -1,10 +1,10 @@
 ﻿{
-    "baseIntensity": 8.0,
-    "windupIntensity": 30.0,
-    "attackIntensity": 45.0,
-    "chargeIntensity": 22.0,
-    "aimIntensity": 16.0,
-    "gloryIntensity": 26.0,
+    "baseIntensity": 70.0,
+    "windupIntensity": 262.5,
+    "attackIntensity": 393.75,
+    "chargeIntensity": 192.5,
+    "aimIntensity": 140.0,
+    "gloryIntensity": 227.5,
     "baseColor": [
         1.0,
         0.18000000715255738,
@@ -12,18 +12,18 @@
     ],
     "windupColor": [
         1.0,
-        0.75,
-        0.15000000596046449
+        0.18000000715255738,
+        0.10000000149011612
     ],
     "gloryColor": [
-        0.3499999940395355,
         1.0,
-        0.550000011920929
+        0.18000000715255738,
+        0.10000000149011612
     ],
     "followSpeed": 18.0,
     "chargePulseSpeed": 9.0,
     "stunFlickerSpeed": 14.0,
-    "flashIntensity": 40.0,
+    "flashIntensity": 350.0,
     "flashDecay": 6.0,
     "colorJitter": 0.10000000149011612,
     "distanceBoost": 1.2000000476837159,

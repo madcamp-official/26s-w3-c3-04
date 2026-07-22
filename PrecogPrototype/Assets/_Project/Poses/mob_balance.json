@@ -10,7 +10,7 @@
     "cMinRange": 3.0,
     "cSpeed": 12.0,
     "cMaxDist": 10.0,
-    "cRadiusMul": 1.5,
+    "cRadiusMul": 1.0,
     "cWallStop": 0.4000000059604645,
     "cChaseMul": 0.3499999940395355,
     "cWindup": 45,

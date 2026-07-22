@@ -104,6 +104,7 @@ Material:
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
     - _BumpScale: 1
+    - _CleanSmoothness: 0.85
     - _ClearCoatMask: 0
     - _ClearCoatSmoothness: 0
     - _Cull: 2
@@ -129,6 +130,8 @@ Material:
     - _RedSoftness: 0.15
     - _RedThreshold: 0.25
     - _RustBoost: 1.5
+    - _RustMetallic: 0.05
+    - _RustSmoothness: 0.04
     - _Smoothness: 0.25
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1

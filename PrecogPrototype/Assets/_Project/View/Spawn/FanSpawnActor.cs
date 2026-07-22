@@ -29,13 +29,23 @@ namespace Game.View
         [Tooltip("기계식 철컥 — 목표를 지나치는 정도(0=없음).")]
         public float overshoot = 1.6f;
 
+        [Header("소환 펀치 (몹 나올 때마다 나왔다 들어갔다)")]
+        [Tooltip("소환마다 추가로 더 내려갔다 오는 양(m).")]
+        public float punchDepth = 0.4f;
+        [Tooltip("펀치 한 번(나갔다 들어옴) 시간(초). 짧게 = 빠르게.")]
+        public float punchTime = 0.28f;
+
         enum Phase { Up, Descending, Bottom, HoldAfter, Retracting }
 
         WaveRunner runner;
         Vector3 restPos, deployPos;
         Phase phase = Phase.Up;
         float phaseT;
+        float punchU = 2f;   // >=1 = 비활성
         bool ready;
+
+        /// <summary>몹 한 마리 소환 시 기계식으로 한 번 '나왔다 들어감'. WaveRunner가 부른다.</summary>
+        public void Punch() => punchU = 0f;
 
         void Start()
         {
@@ -85,7 +95,17 @@ namespace Game.View
                     break;
             }
 
-            transform.position = Vector3.LerpUnclamped(restPos, deployPos, pos01);
+            // 소환 펀치 — 기계식으로 한 번 더 내려갔다(나옴) 돌아옴(들어감). 짧고 빠르게.
+            float punch = 0f;
+            if (punchU < 1f)
+            {
+                punchU = Mathf.Min(1f, punchU + dt / Mathf.Max(0.05f, punchTime));
+                // 0→1→0: 앞 절반 = 나감(기계식), 뒤 절반 = 들어옴(기계식)
+                float half = punchU < 0.5f ? Mech(punchU * 2f) : Mech((1f - punchU) * 2f);
+                punch = punchDepth * half;
+            }
+
+            transform.position = Vector3.LerpUnclamped(restPos, deployPos, pos01) + Vector3.down * punch;
         }
 
         void Go(Phase p) { phase = p; phaseT = 0f; }

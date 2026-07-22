@@ -51,16 +51,23 @@ namespace Game.EditorTools
             SceneView.RepaintAll();
         }
 
-        /// <summary>이름이 같은 작업용 조명 루트를 전부 찾아 지운다(비활성 포함). 중복 생성돼도 확실히 정리된다.</summary>
+        /// <summary>
+        /// 이름이 같은 작업용 조명 루트를 전부 찾아 지운다(비활성 포함). 중복 생성돼도 확실히 정리된다.
+        ///
+        /// ★ <b>FindObjectsByType을 쓰면 안 된다.</b> 그쪽은 <see cref="HideFlags.DontSave"/>가 붙은
+        ///   오브젝트를 반환하지 않는데, 이 툴이 만드는 것이 정확히 그 플래그다 → 자기가 만든 것을
+        ///   영원히 못 찾아 "제거할 것이 없습니다"만 찍히고 토글할 때마다 조명이 하나씩 더 쌓였다.
+        ///   Resources.FindObjectsOfTypeAll은 숨김·DontSave까지 포함해서 돌려준다.
+        /// </summary>
         static int RemoveAll()
         {
             int n = 0;
-            var all = Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            foreach (var t in all)
+            foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
             {
-                if (t == null) continue;                       // 부모가 먼저 지워진 경우
-                if (t.gameObject.name != RootName) continue;
-                Object.DestroyImmediate(t.gameObject);
+                if (go == null) continue;                      // 부모가 먼저 지워진 경우
+                if (go.name != RootName) continue;
+                if (EditorUtility.IsPersistent(go)) continue;   // 프리팹 에셋은 건드리지 않는다
+                Object.DestroyImmediate(go);
                 n++;
             }
             return n;

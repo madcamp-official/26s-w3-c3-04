@@ -190,7 +190,13 @@ namespace Game.View
             }
 
             if (id >= 0) { spawnedIds[CurrentWave].Add(id); spawnedSoFar++; }
-            // (배관 꿀렁 SpawnPipeFx는 Fan을 흔들어 '또잉'처럼 보여 제거. Fan 연출은 FanSpawnActor가 전담.)
+
+            // Fan 소환 펀치 — 몹 나올 때마다 기계식으로 나왔다 들어감(공백은 SpawnOne을 안 부르므로 펀치 없음).
+            if (pipe.marker != null)
+            {
+                var actor = pipe.marker.GetComponent<FanSpawnActor>();
+                if (actor != null) actor.Punch();
+            }
         }
 
         void TickWatching()
