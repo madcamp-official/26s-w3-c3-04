@@ -22,6 +22,8 @@ namespace Game.View
         /// <summary>직전 틱의 월드. 뷰가 "틱당 실제 이동량"을 재는 데 쓴다(프레임레이트 무관).</summary>
         public ref readonly SimWorld PrevWorld => ref prevWorld;
         public Camera Cam => cam;
+        /// <summary>1인칭 눈높이. 등장 컷신이 카메라를 정확히 이 높이로 수렴시켜야 인계가 안 튄다.</summary>
+        public float EyeHeight => eyeHeight;
         public CinemachineCamera GameplayVcam => gameplayVcam;   // 연출(FOV킥·Impulse)이 vcam을 건드리게
 
         // >>> [예측 세션 추가, 2026-07-18] Services/SpawnEnemyNear/ClearAllEnemies는 원래 없던
@@ -115,7 +117,50 @@ namespace Game.View
             prevWorld = Snapshot.Clone(in world);
         }
 
+        /// <summary>등장 컷신 인계용: 플레이어를 지정 좌표에 놓는다(컷신이 실측한 바닥에 착지시키려고).
+        /// AdvancePlayerForward와 같은 이유로 결정론과 무관하다 — 컷신 중엔 sim이 멈춰 있다.</summary>
+        public void PlacePlayerAt(Vector3 pos)
+        {
+            world.player.pos = pos;
+            prevWorld = Snapshot.Clone(in world);
+        }
+
+        /// <summary>플레이어가 죽었는가(hp 0). 사망 화면이 이걸 본다 — sim은 hp를 0에서 멈출 뿐
+        /// 스스로 아무것도 하지 않으므로, "죽었다"의 처리는 전부 뷰 쪽에 있다.</summary>
+        public bool PlayerDead => world.player.combat.hp <= 0;
+
+        /// <summary>
+        /// 판을 처음 상태로 되돌린다(사망 후 재시작).
+        ///
+        /// <para>★ 씬을 <b>다시 로드하지 않는다</b>. 이 프로젝트의 모든 시스템(Main·HUD·연출)은
+        /// <c>RuntimeInitializeOnLoadMethod</c>로 붙는데 그건 플레이 세션당 <b>한 번만</b> 돈다 —
+        /// 씬을 다시 로드하면 그 오브젝트들이 통째로 사라진 뒤 아무도 다시 만들어 주지 않는다.
+        /// 그래서 월드 상태만 제자리에서 갈아 끼운다. 맵·NavMesh·그래프는 그대로 재사용하므로
+        /// 굽기 대기(수 초)도 없다.</para>
+        /// </summary>
+        public void RestartRun()
+        {
+            prediction.Cancel();          // 예측이 켜진 채 죽었을 수 있다(배속·카메라·스폰잠금 원복)
+            HitStop.FrozenTicks = 0;
+
+            world = SimWorld.Create();
+            world.mapVersion = restartMapVersion;
+            world.player = PlayerSim.Spawn(restartSpawn);
+            prevWorld = Snapshot.Clone(in world);
+
+            input.Yaw = restartYaw;
+            input.Pitch = 0f;
+            spawnTimer = SimConfig.SpawnIntervalTicks;   // 첫 틱부터 다시 소환
+            nextSpawn = 0;
+            fixedAccum = 0f;
+            views.InvalidateViews();      // 적 뷰를 버려 새 월드 기준으로 다시 만들게 한다
+        }
+
         SimWorld world, prevWorld;
+        // 재시작이 되돌릴 초기값 — Start에서 한 번 잡아 둔다(맵을 다시 만들지 않기 위해).
+        Vector3 restartSpawn;
+        float restartYaw;
+        int restartMapVersion;
         readonly InputReader input = new InputReader();
         readonly EntityViews views = new EntityViews();
         readonly PredictionController prediction = new PredictionController();
@@ -197,6 +242,10 @@ namespace Game.View
             world.player = PlayerSim.Spawn(map.playerSpawn);
             spawnPoints = map.spawns;
             spawnTimer = SimConfig.SpawnIntervalTicks;   // 첫 틱부터 소환 시작
+
+            restartSpawn = map.playerSpawn;
+            restartYaw = map.playerYaw;
+            restartMapVersion = predictionMap.mapVersion;
 
             prevWorld = Snapshot.Clone(in world);
 
@@ -485,13 +534,27 @@ namespace Game.View
     public static class AutoBoot
     {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        static void Boot()
+        static void Boot() => EnsureMain();
+
+        /// <summary>
+        /// 씬의 <see cref="Main"/>을 돌려준다. 없으면 여기서 만든다.
+        ///
+        /// <para><b>왜 공개 함수인가</b> — 타이틀 화면은 <c>Main.Start()</c>가 <b>돌기 전에</b>
+        /// Main을 꺼야 한다(Start에서 NavMesh를 굽느라 몇 초가 걸리고, 그동안 화면이 검다).
+        /// 그런데 타이틀의 부트도 <see cref="Boot"/>와 같은 AfterSceneLoad라 둘 중 누가 먼저
+        /// 도는지 유니티가 보장하지 않는다. 양쪽이 이 함수를 거치면 순서가 어떻든
+        /// <b>Main은 정확히 하나</b>고, 먼저 도는 쪽이 만들고 나중 쪽은 그걸 받는다.</para>
+        /// </summary>
+        public static Main EnsureMain()
         {
-            if (Object.FindFirstObjectByType<Main>() != null) return;
+            var existing = Object.FindFirstObjectByType<Main>();
+            if (existing != null) return existing;
+
             var main = new GameObject("[Main]").AddComponent<Main>();
             // SampleScene = 코드 큐브맵, 그 외(Demo 등) = 씬 지형 사용
             string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
             main.useSceneGeometry = scene != "SampleScene";
+            return main;
         }
     }
 }

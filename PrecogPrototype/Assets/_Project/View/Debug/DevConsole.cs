@@ -172,6 +172,7 @@ namespace Game.View
                     Print("종류: grunt pinky soldier caco large  ·  gruntt(근층)/soldiert(원층)은 폐기 예정");
                     Print("[디버그] anim <종류> = 그 몹 하나만 소환하고 화면에 애니메이터 상태 실시간 표시. anim off로 끔");
                     Print("wave list · wave start [n] · wave only <n> · wave stop · wave status  (n은 1부터)");
+                    Print("[레벨] arena <번호>   그 아레나로 순간이동 → 진입 감지 시 웨이브 시작 (예: arena 3)");
                     Print("  예) wave only 2 = 웨이브2만 실행 · wave start 2 = 웨이브2부터 순차");
                     Print("[이펙트] vfx <이름> [거리] [pitch] [yaw] [roll] [상하] · vfx list · vfx reload");
                     Print("  pitch=위아래로 눕히기 · yaw=좌우로 돌리기 · roll=화면 안 각도 (전부 0=원래 방향)");
@@ -214,6 +215,23 @@ namespace Game.View
                 case "wave":
                     Wave(p);
                     break;
+
+                case "arena":
+                {
+                    // 특정 아레나로 순간이동 — ArenaRoom이 진입을 감지해 그 방 웨이브를 자동 시작.
+                    if (p.Length < 2 || !int.TryParse(p[1], out int an))
+                    { Print("사용: arena <번호>   예) arena 3   (그 아레나로 이동 → 진입 감지 시 웨이브 시작)"); break; }
+                    ArenaRoom target = null;
+                    foreach (var r in UnityEngine.Object.FindObjectsByType<ArenaRoom>(FindObjectsSortMode.None))
+                        if (r.transform.root.name.StartsWith("Arena_" + an)) { target = r; break; }
+                    if (target == null || target.zone == null)
+                    { Print($"Arena_{an} 방(ArenaRoom+zone)을 못 찾음 — Level_Main에서 실행하세요."); break; }
+                    var b = target.zone.bounds;
+                    Vector3 pos = new Vector3(b.center.x, b.min.y + 0.5f, b.center.z);
+                    main.PlacePlayerAt(pos);
+                    Print($"Arena_{an}로 이동 {pos.ToString("0.0")}");
+                    break;
+                }
 
                 case "spawn":
                     if (p.Length < 2) { Print("사용: spawn <종류>"); break; }
@@ -1170,6 +1188,17 @@ namespace Game.View
                     if (cm == null) { Print("CutsceneManager 없음 — Tools/컷신/① 리그 설치 필요"); break; }
                     if (p.Length >= 2 && p[1] == "stop") { cm.StopFromConsole(); Print("컷신 중단"); break; }
                     Print(cm.PlayFromConsole() ? "컷신 재생" : "재생 불가 (이미 재생 중이거나 리그 미설치)");
+                    break;
+                }
+
+                case "intro":
+                {
+                    // 등장 컷신은 "새 게임"에서만 뜬다 — 손보는 동안 매번 타이틀을 거치지 않게 재생 훅을 연다.
+                    if (p.Length >= 2 && p[1] == "off") { IntroStyle.PlayOnNewGame = false; Print("등장 컷신 off"); break; }
+                    if (p.Length >= 2 && p[1] == "on")  { IntroStyle.PlayOnNewGame = true;  Print("등장 컷신 on");  break; }
+                    if (IntroCutscene.Instance != null) { Print("이미 재생 중"); break; }
+                    IntroCutscene.Play();
+                    Print("등장 컷신 재생 (ENTER 건너뛰기)");
                     break;
                 }
 

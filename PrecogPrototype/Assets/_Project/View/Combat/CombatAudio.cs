@@ -17,8 +17,9 @@ namespace Game.View
         // 몹 SFX (러프·잠정). 대부분 몹 공격 SIM 상태 생기면 그쪽에서 호출.
         AudioClip enWindup, enMelee, enAim, enFire, enPain;
         AudioClip enStep;   // 발 딛는 소리 — 지금은 임시 합성음, 에셋이 오면 교체
-        AudioClip[] playerHurt;   // 플레이어 피격("억" + 저음 임팩트)
-        AudioClip[] prediction;   // 예지 발동(시간정지식 상승 시머)
+        AudioClip[] playerHurt;   // 플레이어 피격("억" + 저음 임팩트) — 변주 클립 지원
+        AudioClip landing;        // 등장 컷신 착지 — 저음 붐 + 파편(전투용 Hit보다 훨씬 무겁다)
+        // 예지 발동음은 View/Prediction/PredictionAudio.cs가 소유한다(발동·드론·해제 3부).
 
         void Awake()
         {
@@ -53,7 +54,7 @@ namespace Game.View
             enStep   = BuildEnemyStep();
 
             playerHurt = LoadVariants("Sfx/PlayerHurt", BuildPlayerHurt);
-            prediction = LoadVariants("Sfx/Prediction", BuildPrediction);
+            landing    = BuildLanding();
         }
 
         /// <summary>Resources/{folder}에 여러 클립(테이크) 있으면 그걸, 파일 하나뿐이면 그거, 없으면 합성 클립으로 폴백.</summary>
@@ -86,7 +87,8 @@ namespace Game.View
         /// <summary>몹이 발을 딛는 소리. 자주 나므로 볼륨을 낮게, 피치 편차를 넓게 준다.</summary>
         public static void EnemyStep()   => Play(inst?.enStep,   0.22f, 0.18f);
         public static void PlayerHurt()  => Play(inst?.playerHurt, 0.75f, 0.06f);  // 플레이어 피격
-        public static void Prediction()  => Play(inst?.prediction, 0.5f,  0.02f);  // 예지 발동
+        /// <summary>등장 컷신 착지 "쿠웅". 피치 편차를 거의 안 준다 — 연출음이라 매번 같아야 한다.</summary>
+        public static void Landing()     => Play(inst?.landing,   1.0f,  0.01f);
 
         static void Play(AudioClip[] clips, float vol, float pitchJitter)
         {
@@ -404,27 +406,37 @@ namespace Game.View
             return Clip("cai_player_hurt", s);
         }
 
-        /// <summary>예지 발동: 살짝 상승하는 화음 스웰 + 고음 시머(시간정지 느낌). 전투음과 구분.</summary>
-        static AudioClip BuildPrediction()
+        /// <summary>
+        /// 히어로 랜딩 쿠웅: 아래로 훑는 사인 붐(60→28Hz) + 파편 노이즈 꼬리.
+        /// 전투 타격음(0.14초)보다 열 배 길게 끌어야 "무거운 것이 떨어졌다"로 들린다.
+        /// </summary>
+        static AudioClip BuildLanding()
         {
-            const float dur = 0.45f;
+            const float dur = 1.4f;
             int n = (int)(dur * SR);
             var s = new float[n];
-            float p1 = 0f, p2 = 0f, p3 = 0f;
+            var rng = new System.Random(11);
+            float phase = 0f, lp = 0f;
             for (int i = 0; i < n; i++)
             {
                 float t = (float)i / n;
-                float bend = Mathf.Lerp(1f, 1.06f, t);          // 살짝 상승
-                p1 += 6.2832f * 392f * bend / SR;
-                p2 += 6.2832f * 587f * bend / SR;
-                p3 += 6.2832f * 784f * bend / SR;
-                float chord = Mathf.Sin(p1) + 0.7f * Mathf.Sin(p2) + 0.5f * Mathf.Sin(p3);
-                float shimmer = 0.15f * Mathf.Sin(6.2832f * 40f * t) * Mathf.Sin(p3 * 1.5f);
-                float env = t < 0.7f ? Mathf.Pow(t / 0.7f, 0.7f)      // 스웰 인
-                                     : Mathf.Lerp(1f, 0f, (t - 0.7f) / 0.3f);
-                s[i] = (chord * 0.22f + shimmer) * env;
+
+                // 붐 — 주파수를 아래로 훑으면 같은 음량에서도 훨씬 크게 들린다(폭발음의 기본형).
+                float f = Mathf.Lerp(62f, 28f, Mathf.Sqrt(t));
+                phase += 6.2832f * f / SR;
+                float boom = Mathf.Sin(phase) * Mathf.Exp(-t * 4.2f);
+
+                // 트랜지언트 — 맨 앞 20ms의 딱딱한 충돌음. 이게 없으면 붐이 흐물흐물하다.
+                float crack = (float)(rng.NextDouble() * 2 - 1) * Mathf.Exp(-t * 160f);
+
+                // 파편 — 저역으로 눌린 노이즈가 천천히 사라진다(먼지가 가라앉는 소리).
+                float white = (float)(rng.NextDouble() * 2 - 1);
+                lp += (white - lp) * 0.10f;
+                float debris = lp * Mathf.Exp(-t * 7f) * 0.5f;
+
+                s[i] = boom * 0.85f + crack * 0.7f + debris;
             }
-            return Clip("cai_prediction", s);
+            return Clip("cai_landing", s);
         }
 
         static AudioClip Clip(string name, float[] samples)

@@ -142,6 +142,9 @@ namespace Game.View
         void OnGUI()
         {
             if (!Cutscene.Active) return;
+            // 개발 표시라 UI 숨김을 따른다 — 등장 컷신처럼 화면을 통째로 쓰는 연출 위에
+            // 빨간 "● CUTSCENE"이 얹히면 그대로 완성 화면을 버린다.
+            if (UiVisibility.Skip) return;
             const float w = 170f, h = 26f;
             var rect = new Rect(Screen.width - w - 14f, Screen.height - h - 14f, w, h);
             var style = new GUIStyle(GUI.skin.label)

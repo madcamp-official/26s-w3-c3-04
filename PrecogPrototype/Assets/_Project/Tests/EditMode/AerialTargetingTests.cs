@@ -198,6 +198,38 @@ namespace Game.Sim.Tests
             Assert.AreEqual(world.enemies[0].id, lunge.lungeTargetId);
         }
 
+        /// <summary>
+        /// 회귀 고정: <b>지상에선 안 닿지만 더블점프 후엔 닿는</b> 공중 적에게도 AerialPursuit
+        /// 후보가 나와야 한다.
+        ///
+        /// 예전 TryFindAerialPursuitTarget은 지상 자세로 높이차를 재서 LungeHeightTolerance(6m)를
+        /// 넘으면 잘라냈다 — 즉 "지금 그냥 우클릭해도 닿는 적"만 후보가 됐고, 정작 이 매크로가
+        /// 존재하는 이유인 "점프해서 닿는 적"은 통째로 빠졌다. 아래 6.6m는 그 옛 상한(6m) 위,
+        /// 새 판정 기준인 우클릭 시점 고도(+AerialPursuitRiseGain ≈ 1.8m) 아래다.
+        /// </summary>
+        [Test]
+        public void ActionGenerator_ProducesAerialPursuit_ForTargetReachableOnlyAfterDoubleJump()
+        {
+            SimWorld world = SimWorld.Create();
+            world.player = PlayerSim.Spawn(Vector3.zero);
+            world.AddEnemy(new Vector3(0f, 6.6f, 3.2f),
+                CombatType.Ranged, MobilityType.Flying, SizeClass.Normal);
+
+            Assert.Greater(world.enemies[0].pos.y - world.player.pos.y,
+                CombatConfig.LungeHeightTolerance,
+                "전제 조건: 지상에선 런지 높이차 허용을 넘어야 이 회귀를 검증할 수 있다.");
+
+            SimServices services = StubServices.Create();
+            PredictionSettings settings = PredictionSettings.Full;
+            var buffer = new MacroAction[settings.maxActionsPerNode];
+
+            int count = ActionGenerator.Generate(in world, in services, in settings, buffer);
+
+            Assert.IsTrue(Contains(buffer, count, MacroActionType.AerialPursuit),
+                "더블점프 후엔 런지가 성립하는 높이인데 AerialPursuit 후보가 생성되지 않았다 — " +
+                "판정이 다시 지상 자세로 되돌아갔는지 확인할 것.");
+        }
+
         static bool Contains(MacroAction[] actions, int count, MacroActionType type)
         {
             for (int i = 0; i < count; i++) if (actions[i].type == type) return true;

@@ -442,7 +442,7 @@ namespace Game.View
             state = State.Preview;
             fx.SetExecution(false);
             fx.SetActive(true);
-            CombatAudio.Prediction();   // 예지 발동음 (combat 오디오 훅)
+            PredictionAudio.Enter();    // 예지 발동음(산데비스탄) — 드론도 여기서 뜬다
             ToggleViewmodel(false);         // 3인칭이라 1인칭 칼 숨김
             SetVisible(true);
             BuildLines();
@@ -454,8 +454,14 @@ namespace Game.View
             LogSelected();
         }
 
+        /// <summary>바깥에서 강제로 닫는다(사망 → 재시작 등). 정상 종료와 같은 경로를 타므로
+        /// 배속·카메라·스폰잠금·1인칭 칼이 모두 원복된다.</summary>
+        public void Cancel() => Exit();
+
         void Exit()
         {
+            // 해제음 + 드론 내리기. Exit는 여러 경로에서 중복 호출될 수 있어 Idle이면 건너뛴다.
+            if (state != State.Idle) PredictionAudio.Exit();
             Mode.End();   // 모드가 Active일 때만 실제로 정리한다(각 구현이 자체 가드)
             HitStop.Suppressed = false;
             state = State.Idle;

@@ -15,11 +15,20 @@ namespace Game.View
         /// <summary>게임 UI를 숨기는가. 실행 중엔 개발 콘솔 <c>ui off</c>/<c>ui on</c>으로 전환.</summary>
         public static bool Hidden { get; private set; }
 
+        /// <summary>
+        /// [타이틀 화면, 2026-07-22] 메뉴가 화면을 점유하는 동안 켜진다.
+        ///
+        /// <see cref="Hidden"/>와 <b>따로 둔 이유</b>: Hidden은 사람이 콘솔로 끈 상태라
+        /// 메뉴가 마음대로 되돌리면 안 된다. 메뉴가 끄고 켜는 건 이 플래그뿐이고,
+        /// 그동안 <c>ui off</c>로 꺼 둔 상태는 메뉴가 닫혀도 그대로 유지된다.
+        /// </summary>
+        public static bool SuppressedByMenu;
+
         public static void Set(bool hidden) => Hidden = hidden;
         public static bool Toggle() { Hidden = !Hidden; return Hidden; }
 
         /// <summary>OnGUI 맨 앞에서 호출 — true면 그리지 말 것.</summary>
-        public static bool Skip => Hidden;
+        public static bool Skip => Hidden || SuppressedByMenu;
     }
 
     /// <summary>

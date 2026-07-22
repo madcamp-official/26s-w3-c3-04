@@ -23,9 +23,12 @@ namespace Game.View
         float hurt;
         float chromaPulse;
         float lensTarget, lensCur;
+        float low, lowTarget;                  // 저체력 지속(매 프레임 갱신, 안 부르면 0으로)
 
         // 튜닝 상수 (전부 노출)
-        const float HurtVignetteMax = 0.45f;   // 피격 붉은 비네트 최대
+        const float HurtVignetteMax = 0.62f;   // 피격 붉은 비네트 최대
+        const float LowVignetteMax  = 0.34f;   // 마지막 한 칸에서 숨쉬는 붉은 기운
+        const float LowSpeed        = 2f;
         const float HurtDecay       = 2.2f;
         const float ChromaMax       = 0.8f;    // 색수차 버스트 최대
         const float ChromaDecay     = 4f;
@@ -49,6 +52,15 @@ namespace Game.View
         public static void Impact(float amp)
         {
             if (inst != null) inst.chromaPulse = Mathf.Max(inst.chromaPulse, amp);
+        }
+
+        /// <summary>
+        /// 저체력: 매 프레임 t01(0~1)로 목표 세팅(안 부르면 0으로 복귀).
+        /// 맞은 순간만 번쩍이면 "곧 죽는다"가 안 읽혀서, 위험 구간에서는 계속 깔아둔다.
+        /// </summary>
+        public static void LowHealth(float t01)
+        {
+            if (inst != null) inst.lowTarget = Mathf.Clamp01(t01);
         }
 
         /// <summary>런지 풀백: 매 프레임 t01(0~1)로 목표 세팅(안 부르면 0으로 복귀).</summary>
@@ -108,8 +120,13 @@ namespace Game.View
             if (chromaPulse > 0f) chromaPulse = Mathf.MoveTowards(chromaPulse, 0f, ChromaDecay * dt);
             lensCur    = Mathf.MoveTowards(lensCur, lensTarget, LensSpeed * dt);
             lensTarget = 0f;   // LungePull이 매 프레임 다시 세팅 안 하면 자연 복귀
+            low        = Mathf.MoveTowards(low, lowTarget, LowSpeed * dt);
+            lowTarget  = 0f;   // LowHealth도 같은 규칙
 
-            if (vig    != null) vig.intensity.value    = hurt        * HurtVignetteMax;
+            // 피격 스파이크와 저체력 지속 중 <b>센 쪽</b>만 쓴다 — 더하면 화면이 통째로 붉어진다.
+            float breathe = 0.65f + 0.35f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 3.4f));
+            if (vig    != null) vig.intensity.value    = Mathf.Max(hurt * HurtVignetteMax,
+                                                                   low * LowVignetteMax * breathe);
             if (chroma != null) chroma.intensity.value = chromaPulse * ChromaMax;
             if (lens   != null) lens.intensity.value   = lensCur     * LensPullMax;
         }

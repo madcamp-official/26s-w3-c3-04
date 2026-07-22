@@ -236,13 +236,25 @@ namespace Game.Prediction
             return -CombatMath.Forward(world.player.yaw);
         }
 
+        /// <summary>
+        /// AerialPursuit 대상 탐색.
+        ///
+        /// ★ 판정 시점 = <b>우클릭이 실제로 나가는 순간</b>(더블점프 정점 부근)이지, 지금 서 있는
+        ///   지상이 아니다. 예전엔 지상 자세로 높이차·사거리·LOS를 재서, "지금 그냥 우클릭해도
+        ///   닿는 적"만 후보가 됐다 — 매크로의 존재 이유(점프해서 닿기)와 정반대라서, 더블점프
+        ///   후엔 분명히 닿는 적인데도 후보가 아예 생성되지 않았다. 특히 지상에서 난간·처마에
+        ///   시선이 막히는 위치가 그랬다(맵을 못 올라가는 것처럼 보이지만 실제론 후보 미생성).
+        ///
+        /// 그래서 <see cref="AerialPursuitRiseGain"/>·<see cref="AerialPursuitAdvanceGain"/>만큼
+        /// 옮긴 가상 플레이어를 만들어 <see cref="CanLungeTarget"/>(=실제 Sim 게이트)에 물어본다.
+        /// 상한(LungeHeightTolerance 등)을 여기서 다시 쓰지 않는 이유도 같다 — 규칙은 Sim 한 곳뿐.
+        /// </summary>
         static bool TryFindAerialPursuitTarget(
             in SimWorld world, in SimServices services, out int targetId)
         {
             targetId = -1;
             float bestDistance = float.MaxValue;
             ref readonly PlayerSim player = ref world.player;
-            Vector3 eye = player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.7f);
 
             for (int i = 0; i < world.enemyCount; i++)
             {
@@ -250,15 +262,18 @@ namespace Game.Prediction
                 if (!enemy.alive || enemy.combat.gloryStage > 0 || enemy.ai.mobility != MobilityType.Flying)
                     continue;
 
-                float height = enemy.pos.y - player.pos.y;
-                float flat = CombatMath.FlatDistance(player.pos, enemy.pos);
-                if (height <= CombatConfig.AttackHeightTolerance
-                    || height > CombatConfig.LungeHeightTolerance
-                    || flat > CombatConfig.LungeMaxRange + enemy.radius)
-                    continue;
+                // 지상 평타 사거리 안에 있는 낮은 적은 Attack/Lunge 후보가 처리한다 — 여긴 "위" 전용.
+                if (enemy.pos.y - player.pos.y <= CombatConfig.AttackHeightTolerance) continue;
 
-                Vector3 center = enemy.pos + Vector3.up * (enemy.height * 0.5f);
-                if (!services.Collision.HasLineOfSight(eye, center)) continue;
+                // 매크로는 대상 쪽을 보고 전진한다(MacroAction.ResolveYaw가 lungeTargetId로 yaw를 푼다).
+                // 그러니 전진 이득도 그 방향으로 준다 — 대상마다 방향이 다르므로 루프 안에서 만든다.
+                PlayerSim atLunge = player;
+                atLunge.pos += Vector3.up * AerialPursuitRiseGain
+                             + CombatMath.FlatDirection(player.pos, enemy.pos) * AerialPursuitAdvanceGain;
+
+                if (!CanLungeTarget(in world, in atLunge, in enemy, in services)) continue;
+
+                float flat = CombatMath.FlatDistance(player.pos, enemy.pos);
                 if (flat < bestDistance - 1e-5f
                     || (Mathf.Abs(flat - bestDistance) <= 1e-5f && enemy.id < targetId))
                 {
@@ -268,6 +283,20 @@ namespace Game.Prediction
             }
             return targetId >= 0;
         }
+
+        // ── AerialPursuit 우클릭 시점의 자세 이득 ──
+        // MacroAction.AerialPursuit의 입력 시퀀스(틱 0 점프 / 틱 7 2단점프 / 틱 11 우클릭)를
+        // PlayerMovement의 적분(반암시적 오일러: vel.y += g·dt → pos.y += vel.y·dt)으로 푼 값이다.
+        // 매크로 타이밍이나 이동 상수를 바꾸면 여기도 같이 봐야 한다.
+        //
+        // ※ 지형 충돌(천장·벽)을 무시한 낙관적 추정이다. 후보 생성 단계에선 이게 맞는 방향이다 —
+        //   실제 발동 시점엔 PlayerCombat이 진짜 위치로 TryLockDestination을 다시 하므로,
+        //   과대평가는 "헛스윙 후보 1개"로 끝나지만 과소평가는 "후보 자체가 사라짐"이 된다.
+
+        /// <summary>틱 0~6 상승(1.118m) + 틱 7 속도 리셋 후 틱 7~10 상승(0.681m).</summary>
+        const float AerialPursuitRiseGain = 1.80f;
+        /// <summary>전진 11틱(9.17m/s → 1.681m) + 2단점프 수평 임펄스 4틱분(감쇠 포함 0.545m).</summary>
+        const float AerialPursuitAdvanceGain = 2.23f;
 
         static bool HasAttackTarget(in SimWorld world)
         {
