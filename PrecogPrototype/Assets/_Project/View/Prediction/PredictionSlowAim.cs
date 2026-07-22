@@ -567,7 +567,13 @@ namespace Game.View
                 case PredictedActionType.Lunge:
                     return mouse != null && mouse.rightButton.wasPressedThisFrame;
                 case PredictedActionType.DashForward:
-                    return kb != null && kb.wKey.wasPressedThisFrame;
+                    // [2026-07-22] 앞 대시는 W+Shift로 확정한다(질주 느낌). 누르는 순서 무관 —
+                    // W를 새로 누를 때 Shift가 눌려있거나, Shift를 새로 누를 때 W가 눌려있으면 발동.
+                    if (kb == null) return false;
+                    bool shiftHeld = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed;
+                    bool shiftNow = kb.leftShiftKey.wasPressedThisFrame || kb.rightShiftKey.wasPressedThisFrame;
+                    return (kb.wKey.wasPressedThisFrame && shiftHeld)
+                           || (shiftNow && kb.wKey.isPressed);
                 case PredictedActionType.DashBackward:
                     return kb != null && kb.sKey.wasPressedThisFrame;
                 case PredictedActionType.DashLeft:
@@ -587,7 +593,7 @@ namespace Game.View
                 case PredictedActionType.Jump: return "SPACE";
                 case PredictedActionType.Attack: return "L-CLICK";
                 case PredictedActionType.Lunge: return "R-CLICK";
-                case PredictedActionType.DashForward: return "W";
+                case PredictedActionType.DashForward: return "W+SHIFT";
                 case PredictedActionType.DashBackward: return "S";
                 case PredictedActionType.DashLeft: return "A";
                 case PredictedActionType.DashRight: return "D";
@@ -740,7 +746,7 @@ namespace Game.View
                 if (CursorWantsAim) DrawAimGuide(in w, cam);   // 연타 노드엔 조준 가이드 없음
                 DrawPrompt();
             }
-            DrawFeedback();
+            // [2026-07-22] 순간 피드백 문구(DrawFeedback) 제거 — 조준 원 색·프롬프트 힌트로 대체됨.
         }
 
         /// <summary>
@@ -840,21 +846,15 @@ namespace Game.View
             GUI.DrawTexture(new Rect(x, y, width * Mathf.Clamp01(Gauge), height), bar);
             GUI.color = old;
 
+            // [2026-07-22] HUD 간소화 — FORESIGHT % 만 남긴다(진행도 0/16·상태 문구 제거).
             var style = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.UpperCenter,
                 fontSize = Mathf.RoundToInt(Mathf.Clamp(Screen.height * 0.019f, 13f, 20f)),
                 richText = true,
             };
-            int done = Mathf.Min(Cursor, nodes.Count);
-            // 슬로우 중에만 닳는다는 걸 상태로 보여준다 — 가만히 있어도 닳는다고 오해하면
-            // 서두르게 되고, 그러면 "시간 스트레스 없음"이라는 설계가 무너진다.
-            string state = PocketOpen
-                ? "<color=#FFC46B>조준 중 — 예지 소모</color>"
-                : "<color=#6FBFAE>이동 중 — 소모 없음</color>";
             GUI.Label(new Rect(x - 90f, y + height + 4f, width + 180f, 26f),
-                      $"<color=#9FE6D2>FORESIGHT {Gauge * 100f:0}%   ·   {done} / {nodes.Count}</color>   {state}",
-                      style);
+                      $"<color=#9FE6D2>예측 게이지 {Gauge * 100f:0}%</color>", style);
         }
 
         /// <summary>
@@ -907,7 +907,7 @@ namespace Game.View
             Node n = nodes[Mathf.Min(Cursor, nodes.Count - 1)];
             bool ok = !hasTarget || aimError <= ToleranceOf(n.type);
             string key = KeyLabelOf(n.type);
-            string action = n.merged ? "DOUBLE JUMP" : LabelOf(n.type);
+            string action = n.merged ? "더블 점프" : LabelOf(n.type);
 
             float cx = Screen.width * 0.5f;
             float y = Screen.height * 0.68f;
@@ -948,7 +948,7 @@ namespace Game.View
             };
             string sub = ok
                 ? $"<color=#7CFFD0>{action}</color>"
-                : $"<color=#FFC46B>{action}</color>  <color=#8FB3AB>· 마우스로 방향을 잡아라</color>";
+                : $"<color=#FFC46B>{action}</color>  <color=#8FB3AB>· 표적으로 화면을 이동하세요</color>";
             GUI.Label(new Rect(cx - 300f, box.yMax + 6f, 600f, 30f), sub, subStyle);
         }
 
@@ -975,17 +975,7 @@ namespace Game.View
             GUI.color = c;
             GUI.DrawTexture(new Rect(cx - size * 0.5f, cy - size * 0.5f, size, size), ring);
             GUI.color = old;
-
-            if (Streak < 2) return;
-            var style = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = Mathf.RoundToInt(Mathf.Clamp(Screen.height * 0.03f, 20f, 34f)),
-                fontStyle = FontStyle.Bold,
-                richText = true,
-            };
-            GUI.Label(new Rect(cx - 200f, cy - size * 0.5f - 40f, 400f, 36f),
-                      $"<color=#FFC46B>{Streak} CHAIN</color>", style);
+            // [2026-07-22] CHAIN 콤보 카운터 제거 — 점수 시스템 미확정이라 장식일 뿐이었다.
         }
 
         void DrawFeedback()
@@ -1067,13 +1057,13 @@ namespace Game.View
         {
             switch (t)
             {
-                case PredictedActionType.Jump: return "JUMP";
-                case PredictedActionType.Attack: return "STRIKE";
-                case PredictedActionType.Lunge: return "LUNGE";
-                case PredictedActionType.DashForward: return "DASH ↑";
-                case PredictedActionType.DashBackward: return "DASH ↓";
-                case PredictedActionType.DashLeft: return "DASH ←";
-                case PredictedActionType.DashRight: return "DASH →";
+                case PredictedActionType.Jump: return "점프";
+                case PredictedActionType.Attack: return "베기";
+                case PredictedActionType.Lunge: return "찌르기";
+                case PredictedActionType.DashForward: return "대시 ↑";
+                case PredictedActionType.DashBackward: return "대시 ↓";
+                case PredictedActionType.DashLeft: return "대시 ←";
+                case PredictedActionType.DashRight: return "대시 →";
                 default: return t.ToString().ToUpperInvariant();
             }
         }
