@@ -13,10 +13,17 @@ namespace Game.View
 
         static CombatAudio inst;
         AudioSource src;
-        AudioClip[] swing, hit, dash, guardRaise, block, backstrike, death;
-        // 몹 SFX (러프·잠정). 대부분 몹 공격 SIM 상태 생기면 그쪽에서 호출.
-        AudioClip enWindup, enMelee, enAim, enFire, enPain;
-        AudioClip enStep;   // 발 딛는 소리 — 지금은 임시 합성음, 에셋이 오면 교체
+        AudioClip[] swing, hit, dash, guardRaise, block, backstrike, death;   // [되돌림] hit = 예전 금속 검격음
+        // [2026-07-22] 점프·이단점프·착지·발소리 — 실제 에셋(Resources/Sfx)로 드롭인.
+        AudioClip[] jump, doubleJump, landing, playerStep;
+        // 몹 SFX. [2026-07-22] 합성음 → Resources/Sfx 드롭인 우선(로봇 사운드 에셋). 없으면 합성 폴백.
+        AudioClip[] enWindup, enMelee, enAim, enFire, enPain, enStep;
+        // [2026-07-22] 원거리 발사음 — 공중/지상 다른 레이저. 발사한 몹 종류로 갈라 재생(ProjectileView).
+        AudioClip[] enFireAir, enFireGround;
+        // [2026-07-22] 돌진몹이 벽/플레이어에 박는 순간 — 모래 섞인 박치기음.
+        AudioClip[] chargeImpact;
+        // [2026-07-22] 소환 팬이 천장에서 하강할 때 — 기계식 팬 상승/하강음.
+        AudioClip[] fanMove;
         AudioClip[] playerHurt;   // 플레이어 피격("억" + 저음 임팩트)
         AudioClip[] prediction;   // 예지 발동(시간정지식 상승 시머)
 
@@ -38,22 +45,37 @@ namespace Game.View
             }
 
             swing      = LoadVariants("Sfx/Swing", BuildSwing);
-            hit        = LoadVariants("Sfx/Hit", BuildHit);
+            hit        = LoadVariants("Sfx/PlayerHit", BuildHit);   // 평타1/2피격 랜덤(최근 에셋)
             dash       = LoadVariants("Sfx/Dash", BuildDash);
             guardRaise = LoadVariants("Sfx/GuardRaise", BuildGuardRaise);
             block      = LoadVariants("Sfx/Block", BuildBlock);
-            backstrike = LoadVariants("Sfx/Backstrike", BuildBackstrike);
+            // [2026-07-22] 슬롯명을 Lunge로 분리 — 낡은 오디오 폴더(_Project/Audio/Resources/Sfx/Backstrike)의
+            // HitFlesh_02와 병합돼 찌르기 소리가 50% 확률로 살점음으로 바뀌던 문제 회피.
+            backstrike = LoadVariants("Sfx/Lunge", BuildBackstrike);
             death      = LoadVariants("Sfx/Death", BuildDeath);
 
-            enWindup = BuildEnemyWindup();
-            enMelee  = BuildEnemyMelee();
-            enAim    = BuildEnemyAim();
-            enFire   = BuildEnemyFire();
-            enPain   = BuildEnemyPain();
-            enStep   = BuildEnemyStep();
+            jump       = LoadVariants("Sfx/Jump", () => null);
+            doubleJump = LoadVariants("Sfx/DoubleJump", () => null);
+            landing    = LoadVariants("Sfx/Landing", () => null);
+            playerStep = LoadVariants("Sfx/PlayerStep", () => null);
+
+            enWindup = LoadVariants("Sfx/EnWindup", BuildEnemyWindup);
+            enMelee  = LoadVariants("Sfx/EnMelee",  BuildEnemyMelee);
+            enAim    = LoadVariants("Sfx/EnAim",    BuildEnemyAim);
+            enFire   = LoadVariants("Sfx/EnFire",   BuildEnemyFire);
+            enPain   = LoadVariants("Sfx/EnPain",   BuildEnemyPain);   // 로봇피격 11종(최근 에셋)
+            enStep   = LoadVariants("Sfx/EnStep",   BuildEnemyStep);
+            enFireAir    = LoadVariants("Sfx/EnFireAir",    BuildEnemyFire);
+            enFireGround = LoadVariants("Sfx/EnFireGround", BuildEnemyFire);
+            chargeImpact = LoadVariants("Sfx/ChargeImpact", () => null);
+            fanMove      = LoadVariants("Sfx/FanMove", () => null);
 
             playerHurt = LoadVariants("Sfx/PlayerHurt", BuildPlayerHurt);
             prediction = LoadVariants("Sfx/Prediction", BuildPrediction);
+
+            // [2026-07-22] 몹 발소리 에셋(Sfx/EnStep)이 준비됐으므로 발자국 사운드를 켠다
+            // (FootstepDetector가 발 딛는 순간 CombatAudio.EnemyStep()을 부르게 된다).
+            FootstepEvents.UseFallbackSound = true;
         }
 
         /// <summary>Resources/{folder}에 여러 클립(테이크) 있으면 그걸, 파일 하나뿐이면 그거, 없으면 합성 클립으로 폴백.</summary>
@@ -66,25 +88,78 @@ namespace Game.View
         }
 
         // ── 정적 접근자 (null 안전) ──
-        public static void Swing()      => Play(inst?.swing,      0.55f, 0.06f);
-        public static void Hit()        => Play(inst?.hit,        0.75f, 0.10f);
-        public static void Dash()       => Play(inst?.dash,       0.6f,  0.05f);
+        public static void Swing()      => Play(inst?.swing,      6.50f, 0.06f);   // 허공 베기(살짝 키움)
+        public static void Hit()        => Play(inst?.hit,        1.00f, 0.10f);   // 평타1/2피격 랜덤(볼륨 낮춤)
+        public static void Dash()       => Play(inst?.dash,       4.50f,  0.05f);
         public static void GuardRaise() => Play(inst?.guardRaise, 0.35f, 0.06f);  // 막기 켜는 소리(스윽)
         public static void Block()      => Play(inst?.block,      0.45f, 0.05f);  // 실제 방어 성공(챙) — 적 공격 생기면 사용
-        public static void Backstrike() => Play(inst?.backstrike, 0.9f,  0.05f);
+        public static void Backstrike() => Play(inst?.backstrike, 1.80f,  0.05f);   // 찌르기(볼륨 상향)
         public static void Death()      => Play(inst?.death,      0.8f,  0.08f);
 
-        // ── 몹 SFX (러프). 몹 공격 SIM 상태 생기면 호출: ──
+        // ── 이동 SFX ──
+        public static void Jump()       => Play(inst?.jump,       0.50f, 0.05f);
+        public static void DoubleJump() => Play(inst?.doubleJump, 0.35f,  0.05f);
+        public static void Landing()    => Play(inst?.landing,    0.35f,  0.05f);
+        /// <summary>플레이어 발소리. 자주 나므로 볼륨 낮게, 피치 편차 넓게.</summary>
+        public static void PlayerStep() => Play(inst?.playerStep, 0.14f, 0.14f);
+
+        // ── 몹 SFX. 몹 공격 SIM 상태 생기면 호출: ──
         //  근접 그런트: Windup 진입 → EnemyWindup(), Active 판정 → EnemyMelee()
         //  원거리 솔저: Aim 진입 → EnemyAim(), Fire → EnemyFire()
         //  피격 신음(EnemyPain)은 CombatFeedback이 이미 연결.
         public static void EnemyWindup() => Play(inst?.enWindup, 0.5f,  0.05f);
-        public static void EnemyMelee()  { /* 일단 비활성화 — 소리 이상해서 끔 */ }
-        public static void EnemyAim()    => Play(inst?.enAim,    0.4f,  0.03f);
+        public static void EnemyMelee()  => Play(inst?.enMelee,  0.6f,  0.05f);   // 일반 근접(박치기는 ChargeImpact로 분리됨 → 여긴 합성음)
+        public static void EnemyAim()    => Play(inst?.enAim,    0.22f, 0.03f);   // 조준 차징(에셋 교체 + 볼륨 낮춤)
         public static void EnemyFire()   => Play(inst?.enFire,   0.6f,  0.05f);
-        public static void EnemyPain()   => Play(inst?.enPain,   0.45f, 0.10f);
+        public static void EnemyFireAir()    => Play(inst?.enFireAir,    0.32f, 0.05f);  // 공중 원거리 발사(볼륨 낮춤)
+        public static void EnemyFireGround() => Play(inst?.enFireGround, 0.32f, 0.05f);  // 지상 원거리 발사(볼륨 낮춤)
+        /// <summary>[2026-07-22] 위치 기반 발사음 — 가까울수록 크게, 멀면 작게(발소리보다 멀리 들림).</summary>
+        public static void EnemyFireAir(Vector3 pos)
+        {
+            float a = DistAtten(pos, 6f, 34f);
+            if (a > 0.02f) Play(inst?.enFireAir, 0.32f * a, 0.05f);
+        }
+        public static void EnemyFireGround(Vector3 pos)
+        {
+            float a = DistAtten(pos, 6f, 34f);
+            if (a > 0.02f) Play(inst?.enFireGround, 0.32f * a, 0.05f);
+        }
+
+        /// <summary>카메라 기준 거리 감쇠 0~1. full 이내 최대, silent 넘으면 0.</summary>
+        static float DistAtten(Vector3 pos, float full, float silent)
+        {
+            if (inst == null) return 0f;
+            var camT = Camera.main != null ? Camera.main.transform : null;
+            float dist = camT != null ? Vector3.Distance(camT.position, pos) : 0f;
+            return Mathf.Clamp01(1f - (dist - full) / Mathf.Max(0.01f, silent - full));
+        }
+        /// <summary>돌진몹이 벽/플레이어에 박는 순간의 박치기음.</summary>
+        public static void ChargeImpact() => Play(inst?.chargeImpact, 0.75f, 0.05f);
+        /// <summary>소환 팬 하강 순간의 기계음(위치 기반 — 멀면 작게).
+        /// 한 웨이브에 팬이 여러 개면 동시에 내려와 소리가 겹쳐 커진다 — 짧은 쿨다운으로 한 번만.</summary>
+        static float fanCooldownUntil;
+        public static void FanMove(Vector3 pos)
+        {
+            if (Time.unscaledTime < fanCooldownUntil) return;   // 겹침 방지(여러 팬 동시 하강 = 1회)
+            fanCooldownUntil = Time.unscaledTime + 0.5f;
+            float a = DistAtten(pos, 15f, 60f);
+            if (a > 0.02f) Play(inst?.fanMove, 0.22f * a, 0.03f);
+        }
+        public static void EnemyPain()   => Play(inst?.enPain,   2.80f,  0.10f);   // 로봇피격 11종(최근 에셋)
         /// <summary>몹이 발을 딛는 소리. 자주 나므로 볼륨을 낮게, 피치 편차를 넓게 준다.</summary>
         public static void EnemyStep()   => Play(inst?.enStep,   0.22f, 0.18f);
+        /// <summary>[2026-07-22] 위치 기반 발소리 — 카메라에서 가까울수록 크게, 멀면 무음.
+        /// 몹이 많을 때 발소리가 뭉쳐 시끄럽던 문제 대응(가까운 적만 들리게).</summary>
+        public static void EnemyStep(Vector3 pos)
+        {
+            if (inst == null) return;
+            var camT = Camera.main != null ? Camera.main.transform : null;
+            float dist = camT != null ? Vector3.Distance(camT.position, pos) : 0f;
+            const float full = 3f, silent = 12f;   // 3m 이내 최대, 12m 넘으면 무음
+            float atten = Mathf.Clamp01(1f - (dist - full) / (silent - full));
+            if (atten <= 0.02f) return;
+            Play(inst.enStep, 0.22f * atten, 0.18f);
+        }
         public static void PlayerHurt()  => Play(inst?.playerHurt, 0.75f, 0.06f);  // 플레이어 피격
         public static void Prediction()  => Play(inst?.prediction, 0.5f,  0.02f);  // 예지 발동
 

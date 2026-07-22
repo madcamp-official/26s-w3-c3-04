@@ -39,6 +39,10 @@ namespace Game.View
 
         // 사운드 전이 감지
         byte prevAttack; bool prevDash; byte prevLunge;
+        int prevLungeStacks; bool lungeStacksInit; float lungeSoundCooldownUntil;   // 찌르기음 이중 감지
+        int prevJumpCount; bool prevGrounded = true;   // 점프·착지 사운드 감지용
+        float airborneTime;                            // 연속 공중 시간(계단 깜빡임 무시용)
+        const float MinAirborneForLand = 0.30f;        // 이만큼 떠 있었어야 착지음 발생
 
         // ── 절차 레이어는 ViewmodelMotion이 전담한다(루트의 유일한 작성자).
         //    아래는 기존 콘솔 명령 호환용 위임.
@@ -221,15 +225,42 @@ namespace Game.View
             bool dash = p.dashTicks > 0;
             if (dash && !prevDash) CombatAudio.Dash();
             prevDash = dash;
+            // 찌르기(런지) 발동음 — 두 신호를 함께 본다.
+            //  (1) 위상 전이 LgNone→발동: 즉각 반응하지만 찌르기 구간이 짧아 프레임 샘플링에
+            //      놓칠 수 있다(sim이 프레임 사이에 그 구간을 통째로 지나갈 때).
+            //  (2) 런지 스택 감소: 찌르기 쓰면 스택이 1 줄고 그 값이 유지되므로 안 놓친다.
+            //  두 신호 중 아무거나 잡되, 짧은 쿨다운으로 같은 찌르기가 두 번 나는 것만 막는다.
             byte lg = p.combat.lungePhase;
-            if (lg != prevLunge)
+            int ls = p.combat.lungeStacks;
+            if (!lungeStacksInit) { prevLungeStacks = ls; lungeStacksInit = true; }
+            bool phaseEdge = lg != prevLunge && prevLunge == CombatConfig.LgNone && lg != CombatConfig.LgNone;
+            bool stackDrop = ls < prevLungeStacks;
+            if ((phaseEdge || stackDrop) && Time.unscaledTime >= lungeSoundCooldownUntil)
             {
-                // 런지 발동음(구 칼등치기 사운드 재사용).
-                // 찌르기는 윈드업 0틱이라 LgNone → LgTravel 로 직행한다 — LgWindup은 죽은 경로다.
-                // LgNone에서 벗어나는 모든 전이를 잡아 Travel 외 경로가 생겨도 소리가 빠지지 않게 한다.
-                if (prevLunge == CombatConfig.LgNone && lg != CombatConfig.LgNone) CombatAudio.Backstrike();
-                prevLunge = lg;
+                CombatAudio.Backstrike();
+                lungeSoundCooldownUntil = Time.unscaledTime + 0.12f;
             }
+            prevLunge = lg;
+            prevLungeStacks = ls;
+
+            // [2026-07-22] 점프 — jumpCount가 늘어난 순간. 2단째면 이단점프음.
+            if (p.jumpCount > prevJumpCount)
+            {
+                if (p.jumpCount >= 2) CombatAudio.DoubleJump();
+                else                  CombatAudio.Jump();
+            }
+            prevJumpCount = p.jumpCount;
+
+            // [2026-07-22] 착지 — 공중에서 지면으로 전이.
+            // 계단을 미끄러지면 grounded가 순간순간 깜빡여 착지음이 연속으로 났다 —
+            // "충분히 공중에 떠 있었을 때만" 착지로 친다(짧은 깜빡임은 무시).
+            if (p.grounded)
+            {
+                if (!prevGrounded && airborneTime >= MinAirborneForLand) CombatAudio.Landing();
+                airborneTime = 0f;
+            }
+            else airborneTime += Time.deltaTime;
+            prevGrounded = p.grounded;
         }
     }
 

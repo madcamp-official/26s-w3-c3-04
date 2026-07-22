@@ -130,7 +130,8 @@ namespace Game.View
                 }
                 if (s.prevState == EnemyState.Aim && st != EnemyState.Aim)   // 발사됨
                 {
-                    if (near) CombatAudio.EnemyFire();
+                    // [2026-07-22] 발사음은 ProjectileView(투사체 생성 시)로 옮겼다 — 지상·공중
+                    // 원거리 모두 같은 레이저음이 나게. 여기선 반동 연출만 남긴다.
                     s.recoilT = 1f;
                 }
             }

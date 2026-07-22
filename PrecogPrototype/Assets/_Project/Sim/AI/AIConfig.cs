@@ -147,7 +147,7 @@ namespace Game.Sim
         public static int   RangedDamage    = 1;
 
         // 투사체 (유도 없음 → 회피 가능)
-        public static float ProjectileSpeed  = 12f;
+        public static float ProjectileSpeed  = 19f;   // [2026-07-22] 상향(12→19) — 더 빠르게
         public static float ProjectileRadius = 0.25f;
         public static int   ProjectileTtl    = 300;  // 5s 안전 소멸
 

@@ -11,6 +11,8 @@ namespace Game.View
     public class ProjectileView : MonoBehaviour
     {
         readonly List<Transform> balls = new List<Transform>();
+        // [2026-07-22] 투사체가 새로 생기는 순간 = 누군가 총을 쐈다 → 발사음. 지상·공중 원거리 공통.
+        readonly List<bool> alivePrev = new List<bool>();
 
         // [2026-07-22] 투사체가 몸 중앙에서 나오는 걸 총구 쪽으로 보이게 하는 렌더 전용 오프셋.
         //   총(원거리 몹)은 몸통 정면-왼쪽으로 들려 있다(EntityViews.RangedAimYawOffset=45°) — 그래서
@@ -26,11 +28,19 @@ namespace Game.View
             if (main == null) return;
             ref readonly SimWorld w = ref main.World;
 
-            while (balls.Count < w.projectileCount) balls.Add(MakeBall(balls.Count));
+            while (balls.Count < w.projectileCount) { balls.Add(MakeBall(balls.Count)); alivePrev.Add(false); }
 
             for (int i = 0; i < balls.Count; i++)
             {
                 bool active = i < w.projectileCount && w.projectiles[i].alive;
+                // 비활성→활성 = 이번 프레임에 새로 발사됨 → 발사한 몹 종류에 맞는 레이저음.
+                if (active && !alivePrev[i])
+                {
+                    Vector3 spawn = w.projectiles[i].pos;
+                    if (FirerIsFlying(in w, spawn)) CombatAudio.EnemyFireAir(spawn);
+                    else                            CombatAudio.EnemyFireGround(spawn);
+                }
+                alivePrev[i] = active;
                 balls[i].gameObject.SetActive(active);
                 if (!active) continue;
                 Vector3 vel = w.projectiles[i].vel;
@@ -39,6 +49,21 @@ namespace Game.View
                 if (vel.sqrMagnitude > 1e-6f)
                     balls[i].rotation = Quaternion.LookRotation(vel);
             }
+        }
+
+        /// <summary>이 투사체를 쏜 몹이 공중몹인가 — 발사 지점에서 가장 가까운 적으로 되짚는다
+        /// (투사체는 방금 그 몹 눈높이에서 생겼으므로 가장 가까운 적 = 발사한 몹).</summary>
+        static bool FirerIsFlying(in SimWorld w, Vector3 projPos)
+        {
+            int best = -1; float bestSq = float.MaxValue;
+            for (int i = 0; i < w.enemyCount; i++)
+            {
+                if (!w.enemies[i].alive) continue;
+                float sq = (w.enemies[i].pos - projPos).sqrMagnitude;
+                if (sq >= bestSq) continue;
+                bestSq = sq; best = i;
+            }
+            return best >= 0 && w.enemies[best].ai.mobility == MobilityType.Flying;
         }
 
         /// <summary>발사 방향(투사체 속도)에서 총구 위치로 가는 렌더 오프셋. 속도가 0이면 오프셋 없음.</summary>
@@ -59,7 +84,7 @@ namespace Game.View
             // 진행 방향(로컬 +Z)으로 길쭉한 직육면체 — 단면은 얇게, 길이는 길게.
             float d = AIConfig.ProjectileRadius * 2f;
             go.transform.localScale = new Vector3(d * 0.7f, d * 0.7f, d * 3f);
-            go.GetComponent<Renderer>().material = Mat(new Color(0.5f, 0.85f, 1f));  // 플라즈마 하늘색(잠정)
+            go.GetComponent<Renderer>().material = Mat(new Color(1f, 0.18f, 0.12f));  // 빨강
             return go.transform;
         }
 
