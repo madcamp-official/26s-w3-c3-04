@@ -711,8 +711,9 @@ namespace Game.Sim
     public static class BossQuery
     {
         /// <summary>
-        /// 보스 EMP 교란이 활성인가 — 보스가 <b>드러나 있는 동안</b>(살아 있고 Hide 상태가 아닌 동안) true.
-        /// 등장 순간(Emerge 진입)부터 다시 켜지고, 숨어 있는 30s 동안만 예지를 쓸 수 있다.
+        /// 보스 EMP 교란이 활성인가 — <b>레이저 충전~발사 동안</b>(살아 있고 Windup 또는 Fire)만 true.
+        /// 충전 진입(Windup)에 켜지고 발사가 끝나는 순간(Fire 종료) 꺼진다.
+        /// 그 외(Recovery 딜 타임·Hide·Emerge) 동안은 예지를 쓸 수 있다.
         /// </summary>
         public static bool EmpActive(in SimWorld w)
         {
@@ -720,7 +721,7 @@ namespace Game.Sim
             {
                 ref readonly EnemySim e = ref w.enemies[i];
                 if (!e.alive || e.ai.mobility != MobilityType.Orb) continue;
-                if (e.ai.state != EnemyState.Hide) return true;
+                if (e.ai.state == EnemyState.Windup || e.ai.state == EnemyState.Fire) return true;
             }
             return false;
         }

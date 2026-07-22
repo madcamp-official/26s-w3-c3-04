@@ -298,9 +298,9 @@ namespace Game.View
             var mouse = Mouse.current;
             if (kb == null) return;
 
-            // [보스 EMP, 2026-07-23] 보스가 드러나 있는 동안(BossQuery.EmpActive) 예지가 무력화된다.
-            // 사용 중(Preview/Following)에 보스가 재등장하면 그 자리에서 강제 종료(충격파에 끊김).
-            // 보스가 숨은 30초 동안만 예지를 쓸 수 있다.
+            // [보스 EMP, 2026-07-23] 보스의 레이저 충전~발사 동안(BossQuery.EmpActive) 예지가 무력화된다.
+            // 사용 중(Preview/Following)에 보스가 충전을 시작하면 그 자리에서 강제 종료(충격파에 끊김).
+            // 쿨(Recovery)·숨는 구간에는 예지를 쓸 수 있다.
             if (state != State.Idle && BossQuery.EmpActive(in w))
             {
                 empNoticeUntil = Time.unscaledTime + 1.6f;

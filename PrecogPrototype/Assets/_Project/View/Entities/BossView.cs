@@ -162,8 +162,8 @@ namespace Game.View
                 orbMat.SetColor(BaseColorId, col);
             }
 
-            // EMP 충격파: 처음 나타날 때(스폰 등장) + 숨었다 재등장하는 순간(Hide→Emerge) 1회.
-            if (!stateSeen || (prevState == EnemyState.Hide && state == EnemyState.Emerge))
+            // EMP 충격파: EMP가 켜지는 순간(= 레이저 충전 진입, Windup)마다 1회.
+            if (state == EnemyState.Windup && prevState != EnemyState.Windup)
                 PlayEmpPulse(emitter);
 
             // 사운드 — 상태 진입 순간 1회. 차징 시작 = 대문소리(크게), 발사 시작 = 레이저총.

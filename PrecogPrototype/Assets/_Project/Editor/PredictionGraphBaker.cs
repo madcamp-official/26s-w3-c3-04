@@ -167,9 +167,16 @@ namespace Game.EditorTools
             int cutByHeight = 0;
             if (useMaxHeight)
             {
+                // [지역 상한, 2026-07-23] 아레나마다 지형 기준 높이가 달라 전역 상한 하나로는 안 된다
+                // (Arena_4 바닥이 8~32m — 전역 10.5로 자르면 전멸). GraphHeightCapRegion 박스 안(XZ)의
+                // 점은 그 지역 상한을 쓴다. 지역이 하나도 없으면 기존 동작과 완전히 동일하다.
+                var capRegions = Object.FindObjectsByType<GraphHeightCapRegion>(FindObjectsSortMode.None);
                 for (int i = pts.Count - 1; i >= 0; i--)
                 {
-                    if (pts[i].y <= maxNodeHeight) continue;
+                    float cap = maxNodeHeight;
+                    foreach (var r in capRegions)
+                        if (r.ContainsXZ(pts[i])) { cap = r.maxNodeHeight; break; }
+                    if (pts[i].y <= cap) continue;
                     pts.RemoveAt(i);
                     cutByHeight++;
                     if (i < afterMarkers) afterMarkers--;

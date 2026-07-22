@@ -163,7 +163,7 @@ namespace Game.Sim
         // 충전(5s) → 페이즈별 레이저(4.5/6.6/9.0s, 빔만 55도/s 추적) → 쿨(10s)을 반복한다.
         // 누적 피해가 BossPhaseHp(3)씩 깎일 때마다 y를 BossHideYOffset까지 내려 30s 숨고
         // (그동안 EMP 해제 = 예지 사용 가능) 다음 페이즈로 재등장. 총 HP 9 = 3×3,
-        // 페이즈3에서 소진되면 사망(연출 미정). 드러나 있는 동안은 EMP로 예지 무력화(BossQuery.EmpActive).
+        // 페이즈3에서 소진되면 사망(연출 미정). 레이저 충전~발사 동안만 EMP로 예지 무력화(BossQuery.EmpActive).
         public static int   BossMaxHp         = 9;      // 페이즈당 3 × 3페이즈 (EnemySim.Spawn이 사용)
         public static int   BossPhaseHp       = 3;      // 이만큼 깎일 때마다 숨음(BossCanHide=true일 때만). 경계 6/3/0
         public static bool  BossCanHide       = true;   // 숨김 페이즈 사용 여부. true=피해 경계마다 아래로 내려가 '모습은 보인 채' 몸을 피함(그동안 예지 사용 가능).
