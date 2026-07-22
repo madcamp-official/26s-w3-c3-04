@@ -45,6 +45,12 @@ namespace Game.View
         EnemyState prevState;
         bool       stateSeen;   // 첫 Set 호출(=스폰 등장) 감지용
 
+        // ── 피격 순백 플래시 ── health 감소를 감지해 짧게 흰색으로 번쩍(상태색과 무관하게 "맞았다").
+        static readonly Color FlashWhite = new Color(12f, 12f, 12f);   // HDR 순백
+        const float FlashDuration = 0.12f;
+        int   prevHealth = int.MinValue;
+        float flashT;
+
         /// <summary>ReplaceView가 생성 직후 1회 호출.</summary>
         public void Init()
         {
@@ -111,15 +117,23 @@ namespace Game.View
         }
 
         /// <summary>매 프레임 구동. state==Fire면 하위빔 다발을 켜고 각자 지형까지 그린다.</summary>
-        public void Set(EnemyState state, Vector3 emitter, Vector3 beamDir)
+        public void Set(EnemyState state, Vector3 emitter, Vector3 beamDir, int health)
         {
             bool firing   = state == EnemyState.Fire;
             bool charging = state == EnemyState.Windup;
             bool hidden   = state == EnemyState.Hide;
 
+            // 피격 감지 → 순백 플래시(감쇠). 첫 프레임(prevHealth 미설정)은 제외.
+            if (prevHealth != int.MinValue && health < prevHealth) flashT = FlashDuration;
+            prevHealth = health;
+            if (flashT > 0f) flashT = Mathf.Max(0f, flashT - Time.deltaTime);
+
             if (orbMat != null)
-                orbMat.SetColor(BaseColorId,
-                    (firing || charging) ? OrbActive : hidden ? OrbHidden : OrbIdle);
+            {
+                Color baseCol = (firing || charging) ? OrbActive : hidden ? OrbHidden : OrbIdle;
+                Color col = flashT > 0f ? Color.Lerp(baseCol, FlashWhite, flashT / FlashDuration) : baseCol;
+                orbMat.SetColor(BaseColorId, col);
+            }
 
             // EMP 충격파: 처음 나타날 때(스폰 등장) + 숨었다 재등장하는 순간(Hide→Emerge) 1회.
             if (!stateSeen || (prevState == EnemyState.Hide && state == EnemyState.Emerge))

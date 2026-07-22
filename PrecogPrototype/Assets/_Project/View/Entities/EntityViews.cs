@@ -453,7 +453,7 @@ namespace Game.View
                     float os = e.height * BossVisualScale;
                     enemyViews[i].localScale = new Vector3(os, os, os);
                     var bv = enemyViews[i].GetComponent<BossView>();
-                    if (bv != null) bv.Set(e.ai.state, emitter, e.ai.beamDir);
+                    if (bv != null) bv.Set(e.ai.state, emitter, e.ai.beamDir, e.combat.health);
                     continue;
                 }
 
