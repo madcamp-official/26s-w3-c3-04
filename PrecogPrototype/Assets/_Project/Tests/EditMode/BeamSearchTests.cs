@@ -27,7 +27,10 @@ namespace Game.Sim.Tests
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);
             world.player.combat.hp = 1;
-            world.AddEnemy(new Vector3(0f, 0f, 0.3f));
+            // 아키타입을 굴리는 AddEnemy(at) 오버로드를 쓰면 공중 원거리로 뽑혀(ExperimentalAutoSpawn
+            // 분포상 10중 7) 근접 스윙이 아예 안 나가고 플레이어가 살아버린다 — 지상 근접으로 못박는다.
+            world.AddEnemy(new Vector3(0f, 0f, 0.3f),
+                CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
 
             ref EnemySim enemy = ref world.enemies[0];
             enemy.ai.state = EnemyState.Windup;
@@ -36,8 +39,9 @@ namespace Game.Sim.Tests
             return world;
         }
 
-        /// <summary>플레이어를 원형으로 둘러싼 count마리. SimWorld.AddEnemy의 PickArchetype이
-        /// 5마다 1 대형·나머지 3마다 1 원거리로 결정론적 배분하므로 count≥5면 아키타입이 섞인다.</summary>
+        /// <summary>플레이어를 원형으로 둘러싼 count마리. SimWorld.AddEnemy가 슬롯 인덱스로
+        /// 아키타입을 결정론적 배분하므로(ExperimentalAutoSpawn) count가 커지면 아키타입이 섞인다.
+        /// 여기선 "섞인 군중에서 탐색이 안 터진다"만 보므로 구체 분포에 의존하지 않는다.</summary>
         static SimWorld BuildRingWorld(int count, float radius)
         {
             SimWorld world = SimWorld.Create();

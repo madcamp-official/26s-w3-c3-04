@@ -110,6 +110,14 @@ namespace Game.Sim.Tests
             Assert.AreEqual(expectedPosition, candidate.defeatEvents[0].worldPosition);
         }
 
+        /// <summary>
+        /// DetectEvents가 평타 발동(attackPhase PhNone→PhWindup)을 잡는지 본다.
+        /// 후보를 <b>직접 만들어</b> 넣는 게 핵심이다 — 옛 버전은 PredictionPlanner.Plan(...)[0]을
+        /// 썼는데, 같은 픽스처에서 런지도 대형몹 글로리킬을 트리거하게 된 뒤로 1위 경로가
+        /// Lunge로 바뀌어 "평타 이벤트가 없다"고 실패했다. 이 테스트가 검증하려는 건
+        /// 플래너의 선택이 아니라 리플레이어의 이벤트 검출이므로 입력을 고정한다
+        /// (바로 아래 Replay_RecordsLungeEvent_AtRealTriggerTick과 같은 방식).
+        /// </summary>
         [Test]
         public void Replay_RecordsAttackEvent_AtRealTriggerTick()
         {
@@ -121,10 +129,13 @@ namespace Game.Sim.Tests
             world.enemies[0].combat.health = 1;
             SimServices services = StubServices.Create();
 
-            var settings = new PredictionSettings { macroTicks = 15, macroDepth = 1, beamWidth = 4, maxActionsPerNode = 12 };
-            CandidatePath candidate = PredictionPlanner.Plan(in world, in services, settings)[0];
+            var candidate = new CandidatePath
+            {
+                actions = new[] { MacroAction.Simple(MacroActionType.Attack) },
+                mapVersion = world.mapVersion,
+            };
 
-            bool ok = CandidateReplayer.Replay(in world, in services, candidate, settings.macroTicks);
+            bool ok = CandidateReplayer.Replay(in world, in services, candidate, 15);
 
             Assert.IsTrue(ok);
             bool hasAttackEvent = false;
@@ -178,19 +189,28 @@ namespace Game.Sim.Tests
             Assert.AreEqual(0, candidate.defeatEvents.Length);
         }
 
-        [TestCase(-3, RhythmJudgement.Perfect)]
-        [TestCase(3, RhythmJudgement.Perfect)]
-        [TestCase(-8, RhythmJudgement.Good)]
-        [TestCase(8, RhythmJudgement.Good)]
+        /// <summary>
+        /// 경계가 양쪽 다 <b>이하(inclusive)</b>인지 본다: |Δ| ≤ Perfect창이면 Perfect,
+        /// 그 바로 밖부터 Good창까지는 Good.
+        /// 창 크기는 체감 난이도 피드백으로 계속 조정되는 값이라(3→5→8, 8→11→16→22)
+        /// 리터럴로 박지 않고 상수에서 유도한다 — 튜닝할 때마다 테스트가 같이 깨지면 안 된다.
+        /// </summary>
+        [TestCase(-RhythmJudge.PerfectWindowTicks, RhythmJudgement.Perfect)]
+        [TestCase(RhythmJudge.PerfectWindowTicks, RhythmJudgement.Perfect)]
+        [TestCase(-(RhythmJudge.PerfectWindowTicks + 1), RhythmJudgement.Good)]
+        [TestCase(RhythmJudge.PerfectWindowTicks + 1, RhythmJudgement.Good)]
+        [TestCase(-RhythmJudge.GoodWindowTicks, RhythmJudgement.Good)]
+        [TestCase(RhythmJudge.GoodWindowTicks, RhythmJudgement.Good)]
         public void RhythmJudge_UsesInclusivePerfectAndGoodBoundaries(
             int offset, RhythmJudgement expected)
         {
+            const int eventTick = 100;   // Good창이 넓어져도 제출 틱이 음수로 안 가게 넉넉히
             var judge = new RhythmJudge(new[]
             {
-                new PredictedActionEvent { tick = 20, type = PredictedActionType.Attack, targetId = -1 }
+                new PredictedActionEvent { tick = eventTick, type = PredictedActionType.Attack, targetId = -1 }
             });
 
-            Assert.AreEqual(expected, judge.Submit(PredictedActionType.Attack, 20 + offset));
+            Assert.AreEqual(expected, judge.Submit(PredictedActionType.Attack, eventTick + offset));
             Assert.AreEqual(expected, judge.GetJudgement(0));
         }
 

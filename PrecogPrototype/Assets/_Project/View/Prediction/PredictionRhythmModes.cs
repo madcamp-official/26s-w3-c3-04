@@ -28,6 +28,27 @@ namespace Game.View
         /// 위 다섯 모드와 달리 판정축 자체가 시간이 아니라 공간이라, 기록 입력 재생과 RhythmJudge를
         /// 통째로 우회한다(<see cref="PredictionFreerun"/>).</summary>
         Freerun = 5,
+        /// <summary>7 — 클릭 체인. 이동은 예측 경로 그대로 자동 주행하고, 액션 잔상에 도달하면
+        /// 재생이 멈추며 조준 포켓이 열린다. 그 잔상을 클릭해야 액션이 나간다
+        /// (<see cref="PredictionClickChain"/>).</summary>
+        ClickChain = 6,
+        /// <summary>8 — 자석 주행. 이동은 내가 직접 하되 잔상이 자석처럼 끌어당겨 대충 맞아도
+        /// 잡히고, 노드마다가 아니라 <b>전체가 공유하는 게이지</b> 하나가 계속 닳는다.
+        /// 노드에 닿으면 다음 노드 쪽으로 시선이 자동으로 돌아간다
+        /// (<see cref="PredictionMagnetRun"/>).</summary>
+        MagnetRun = 7,
+        /// <summary>9 — 3인칭 관전. 판정은 Classic 그대로지만 카메라가 3인칭에 머물러
+        /// 자기 캐릭터가 예측대로 움직이는 걸 보면서 타이밍을 친다. 전용 상태 기계 없이
+        /// <see cref="RhythmFollowMode"/>의 카메라 변종으로 구현된다.</summary>
+        ThirdPerson = 8,
+        /// <summary>10 — 난타. 액션 잔상(B)뿐 아니라 그 사이를 잇는 연결 잔상(A)까지 노트가
+        /// 되어 밀도 높게 날아온다. 구간마다 밀도가 달라 난이도가 오르내린다
+        /// (<see cref="PredictionDrumRhythm"/>).</summary>
+        DrumRhythm = 9,
+        /// <summary>11 — 슬로우 조준. 노드에 다가가며 서서히 느려지고, 멈춘 동안 시선을 자유롭게
+        /// 돌려 방향을 잡은 뒤 클릭하면 원래 속도로 액션이 터진다. 각도 판정은 널널하고
+        /// 예지 게이지는 느려진 동안에만 닳는다 (<see cref="PredictionSlowAim"/>).</summary>
+        SlowAim = 10,
     }
 
     /// <summary>모드 레이어 전용 튜닝값. 전투/이동 수치는 여기 두지 않는다.</summary>
@@ -68,50 +89,20 @@ namespace Game.View
     /// </summary>
     public sealed class RhythmModeRuntime
     {
-        // 전환은 정적 상태로 둬서 예지 세션을 넘어 유지된다(PlayerPrefs로 실행 간에도 유지).
-        const string PrefKey = "PredictionRhythmMode";
+        // [추적 방식 추상화, 2026-07-22] 모드 선택·저장·숫자키 매핑은 FollowModeRegistry로
+        // 옮겼다(FollowMode.cs) — 리듬 1~5뿐 아니라 자유 주행·클릭 체인까지 같은 목록에서
+        // 관리해야 하고, 모드 추가 시 고칠 곳을 배열 한 줄로 줄이기 위해서다. 여기서는
+        // 기존 호출부가 그대로 컴파일되도록 중계만 한다.
+        // PlayerPrefs를 정적 초기화자에서 읽으면 안 되는 이유(Main 필드 초기화 중단 버그)는
+        // 레지스트리 쪽에 그대로 옮겨 적어뒀다.
+        static PredictionRhythmMode current => FollowModeRegistry.CurrentId;
 
-        // [버그 수정, 2026-07-22] 예전엔 `static ... current = PlayerPrefs.GetInt(...)` 였는데,
-        // 정적 초기화자는 타입을 처음 건드리는 순간 돈다 — 그게 Main의 인스턴스 필드 초기화
-        // (`new PredictionController()` → `new RhythmModeRuntime()`) 안이었다. Unity는
-        // MonoBehaviour 생성자에서 PlayerPrefs 접근을 금지하므로 여기서 예외가 나고,
-        // 그 바람에 <b>Main의 나머지 필드 초기화가 통째로 중단</b>돼 prediction이 null로 남았다
-        // (증상은 엉뚱하게도 HUD의 NullReferenceException). 실제로 읽을 때까지 미룬다.
-        static PredictionRhythmMode stored;
-        static bool loaded;
+        public static PredictionRhythmMode Current => FollowModeRegistry.CurrentId;
 
-        static PredictionRhythmMode current
-        {
-            get
-            {
-                if (!loaded) { loaded = true; stored = (PredictionRhythmMode)PlayerPrefs.GetInt(PrefKey, 0); }
-                return stored;
-            }
-            set { loaded = true; stored = value; }
-        }
+        public static void Select(PredictionRhythmMode mode) => FollowModeRegistry.Select(mode);
 
-        public static PredictionRhythmMode Current => current;
-
-        public static void Select(PredictionRhythmMode mode)
-        {
-            if (current == mode) return;
-            current = mode;
-            PlayerPrefs.SetInt(PrefKey, (int)mode);
-            Debug.Log($"[예측 리듬] 모드 전환 → {ModeName(mode)}  ({ModeHint(mode)})");
-        }
-
-        /// <summary>숫자키 1~5 감시. Following 중엔 흐름이 깨지므로 호출하지 않는다.</summary>
-        public static bool PollModeSwitch(Keyboard kb)
-        {
-            if (kb == null) return false;
-            if (kb.digit1Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Classic); return true; }
-            if (kb.digit2Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Mash); return true; }
-            if (kb.digit3Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Freestyle); return true; }
-            if (kb.digit4Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Highway); return true; }
-            if (kb.digit5Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Sequence); return true; }
-            if (kb.digit6Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Freerun); return true; }
-            return false;
-        }
+        /// <summary>숫자키 감시. Following 중엔 흐름이 깨지므로 호출하지 않는다.</summary>
+        public static bool PollModeSwitch(Keyboard kb) => FollowModeRegistry.PollSwitch(kb);
 
         public static string ModeName(PredictionRhythmMode m)
         {
@@ -123,6 +114,11 @@ namespace Game.View
                 case PredictionRhythmMode.Highway: return "4 HIGHWAY";
                 case PredictionRhythmMode.Sequence: return "5 COMMAND";
                 case PredictionRhythmMode.Freerun: return "6 FREERUN";
+                case PredictionRhythmMode.ClickChain: return "7 CHAIN";
+                case PredictionRhythmMode.MagnetRun: return "8 MAGNET";
+                case PredictionRhythmMode.ThirdPerson: return "9 THIRD-PERSON";
+                case PredictionRhythmMode.DrumRhythm: return "0 DRUM";
+                case PredictionRhythmMode.SlowAim: return "11 SLOW-AIM";
                 default: return m.ToString();
             }
         }
@@ -137,6 +133,11 @@ namespace Game.View
                 case PredictionRhythmMode.Highway: return "다음 박자들이 레일로 내려온다 · Miss해도 계속 간다";
                 case PredictionRhythmMode.Sequence: return "박자 하나가 3연 커맨드 · 마지막 입력이 판정";
                 case PredictionRhythmMode.Freerun: return "이동은 내가 직접 · 잔상에 닿으면 그 액션이 터진다 (타이밍 없음)";
+                case PredictionRhythmMode.ClickChain: return "이동은 자동 · 잔상에 닿으면 멈춘다 · 그 잔상을 클릭해야 액션이 나간다";
+                case PredictionRhythmMode.MagnetRun: return "직접 달린다 · 잔상이 끌어당긴다(대충 맞아도 OK) · 게이지 하나가 계속 닳는다";
+                case PredictionRhythmMode.ThirdPerson: return "3인칭으로 내 캐릭터를 보면서 · 타이밍에 맞춰 지정 키 (판정은 CLASSIC과 동일)";
+                case PredictionRhythmMode.DrumRhythm: return "A = 연결 노트 · B = 액션 노트 · 난타하듯 · 구간마다 밀도가 다르다";
+                case PredictionRhythmMode.SlowAim: return "노드마다 천천히 멈춘다 · 그동안 마우스로 방향을 잡고 좌클릭 (각도 판정 널널)";
                 default: return "";
             }
         }
@@ -340,8 +341,10 @@ namespace Game.View
                 richText = true,
             };
             string accent = ColorUtility.ToHtmlStringRGB(RhythmModeConfig.ModeAccent);
-            string body = $"<color=#{accent}>RHYTHM MODE · {ModeName(current)}</color>";
-            if (!following) body += $"\n<size=12><color=#8FB3AB>{ModeHint(current)}   (숫자키 1~5 전환)</color></size>";
+            string body = $"<color=#{accent}>FOLLOW MODE · {FollowModeRegistry.Current.Name}</color>";
+            if (!following)
+                body += $"\n<size=12><color=#8FB3AB>{FollowModeRegistry.Current.Hint}" +
+                        $"   (숫자키 1~{FollowModeRegistry.Count} 전환)</color></size>";
             GUI.Label(new Rect(18f, 14f, 620f, 52f), body, style);
         }
 

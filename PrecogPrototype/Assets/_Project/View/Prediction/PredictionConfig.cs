@@ -306,5 +306,188 @@ namespace Game.View
         /// <summary>마지막 노드를 소진한 뒤 여운으로 남기는 시간(초).</summary>
         public const float FreerunFinishLingerSeconds = 0.8f;
         // <<< [자유 주행 끝]
+
+        // >>> [클릭 체인(Chain), 2026-07-22] PredictionClickChain 전용 튜닝값.
+        // 튜닝 목표는 <b>클릭 간격 0.6~1.2초</b>다 — 이보다 뜸해지면 플레이어가 관객이 되고,
+        // 촘촘해지면 자동 주행 구간의 질주감이 사라진다. 런지 너프 강도의 상한선 역할도 한다
+        // (런지를 죽이면 경로에서 액션 노드가 줄어 클릭이 뜸해진다).
+
+        /// <summary>포켓(조준 창)이 열려 있는 최대 실시간(초). 넘기면 실패가 아니라 자동 발동.</summary>
+        public const float ClickChainPocketSeconds = 2.2f;
+        /// <summary>포켓이 열린 동안의 시간 배속. 거의 정지시켜 판독 시간을 준다.</summary>
+        public const float ClickChainPocketTimeScale = 0.08f;
+        /// <summary>잔상 사이 자동 주행 구간의 배속. 1보다 올리면 질주감이 세진다.</summary>
+        public const float ClickChainRunTimeScale = 1f;
+        /// <summary>배속 변화 속도(초당). 스냅이 아니라 감속/가속으로 읽히게 한다.</summary>
+        public const float ClickChainTimeScaleRate = 6f;
+
+        /// <summary>커서로 조준하는가. false면 화면 중앙 고정 조준(카메라를 돌려야 함) —
+        /// 기록 재생이 시선을 소유하므로 기본은 커서다.</summary>
+        public const bool ClickChainCursorAim = true;
+        /// <summary>클릭 판정 반경(화면 높이 비율). 조준 실력을 묻는 게 아니라 선택을 묻는
+        /// 방식이므로 넉넉하게 잡는다.</summary>
+        public const float ClickChainHitRadiusScreen = 0.072f;
+        /// <summary>클릭 판정 반경 하한(px).</summary>
+        public const float ClickChainHitRadiusMinPx = 46f;
+        /// <summary>조준점을 잔상 발밑에서 이 높이만큼 올린다(m) — 가슴 높이가 찍기 편하다.</summary>
+        public const float ClickChainAimHeight = 1.1f;
+
+        public const float ClickChainReticlePulseHz = 2.2f;
+        public static readonly Color ClickChainReticleBright = new Color(0.49f, 1f, 0.82f, 0.95f);
+        public static readonly Color ClickChainReticleDim = new Color(0.28f, 0.78f, 0.66f, 0.4f);
+        // <<< [클릭 체인 끝]
+
+        // >>> [자석 주행(Magnet), 2026-07-22] PredictionMagnetRun 전용.
+        /// <summary>포획 반경(m). 자유 주행(2.2)보다 훨씬 넉넉한 게 이 모드의 핵심 —
+        /// 대시로 지나치거나 살짝 빗나가도 잡히게 한다.</summary>
+        public const float MagnetCaptureRadius = 4.2f;
+        public const float MagnetCaptureVerticalRadius = 4.0f;
+        /// <summary>이동 입력을 노드 쪽으로 섞기 시작하는 거리(m).</summary>
+        public const float MagnetSteerRadius = 6.5f;
+        /// <summary>최대 유도 강도(0~1). 1이면 조작을 완전히 뺏으므로 절반 이하로 둔다.</summary>
+        public const float MagnetSteerStrength = 0.45f;
+        /// <summary>이 크기 이상 이동 입력이 있을 때만 유도한다 — 서 있는데 끌려가면 안 된다.</summary>
+        public const float MagnetSteerMinInput = 0.04f;
+
+        /// <summary>공유 게이지가 초당 닳는 양(0~1 기준). 1/이 값 = 아무것도 안 했을 때 버티는 초.</summary>
+        public const float MagnetGaugeDrainPerSecond = 0.085f;
+        /// <summary>노드 하나를 소진할 때 돌려받는 양.</summary>
+        public const float MagnetGaugeNodeRefund = 0.11f;
+        /// <summary>처치 확정 시 돌려받는 양 — "잘 이으면 더 오래 본다".</summary>
+        public const float MagnetGaugeKillRefund = 0.16f;
+
+        /// <summary>노드에 닿았을 때 다음 노드 쪽으로 시선을 돌리는 시간(초).</summary>
+        public const float MagnetTurnSeconds = 0.28f;
+        /// <summary>이 각도(도) 미만이면 굳이 안 돌린다 — 미세하게 튀는 게 더 거슬린다.</summary>
+        public const float MagnetTurnMinDegrees = 12f;
+
+        public const float MagnetNodeSlowSeconds = 0.3f;
+        public const float MagnetNodeSlowScale = 0.55f;
+
+        public static readonly Color MagnetGaugeBack = new Color(0.06f, 0.12f, 0.11f, 0.7f);
+        public static readonly Color MagnetGaugeHigh = new Color(0.45f, 1f, 0.82f, 0.9f);
+        public static readonly Color MagnetGaugeLow = new Color(1f, 0.42f, 0.38f, 0.95f);
+        // <<< [자석 주행 끝]
+
+        // >>> [난타(Drum), 2026-07-22] PredictionDrumRhythm 전용.
+        // [실측 기준, 2026-07-22] 실제 3초 경로의 액션 마커는 13개 · 간격 5~20틱이다
+        // (초당 4.7액션). 아래 값들은 그 사이에 연결 노트가 실제로 들어가도록 맞춘 것 —
+        // 이 전제가 바뀌면(런지 너프로 액션이 줄면) 다시 재야 한다.
+        /// <summary>연결 노트 간격(틱) — 경로 시작 구간. 클수록 헐겁다(12틱=0.2초).</summary>
+        public const float DrumLinkIntervalStart = 12f;
+        /// <summary>연결 노트 간격(틱) — 경로 끝 구간. 후반일수록 촘촘해진다.</summary>
+        public const float DrumLinkIntervalEnd = 6f;
+        /// <summary>구간별 ±변주 폭(틱).</summary>
+        public const float DrumLinkJitter = 2f;
+        /// <summary>간격 하한(틱). 이보다 촘촘하면 사람이 칠 수 없다(5틱 ≈ 0.083초).</summary>
+        public const int DrumLinkIntervalMin = 5;
+        /// <summary>액션 노트와 연결 노트 사이 최소 간격(틱). 붙으면 A/B를 구분할 시간이 없다.</summary>
+        public const int DrumMinSeparationTicks = 4;
+
+        /// <summary>노트가 화면에 나타나 중심까지 오는 시간(틱). 90틱 = 1.5초.</summary>
+        public const float DrumLookaheadTicks = 90f;
+        public const float DrumPerfectWindowTicks = 4f;
+        public const float DrumGoodWindowTicks = 10f;
+
+        public const int DrumScorePerfect = 300;
+        public const int DrumScoreGood = 150;
+        public const int DrumScoreComboStep = 10;
+
+        public const float DrumActionNoteSize = 26f;
+        public const float DrumLinkNoteSize = 15f;
+        public static readonly Color DrumActionNoteColor = new Color(1f, 0.77f, 0.42f, 1f);
+        public static readonly Color DrumLinkNoteColor = new Color(0.49f, 1f, 0.82f, 1f);
+        public static readonly Color DrumHitRingColor = new Color(0.6f, 0.9f, 0.85f, 0.55f);
+        // <<< [난타 끝]
+
+        // >>> [3인칭 관전(모드 9), 2026-07-22] 실행 중 3인칭 궤도 카메라.
+        /// <summary>움직이는 플레이어 뒤 거리(m).</summary>
+        public const float ThirdPersonDistance = 5.2f;
+        /// <summary>내려다보는 각도(도).</summary>
+        public const float ThirdPersonPitch = 16f;
+        /// <summary>카메라가 진행 방향을 따라가는 부드러움(작을수록 빠르게 붙는다).</summary>
+        public const float ThirdPersonYawSmooth = 0.18f;
+        /// <summary>피벗 높이(m).</summary>
+        public const float ThirdPersonPivotY = 1.5f;
+        /// <summary>본체 색 — 잔상(반투명)과 달리 불투명해야 "내가 저기 있다"로 읽힌다.</summary>
+        public static readonly Color ThirdPersonBodyColor = new Color(0.82f, 0.95f, 0.92f, 1f);
+        // <<< [3인칭 관전 끝]
+
+        // >>> [슬로우 조준(Slow Aim), 2026-07-22] PredictionSlowAim 전용.
+        // 설계 기준은 "초보자도 할 수 있게" — 감속은 미리·천천히, 판정은 널널하게,
+        // 시간 압박은 게이지로만.
+
+        /// <summary>노드에 이만큼 남았을 때부터 미리 감속을 시작한다(틱). 30틱=0.5초.</summary>
+        public const int SlowAimSlowLeadTicks = 30;
+        /// <summary>접근 구간(감속 중) 배속.</summary>
+        public const float SlowAimApproachTimeScale = 0.42f;
+        /// <summary>조준 포켓 배속. [2026-07-22 완화] 0.06은 "아예 멈춰 있는 듯"으로 읽혀서
+        /// 올렸다 — 적이 다가오는 게 눈에 보여야 조준에 긴장이 생긴다.</summary>
+        public const float SlowAimPocketTimeScale = 0.18f;
+        /// <summary>노드 사이 주행 배속.</summary>
+        public const float SlowAimRunTimeScale = 1f;
+        /// <summary>느려지는 속도(초당 배속 변화). 작을수록 부드럽게 브레이크가 걸린다.</summary>
+        public const float SlowAimSlowDownRate = 1.6f;
+        /// <summary>빨라지는 속도. 감속보다 훨씬 커야 "클릭 → 시원하게 터진다"가 된다.</summary>
+        public const float SlowAimSpeedUpRate = 6.5f;
+
+        /// <summary>
+        /// 런지 각도 허용치(도). 대시·점프는 각도를 아예 묻지 않는다 — 방향이 기록된 cmd
+        /// (dashDirection + 그 순간 yaw)로 정해지므로 사용자 회전이 결과를 못 바꾼다.
+        /// 판정할 수 없는 걸 판정하는 척하지 않기 위해 게이트 자체를 뺐다.
+        /// </summary>
+        public const float SlowAimToleranceStrike = 45f;
+
+        /// <summary>조준 포켓이 열린 동안 예지 게이지가 초당 닳는 양(0~1).
+        /// 0.06이면 아무것도 안 해도 ~16초 버틴다 — 시간 스트레스를 주지 않는 게 목적.</summary>
+        public const float SlowAimGaugeDrainPerSecond = 0.06f;
+
+        /// <summary>이 틱 안에 붙어 있는 점프 두 개는 더블 점프로 보고 한 노드로 합친다.
+        /// 각각 슬로우를 걸면 답답하다는 요구 사항.</summary>
+        public const int SlowAimDoubleJumpMergeTicks = 30;
+
+        /// <summary>노드에 이만큼 남았을 때 조준 포켓(키 표시·자유 회전)이 열린다(틱).
+        /// <see cref="SlowAimSlowLeadTicks"/>보다 작아야 "감속 → 그 다음 조준" 순서가 된다.
+        /// 이 구간에서는 재생을 막지 않으므로 sim이 느리게나마 계속 흐른다.</summary>
+        public const int SlowAimPocketLeadTicks = 14;
+
+        /// <summary>잔상이 깨지기 시작하는 거리(m). 이보다 가까워지면 서서히 부서진다.</summary>
+        public const float SlowAimGhostClearRadius = 3.2f;
+        /// <summary>완전히 사라지는 거리(m). 이 안쪽이면 시야를 가리므로 숨긴다.</summary>
+        public const float SlowAimGhostBreakRadius = 1.4f;
+
+        // [2026-07-22] 목표 잔상은 훨씬 좁은 반경을 쓴다. 액션 간격이 0.2초라 다음 노드는
+        // 늘 3m 안쪽이고, 위 반경(3.2m)을 그대로 쓰면 목표가 이동 내내 흐려져 "누를 때가
+        // 돼서야 흰색이 되는" 것처럼 보인다. 시야를 가리는 건 지나친 잔상들이다.
+        /// <summary>목표 잔상이 깨지기 시작하는 거리(m).</summary>
+        public const float SlowAimNextGhostClearRadius = 1.5f;
+        /// <summary>목표 잔상이 사라지는 거리(m) — 사실상 겹쳤을 때만.</summary>
+        public const float SlowAimNextGhostBreakRadius = 0.7f;
+
+        // [핵심 수정, 2026-07-22] 실측 액션 간격이 5~20틱인데 감속을 30틱 전부터 걸어서
+        // 사실상 항상 슬로우가 켜져 있었다("액션 취할 때 계속 슬로모션" 증상). 앞 노드와
+        // 이만큼 벌어진 노드만 탐색(감속·조준) 대상으로 삼고, 붙어 있는 건 연타로 잇는다.
+        /// <summary>탐색 노드로 볼 최소 간격(틱). 이보다 붙어 있으면 슬로우 없이 연타.</summary>
+        public const int SlowAimMinGapTicks = 26;
+        /// <summary>연타 노드의 키 표시가 미리 뜨는 시간(틱). 짧아야 흐름이 안 끊긴다.</summary>
+        public const int SlowAimQuickPocketLeadTicks = 5;
+
+        /// <summary>액션 발동 후 이 틱 동안은 무조건 정상 속도 이상 — 절대 안 느려진다.
+        /// 액션 간격이 20틱 남짓이라 이 값이 크면 감속 구간이 안 남는다(=조준이 완전 정지에서만
+        /// 일어남). 액션 재생을 덮을 만큼만 짧게.</summary>
+        public const int SlowAimBurstTicks = 8;
+        /// <summary>잔상과 딱 맞췄을 때의 가속 배속. 1보다 커야 "보상"으로 읽힌다.</summary>
+        public const float SlowAimBurstBoost = 1.45f;
+        /// <summary>이 각도(도) 안이면 정타 — 가속 + 금색 연출.</summary>
+        public const float SlowAimPerfectAngle = 14f;
+
+        /// <summary>성공 순간 링이 터지는 시간(초).</summary>
+        public const float SlowAimHitFlashSeconds = 0.3f;
+
+        /// <summary>다음에 칠 잔상 색 — 하얗게 태워 확실히 구분시킨다(빛기둥 대체).</summary>
+        public static readonly Color SlowAimNextGhostColor = new Color(1f, 1f, 1f, 0.95f);
+        /// <summary>그 외 잔상 — 확 눌러서 대비를 만든다.</summary>
+        public static readonly Color SlowAimOtherGhostColor = new Color(0.35f, 0.62f, 0.58f, 0.16f);
+        // <<< [슬로우 조준 끝]
     }
 }

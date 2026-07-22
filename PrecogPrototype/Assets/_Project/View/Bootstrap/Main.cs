@@ -232,9 +232,11 @@ namespace Game.View
             fixedAccum += Time.deltaTime;
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
             views.Sync(in world, in prevWorld, alpha);
-            // 자유 주행은 사용자가 마우스로 직접 보므로 아래 자동 추종 카메라를 쓰지 않는다.
+            // 시선이 사용자 것인 동안에는 자동 추종 카메라를 쓰지 않는다 — 자유 주행처럼
+            // 통째로 넘긴 경우뿐 아니라, 슬로우 포켓 동안만 빌려준 경우(모드 11)도 포함이다.
+            // 둘이 동시에 켜지면 같은 vcam pose를 서로 덮어쓴다.
             if (prediction.state == PredictionController.State.Following
-                && !prediction.FreerunActive
+                && !prediction.UsesLiveLookCamera
                 && views.PlayerAnchor != null)
                 prediction.UpdateFollowingCameraRenderPose(
                     views.PlayerAnchor.position, views.PlayerAnchor.eulerAngles.y);

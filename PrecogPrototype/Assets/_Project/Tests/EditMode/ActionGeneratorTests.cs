@@ -26,12 +26,22 @@ namespace Game.Sim.Tests
             MacroActionType.Attack,
         };
 
+        /// <summary>
+        /// 지상 근접몹으로 못박아 스폰한다. 인자 1개짜리 SimWorld.AddEnemy는 슬롯 인덱스로
+        /// 아키타입을 굴리는데(ExperimentalAutoSpawn — 현재 10중 7이 공중 원거리), 런지 후보의
+        /// <b>종류</b>를 따지는 테스트가 그 분포에 얹히면 밸런스 조정마다 같이 깨진다.
+        /// 공중 대상은 단일 Lunge가 아니라 LungeStrike 콤보로 나오는 것이 설계이므로
+        /// (ActionGenerator.MakeLungeAction, AerialTargetingTests 참고), 여기선 지상으로 고정한다.
+        /// </summary>
+        static void AddGroundMelee(ref SimWorld world, Vector3 at) =>
+            world.AddEnemy(at, CombatType.Melee, MobilityType.Ground, SizeClass.Normal);
+
         [Test]
         public void Generate_FollowsWaitLastOrder_WhenEverythingValid()
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);
-            world.AddEnemy(new Vector3(0f, 0f, 1.5f)); // 정면, 평타·런지 사거리 둘 다 안
+            AddGroundMelee(ref world, new Vector3(0f, 0f, 1.5f)); // 정면, 평타·런지 사거리 둘 다 안
             SimServices services = StubServices.Create();
             PredictionSettings settings = PredictionSettings.Full;
             var buffer = new MacroAction[settings.maxActionsPerNode];
@@ -181,8 +191,8 @@ namespace Game.Sim.Tests
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);
-            world.AddEnemy(new Vector3(0f, 0f, 3f));
-            world.AddEnemy(new Vector3(1f, 0f, 3f));
+            AddGroundMelee(ref world, new Vector3(0f, 0f, 3f));
+            AddGroundMelee(ref world, new Vector3(1f, 0f, 3f));
             SimServices services = StubServices.Create();
             PredictionSettings settings = PredictionSettings.Full;
             var buffer = new MacroAction[settings.maxActionsPerNode];
@@ -254,7 +264,7 @@ namespace Game.Sim.Tests
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);   // yaw=0 → 정면은 +Z
-            world.AddEnemy(new Vector3(0f, 0f, -3f));        // 정반대 방향(-Z), 사거리·높이는 유효
+            AddGroundMelee(ref world, new Vector3(0f, 0f, -3f)); // 정반대 방향(-Z), 사거리·높이는 유효
             SimServices services = StubServices.Create();
             PredictionSettings settings = PredictionSettings.Full;
             var buffer = new MacroAction[settings.maxActionsPerNode];
@@ -272,8 +282,8 @@ namespace Game.Sim.Tests
         {
             SimWorld world = SimWorld.Create();
             world.player = PlayerSim.Spawn(Vector3.zero);
-            world.AddEnemy(new Vector3(0f, 0f, 3f));  // id 0
-            world.AddEnemy(new Vector3(1f, 0f, 3f));  // id 1
+            AddGroundMelee(ref world, new Vector3(0f, 0f, 3f));  // id 0
+            AddGroundMelee(ref world, new Vector3(1f, 0f, 3f));  // id 1
             SimServices services = StubServices.Create();
             PredictionSettings settings = PredictionSettings.Full;
             var buffer = new MacroAction[settings.maxActionsPerNode];
