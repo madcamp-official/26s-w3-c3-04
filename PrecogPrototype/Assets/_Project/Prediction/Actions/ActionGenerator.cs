@@ -22,6 +22,7 @@ namespace Game.Prediction
             MacroActionType.Retreat,
             MacroActionType.Jump,
             MacroActionType.TerrainLeap,
+            MacroActionType.AerialAscent,
             MacroActionType.DashForward,
             MacroActionType.DashBackward,
             MacroActionType.DashLeft,
@@ -56,6 +57,11 @@ namespace Game.Prediction
                     case MacroActionType.TerrainLeap:
                         if (TryBuildTerrainLeap(in world, in services, out MacroAction leap))
                             buffer[count++] = leap;
+                        break;
+
+                    case MacroActionType.AerialAscent:
+                        if (TryBuildAerialAscent(in world, in services, out MacroAction ascent))
+                            buffer[count++] = ascent;
                         break;
 
                     case MacroActionType.Jump:
@@ -125,6 +131,90 @@ namespace Game.Prediction
             float yaw = Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg;
             action = MacroAction.TerrainLeapAt(yaw);
             return true;
+        }
+
+        /// <summary>
+        /// 대공 등반 — <b>사거리 밖 공중 적</b>에게 닿는 고도까지 지형을 타고 오른다.
+        ///
+        /// 왜 필요한가: 공중 액션 3종은 전부 높이차 상한이 있다(JumpStrike 2.6m / AerialPursuit·
+        /// Lunge는 <see cref="CombatConfig.LungeHeightTolerance"/>). 실제 맵에서 공중 몹은 발판
+        /// 위를 부유해 플레이어보다 10m 넘게 높은 경우가 있는데, 그러면 어떤 후보도 생성되지 않아
+        /// 예지가 공중 적을 통째로 무시한다. 기존 <see cref="TryBuildTerrainLeap"/>은 <b>도주
+        /// 방향</b>으로만 JumpUp을 찾으므로 이 상황에 쓸 수 없다.
+        ///
+        /// 방법: 대상 바로 아래의 설 수 있는 면(<see cref="ICollision.SampleGround"/>)을 목표로 잡고
+        /// 길찾기에 다음 한 걸음을 묻는다. 그래프가 "여기서 뛰어올라라"(JumpUp)라고 하면 도약을,
+        /// 아직 걸어야 하면 그 방향 전진을 낸다. 즉 등반 경로 자체는 우리가 발명하지 않고
+        /// <b>실제 몹이 쓰는 것과 같은 층이동 그래프</b>에 물어본다 — 그래야 예측과 실제가 안 어긋난다.
+        /// </summary>
+        static bool TryBuildAerialAscent(in SimWorld world, in SimServices services, out MacroAction action)
+        {
+            action = default;
+            ref readonly PlayerSim player = ref world.player;
+            if (player.combat.hp <= 0 || !player.grounded || player.jumpCount != 0
+                || player.dashTicks != 0 || player.combat.hitStunTicks != 0)
+                return false;
+
+            if (!TryFindUnreachableAerialTarget(in world, out int targetId, out Vector3 targetPos))
+                return false;
+
+            // 대상 바로 아래에서 설 수 있는 면 = 올라가야 할 목표 고도.
+            if (!services.Collision.SampleGround(targetPos, AerialAscentGroundProbe, out float standY))
+                return false;
+            if (standY - player.pos.y < AerialAscentMinGain) return false;   // 올라갈 게 없으면 의미 없음
+
+            var goal = new Vector3(targetPos.x, standY, targetPos.z);
+            PathStep step = services.Pathfinder.NextStep(player.pos, goal, -1);
+            if (step.kind != MoveKind.JumpUp && step.kind != MoveKind.Walk) return false;
+
+            Vector3 delta = step.next - player.pos;
+            delta.y = 0f;
+            if (delta.sqrMagnitude <= 1e-6f) return false;
+            float yaw = Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg;
+
+            // JumpUp이면 도약, 아직 걸어가는 중이면 그 방향 전진(불필요한 점프로 공중 제어를 낭비하지 않는다).
+            action = step.kind == MoveKind.JumpUp
+                ? MacroAction.AerialAscentAt(yaw)
+                : MacroAction.MoveTowardAt(yaw);
+            return true;
+        }
+
+        /// <summary>지면 탐침 거리(m). 공중 적 위치에서 아래로 이만큼 훑어 발판 윗면을 찾는다.</summary>
+        const float AerialAscentGroundProbe = 14f;
+        /// <summary>이보다 적게 오르는 목표는 등반으로 치지 않는다(기존 액션이 이미 닿는 범위).</summary>
+        const float AerialAscentMinGain = 1.5f;
+        /// <summary>이 수평 거리 밖의 공중 적은 등반 대상으로 보지 않는다(맵 반대편까지 쫓지 않게).</summary>
+        const float AerialAscentMaxFlatDistance = 25f;
+
+        /// <summary>
+        /// 지금 어떤 공중 액션으로도 닿지 않는(=높이차가 런지 허용치를 넘는) 공중 적 중 가장 가까운 것.
+        /// 닿는 적이 있으면 그쪽이 우선이므로 등반은 만들지 않는다.
+        /// </summary>
+        static bool TryFindUnreachableAerialTarget(
+            in SimWorld world, out int targetId, out Vector3 targetPos)
+        {
+            targetId = -1;
+            targetPos = Vector3.zero;
+            float best = float.MaxValue;
+
+            for (int i = 0; i < world.enemyCount; i++)
+            {
+                ref readonly EnemySim enemy = ref world.enemies[i];
+                if (!enemy.alive || enemy.combat.gloryStage > 0) continue;
+                if (enemy.ai.mobility != MobilityType.Flying) continue;
+
+                float heightGap = enemy.pos.y - world.player.pos.y;
+                float flat = CombatMath.FlatDistance(world.player.pos, enemy.pos);
+                if (flat > AerialAscentMaxFlatDistance) continue;
+                // 이미 닿는 높이면 등반이 아니라 기존 공중 액션이 처리할 일이다.
+                if (heightGap <= CombatConfig.LungeHeightTolerance) continue;
+                if (flat >= best) continue;
+
+                best = flat;
+                targetId = enemy.id;
+                targetPos = enemy.pos;
+            }
+            return targetId >= 0;
         }
 
         static Vector3 ComputeEscapeDirection(in SimWorld world)

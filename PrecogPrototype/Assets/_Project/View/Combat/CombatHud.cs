@@ -38,6 +38,8 @@ namespace Game.View
         void OnGUI()
         {
             if (UiVisibility.Skip) return;      // 콘솔 `ui off` 로 숨김
+            // UGUI HUD(아트 프레임이든 홀로그램이든)가 떠 있으면 그쪽이 담당한다.
+            if (HudCanvas.Instance != null || HoloHud.Instance != null) return;
             if (Main.Instance == null) return;
             int previousDepth = GUI.depth;
             GUI.depth = -100;

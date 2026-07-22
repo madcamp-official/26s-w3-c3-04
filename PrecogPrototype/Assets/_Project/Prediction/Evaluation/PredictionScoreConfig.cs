@@ -47,6 +47,16 @@ namespace Game.Prediction
         /// 실제 피해(DamageWeight)보다 작게 둬서 "자세만 잡고 안 침"으로 정체되지 않게 한다 —
         /// 접근/점프 중간 스텝(아직 피해 0)이 Beam에서 살아남아 실제 처치까지 이어지도록만 돕는다.</summary>
         public const float AerialOpportunityWeight = 4f;
+
+        // ── [대공 등반, 2026-07-22] 사거리 밖 공중 적을 향한 고도 확보 유도 ──
+        // 기존 가중치는 건드리지 않고 격리된 항만 추가한다(회귀 이력 존중 — 이 파일의 다른 항들과 같은 원칙).
+        /// <summary>등반 진행도(0~1)에 곱하는 가점. 실제 처치·피해보다 반드시 작아야 한다 —
+        /// 이건 "닿는 위치까지 가는 중간 스텝이 Beam에서 살아남게" 하는 형태 유도일 뿐이다.</summary>
+        public const float AerialAscentProgressWeight = 6f;
+        /// <summary>이만큼 더 올라가야 하면 진행도 0으로 본다(높이차 − LungeHeightTolerance 기준).</summary>
+        public const float AerialAscentReferenceGap = 8f;
+        /// <summary>이 수평 거리 밖의 닿지 않는 공중 적은 등반 유도 대상으로 보지 않는다.</summary>
+        public const float AerialAscentRadius = 25f;
         public const float TraversalCommitmentWeight = 0.5f;
 
         /// <summary>사망 후보도 서로 순위를 매길 수 있도록 유한값 유지(무한대면 전멸 폴백 시

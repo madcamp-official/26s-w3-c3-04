@@ -19,6 +19,18 @@ namespace Game.Prediction
         public int nearbyFlyingEnemyCount;       // 반경 내 공중 적 수(뷰/관측용). 감점 근거로는 더 안 쓴다.
         public int aimingFlyingEnemyCount;       // 그중 조준/발사 중(임박 대공 위협) — 감점 대상.
         public int strikeableFlyingEnemyCount;   // 런지 사거리·높이차 안(좌/우클릭 콤보로 처치 가능한 기회) — 가점 대상.
+
+        /// <summary>
+        /// [대공 등반, 2026-07-22] 아직 어떤 공중 액션으로도 닿지 않는(높이차 > LungeHeightTolerance)
+        /// 공중 적에 대해, "얼마나 닿는 데 가까워졌는가"(0=한참 아래, 1=사거리 진입 직전).
+        ///
+        /// 왜 필요한가: 등반은 그 자체로는 피해도 처치도 안 낸다. 이 항이 없으면 올라가는 가지가
+        /// 첫 스텝에서 점수 동률에 밀려 Beam에서 잘려나가고, AerialAscent 후보를 아무리 만들어도
+        /// 최종 경로에는 절대 안 나타난다(형태 유도 항이 필요한 이유는 strikeableFlying과 같다).
+        /// </summary>
+        public float aerialAscentProgress01;
+        /// <summary>닿지 않는 공중 적 수 — 등반 유도를 켤지 판단하는 데만 쓴다.</summary>
+        public int unreachableFlyingEnemyCount;
         public int activeTraversalCount;
         public bool hasEscapeRoute;
     }
@@ -93,6 +105,18 @@ namespace Game.Prediction
                     horizontalDistance <= CombatConfig.LungeMaxRange &&
                     heightGap <= CombatConfig.LungeHeightTolerance)
                     result.strikeableFlyingEnemyCount++;
+
+                // 닿지 않는 높이의 공중 적 — 등반 진행도를 잰다(위 aerialAscentProgress01 주석 참고).
+                if (heightGap > CombatConfig.LungeHeightTolerance &&
+                    horizontalDistance <= PredictionScoreConfig.AerialAscentRadius)
+                {
+                    result.unreachableFlyingEnemyCount++;
+                    float deficit = heightGap - CombatConfig.LungeHeightTolerance;
+                    float progress = Mathf.Clamp01(
+                        1f - deficit / PredictionScoreConfig.AerialAscentReferenceGap);
+                    if (progress > result.aerialAscentProgress01)
+                        result.aerialAscentProgress01 = progress;
+                }
             }
 
             if (enemy.ai.mobility != MobilityType.Charge ||

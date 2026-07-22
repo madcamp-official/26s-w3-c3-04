@@ -21,6 +21,7 @@ namespace Game.Prediction
         JumpStrike,    // 대공 콤보(런지 없이): 점프로 솟구쳐 얼어붙은(조준/발사 중) 공중 슈터 고도에서 좌클릭.
         AerialPursuit, // 공중 추격: 대상 방향 전진 → 점프 → 더블 점프 → 우클릭 접근.
         TerrainLeap,   // 안전형 지형 도약: 그래프의 JumpUp 방향으로 점프 → 더블 점프.
+        AerialAscent,  // 대공 등반: 사거리 밖 공중 적 아래의 발판을 향해 그래프 JumpUp을 타고 고도를 얻는다.
     }
 
     /// <summary>
@@ -47,6 +48,18 @@ namespace Game.Prediction
 
         public static MacroAction TerrainLeapAt(float yaw) =>
             new MacroAction { type = MacroActionType.TerrainLeap, lungeTargetId = -1, targetYaw = yaw };
+
+        /// <summary>대공 등반 도약 — 지정 방향으로 전진하며 1단·2단 점프로 발판에 오른다.</summary>
+        public static MacroAction AerialAscentAt(float yaw) =>
+            new MacroAction { type = MacroActionType.AerialAscent, lungeTargetId = -1, targetYaw = yaw };
+
+        /// <summary>
+        /// 지정 방향으로 걸어가는 전진. 기존 <see cref="MacroActionType.MoveForward"/>는 targetYaw가
+        /// NaN이라 <see cref="ResolveYaw"/>가 "지금 보는 방향"으로 폴백하는데, 등반 경로처럼 그래프가
+        /// 정해준 방향으로 가야 할 때는 그 방향을 명시해야 한다(같은 타입, yaw만 지정).
+        /// </summary>
+        public static MacroAction MoveTowardAt(float yaw) =>
+            new MacroAction { type = MacroActionType.MoveForward, lungeTargetId = -1, targetYaw = yaw };
 
         /// <summary>
         /// LungeStrike 콤보에서 좌클릭을 넣는 서브틱. 우클릭 블링크(LungeTravelTicks)가 끝나고
@@ -148,6 +161,13 @@ namespace Game.Prediction
                     }
                     break;
                 case MacroActionType.TerrainLeap:
+                    cmd.move = new Vector2(0f, 1f);
+                    if (tickWithinMacro == 0 || tickWithinMacro == 7) cmd.jump = true;
+                    break;
+                case MacroActionType.AerialAscent:
+                    // TerrainLeap과 같은 입력 패턴(전진 + 1단/2단 점프)이지만 목적이 다르다 —
+                    // 도주가 아니라 "사거리 밖 공중 적에게 닿는 고도까지 오르기"다. 타입을 나눠야
+                    // 점수·디버그에서 둘을 구분할 수 있고, 이후 등반 전용으로 따로 튜닝할 수 있다.
                     cmd.move = new Vector2(0f, 1f);
                     if (tickWithinMacro == 0 || tickWithinMacro == 7) cmd.jump = true;
                     break;

@@ -5,6 +5,7 @@
         "Game.Sim",
         "Game.Bridge",
         "Game.Prediction",
+        "UnityEngine.UI",
         "Unity.InputSystem",
         "Unity.AI.Navigation",
         "Unity.RenderPipelines.Core.Runtime",
