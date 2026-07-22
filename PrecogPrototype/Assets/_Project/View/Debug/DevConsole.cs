@@ -158,6 +158,26 @@ namespace Game.View
             GUI.Label(new Rect(12, 8, boxW - 12, boxH - 4), sb.ToString());
         }
 
+        // ── 텔레포트 지점 (Level_Main 월드좌표, 개발 테스트용 하드코딩) ──
+        // 인덱스 = 아레나 번호. 0번은 미사용.
+        static readonly Vector3[] ArenaPos =
+        {
+            Vector3.zero,
+            new Vector3(-0.06f, 6.92f,  56.94f),   // 1
+            new Vector3(-0.19f, 5.07f, 126.21f),   // 2
+            new Vector3(-1.90f, 5.63f, 188.80f),   // 3
+            Vector3.zero,                          // 4 (미지정 — hall 4로 접근)
+        };
+        // 그 아레나 '직전 골목'(복도) — 여기서 걸어 들어가면 wayin 게이트가 자연스럽게 작동.
+        static readonly Vector3[] HallPos =
+        {
+            Vector3.zero, Vector3.zero, Vector3.zero,
+            new Vector3(-0.04f,  3.92f, 167.02f),  // 3 직전 골목
+            new Vector3(-0.17f, 12.70f, 303.18f),  // 4 직전 골목
+        };
+
+        static bool Valid(Vector3 v) => v != Vector3.zero;
+
         void Execute(string line)
         {
             Print("> " + line);
@@ -172,7 +192,7 @@ namespace Game.View
                     Print("종류: grunt pinky soldier caco large  ·  gruntt(근층)/soldiert(원층)은 폐기 예정");
                     Print("[디버그] anim <종류> = 그 몹 하나만 소환하고 화면에 애니메이터 상태 실시간 표시. anim off로 끔");
                     Print("wave list · wave start [n] · wave only <n> · wave stop · wave status  (n은 1부터)");
-                    Print("[레벨] arena <번호>   그 아레나로 순간이동 → 진입 감지 시 웨이브 시작 (예: arena 3)");
+                    Print("[레벨] arena <1~3>  그 아레나 안으로 순간이동(웨이브 시작) · hall <3~4>  그 아레나 직전 골목으로 이동(걸어 들어가기)");
                     Print("  예) wave only 2 = 웨이브2만 실행 · wave start 2 = 웨이브2부터 순차");
                     Print("[이펙트] vfx <이름> [거리] [pitch] [yaw] [roll] [상하] · vfx list · vfx reload");
                     Print("  pitch=위아래로 눕히기 · yaw=좌우로 돌리기 · roll=화면 안 각도 (전부 0=원래 방향)");
@@ -218,18 +238,25 @@ namespace Game.View
 
                 case "arena":
                 {
-                    // 특정 아레나로 순간이동 — ArenaRoom이 진입을 감지해 그 방 웨이브를 자동 시작.
-                    if (p.Length < 2 || !int.TryParse(p[1], out int an))
-                    { Print("사용: arena <번호>   예) arena 3   (그 아레나로 이동 → 진입 감지 시 웨이브 시작)"); break; }
-                    ArenaRoom target = null;
-                    foreach (var r in UnityEngine.Object.FindObjectsByType<ArenaRoom>(FindObjectsSortMode.None))
-                        if (r.transform.root.name.StartsWith("Arena_" + an)) { target = r; break; }
-                    if (target == null || target.zone == null)
-                    { Print($"Arena_{an} 방(ArenaRoom+zone)을 못 찾음 — Level_Main에서 실행하세요."); break; }
-                    var b = target.zone.bounds;
-                    Vector3 pos = new Vector3(b.center.x, b.min.y + 0.5f, b.center.z);
-                    main.PlacePlayerAt(pos);
-                    Print($"Arena_{an}로 이동 {pos.ToString("0.0")}");
+                    // 특정 아레나 안으로 순간이동. ArenaRoom이 진입을 감지해 그 방 웨이브를 자동 시작.
+                    if (p.Length < 2 || !int.TryParse(p[1], out int an) || an < 1 || an >= ArenaPos.Length)
+                    { Print("사용: arena <1~3>   예) arena 3   (그 아레나 안으로 이동)"); break; }
+                    if (!Valid(ArenaPos[an]))
+                    { Print($"Arena_{an} 위치 미지정 — 'hall {an}'로 골목까지 가서 걸어 들어가세요."); break; }
+                    main.PlacePlayerAt(ArenaPos[an]);
+                    Print($"Arena_{an} 안으로 이동");
+                    break;
+                }
+
+                case "hall":
+                {
+                    // 그 아레나 '직전 골목'으로 순간이동 — 걸어 들어가며 wayin 게이트 정상 작동 확인용.
+                    if (p.Length < 2 || !int.TryParse(p[1], out int hn) || hn < 1 || hn >= HallPos.Length)
+                    { Print("사용: hall <번호>   예) hall 4   (그 아레나 직전 골목으로 이동)"); break; }
+                    if (!Valid(HallPos[hn]))
+                    { Print($"Arena_{hn} 직전 골목 위치 미지정."); break; }
+                    main.PlacePlayerAt(HallPos[hn]);
+                    Print($"Arena_{hn} 직전 골목으로 이동");
                     break;
                 }
 
@@ -270,6 +297,20 @@ namespace Game.View
                     main.DevClear();
                     Print("전부 제거");
                     break;
+
+                case "클리어":
+                case "kw":
+                {
+                    // 지금 진행 중인 아레나(활성 WaveRunner)를 강제 클리어 판정 → 출구 게이트 열림 + 남은 몹 제거.
+                    WaveRunner active = null;
+                    foreach (var wr in FindObjectsByType<WaveRunner>(FindObjectsSortMode.None))
+                        if (wr.IsRunning) { active = wr; break; }
+                    if (active == null) { Print("진행 중인 아레나 웨이브 없음"); break; }
+                    active.ForceComplete();
+                    main.DevClear();
+                    Print($"[{active.name}] 웨이브 클리어 판정 + 남은 몹 제거");
+                    break;
+                }
 
                 case "autospawn":
                     if (p.Length >= 2 && p[1] == "on")  { main.AutoSpawn = true;  Print("자동소환 on"); }

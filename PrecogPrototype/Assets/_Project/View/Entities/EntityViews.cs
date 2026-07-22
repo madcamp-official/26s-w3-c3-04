@@ -122,8 +122,6 @@ namespace Game.View
         // 몹 시각 종류. Traversal은 아직 실제 모델이 없어 캡슐 유지.
         enum ViewKind { Capsule, Flying, Charge, Melee, Ranged, Orb }
 
-        // 보스(Orb) 발광 구 렌더 크기 배율(히트박스 e.height 기준). 진짜 보스답게 크게.
-        public static float BossVisualScale = 5.0f;
 
         /// <summary>
         /// 이 애니메이터가 어떤 파라미터를 갖고 있는지 — <b>클립을 나중에 붙여도 코드를 안 고치게</b> 하는 장치.
@@ -425,7 +423,8 @@ namespace Game.View
                     // 몹은 콜라이더가 없어 물리 트리거가 안 먹으므로, sim 위치가 박스 안에 들어왔는지로 판정.
                     // 카메라 시야와 무관 — 팬에서 나와 박스를 통과하는 그 지점에서 확실히 뜬다.
                     int eid = w.enemies[i].id;
-                    if (w.enemies[i].alive)
+                    // 보스(Orb)는 실체화(첫 투명) 예외 — 스폰 즉시 그대로 보인다. 나머지 몹만 재생 박스 실체화.
+                    if (w.enemies[i].alive && w.enemies[i].ai.mobility != MobilityType.Orb)
                     {
                         if (viewSpawnedId[i] != eid)
                         {
@@ -450,7 +449,7 @@ namespace Game.View
                 {
                     Vector3 emitter = ep + Vector3.up * AIConfig.BossEmitterHeight;
                     enemyViews[i].position = emitter;
-                    float os = e.height * BossVisualScale;
+                    float os = e.radius * 2f;   // 구 지름 = sim 히트박스(e.radius)와 동일 → 비주얼=히트박스.
                     enemyViews[i].localScale = new Vector3(os, os, os);
                     var bv = enemyViews[i].GetComponent<BossView>();
                     if (bv != null) bv.Set(e.ai.state, emitter, e.ai.beamDir, e.combat.health);

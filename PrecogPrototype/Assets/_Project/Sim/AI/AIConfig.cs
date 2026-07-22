@@ -160,21 +160,23 @@ namespace Game.Sim
 
         // ── 보스 (빛나는 구 코어 · 추적 레이저) — mobility=Orb. 고정 포탑 + 3페이즈 (2026-07-23 개편) ──
         // 이동하지 않는다(추격 없음). 스폰 지점(EnemyAI.anchor) 기준 BossRevealYOffset에 떠서
-        // 충전(5s) → 페이즈별 레이저(1.5/2.2/3.0s, 빔만 55도/s 추적) → 쿨(10s)을 반복한다.
-        // 누적 피해가 BossPhaseHp(15)씩 깎일 때마다 y를 BossHideYOffset까지 내려 30s 숨고
-        // (그동안 EMP 해제 = 예지 사용 가능) 다음 페이즈로 재등장. 총 HP 45 = 15×3,
+        // 충전(5s) → 페이즈별 레이저(4.5/6.6/9.0s, 빔만 55도/s 추적) → 쿨(10s)을 반복한다.
+        // 누적 피해가 BossPhaseHp(3)씩 깎일 때마다 y를 BossHideYOffset까지 내려 30s 숨고
+        // (그동안 EMP 해제 = 예지 사용 가능) 다음 페이즈로 재등장. 총 HP 9 = 3×3,
         // 페이즈3에서 소진되면 사망(연출 미정). 드러나 있는 동안은 EMP로 예지 무력화(BossQuery.EmpActive).
-        public static int   BossMaxHp         = 45;     // 페이즈당 15 × 3페이즈 (EnemySim.Spawn이 사용)
-        public static int   BossPhaseHp       = 15;     // 이만큼 깎일 때마다 숨음(페이즈 전환 경계 30/15/0)
-        public static float BossRevealYOffset = 3.0f;   // 드러났을 때 y = anchor.y + 이 값
-        public static float BossHideYOffset   = -10f;   // 숨었을 때 y = anchor.y + 이 값(투명벽 너머로 보임)
+        public static int   BossMaxHp         = 9;      // 페이즈당 3 × 3페이즈 (EnemySim.Spawn이 사용)
+        public static int   BossPhaseHp       = 3;      // 이만큼 깎일 때마다 숨음(BossCanHide=true일 때만). 경계 6/3/0
+        public static bool  BossCanHide       = true;   // 숨김 페이즈 사용 여부. true=피해 경계마다 아래로 내려가 '모습은 보인 채' 몸을 피함(그동안 예지 사용 가능).
+        public static float BossRevealYOffset = 0f;     // 활동 y = anchor.y. ★스폰 지점 = 싸우는 위치(그대로 싸움).
+        public static float BossHideYOffset   = -16f;   // 숨을 때 y = anchor.y - 16 (아래로 16m 내려가 엄폐). 아레나4: 스폰 20.75 → 엄폐 4.75.
         public static float BossHideMoveSpeed = 8f;     // 숨기/재등장 수직 이동 속도(m/s)
         public static int   BossHideTicks     = 1800;   // 30.0s 숨어 있는 시간(예지 사용 가능 창)
         public static float BossEmitterHeight = 0f;     // 오브 코어 발사점(e.pos 기준 위). 중심이 e.pos면 0
+        public static float BossRadius        = 4.3f;   // 보스 구(sphere) 히트박스 반경 = 비주얼 오브 반경. 히트·충돌·렌더 공용(캡슐 아님).
         public static int   BossChargeTicks   = 300;    // 5.0s 차지 텔레그래프(엄폐 시간)
-        public static int   BossFireTicksP1   = 90;     // 1.5s — 페이즈1 빔 지속
-        public static int   BossFireTicksP2   = 132;    // 2.2s — 페이즈2 빔 지속
-        public static int   BossFireTicksP3   = 180;    // 3.0s — 페이즈3 빔 지속
+        public static int   BossFireTicksP1   = 270;    // 4.5s — 페이즈1 빔 지속 (3배)
+        public static int   BossFireTicksP2   = 396;    // 6.6s — 페이즈2 빔 지속 (3배)
+        public static int   BossFireTicksP3   = 540;    // 9.0s — 페이즈3 빔 지속 (3배)
         public static int   BossRecoverTicks  = 600;    // 10.0s 발사 후 쿨(플레이어 딜 타임)
         public static float BossChargeTurnRate = 90f;   // 도/s — 차지 중 예비 추적(조준 맞춰둠)
         public static float BossBeamTurnRate  = 55f;    // 도/s — ★ 발사 중 추적 각속도(전 페이즈 동일, 회피 난이도 다이얼)

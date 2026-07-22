@@ -154,6 +154,18 @@ namespace Game.View
             nextSpawn = 0;
             fixedAccum = 0f;
             views.InvalidateViews();      // 적 뷰를 버려 새 월드 기준으로 다시 만들게 한다
+
+            // ★ 웨이브·아레나·게이트도 시작 상태로 되돌린다 — sim만 리셋하면
+            //   이미 클리어한 아레나가 startOnce 때문에 다시 안 열리고 게이트도 마지막 상태로 남는다.
+            foreach (var wr in FindObjectsByType<WaveRunner>(FindObjectsSortMode.None)) wr.Stop();
+            foreach (var room in FindObjectsByType<ArenaRoom>(FindObjectsSortMode.None)) room.ReArm();
+            foreach (var gate in FindObjectsByType<ArenaGate>(FindObjectsSortMode.None)) gate.ResetToStart();
+        }
+
+        /// <summary>플레이어 체력을 최대로 — 아레나 클리어(ArenaRoom.OnUnlock) 시 호출.</summary>
+        public void HealPlayerFull()
+        {
+            world.player.combat.hp = CombatConfig.PlayerMaxHp;
         }
 
         SimWorld world, prevWorld;
@@ -186,6 +198,10 @@ namespace Game.View
         {
             Instance = this;
             Time.fixedDeltaTime = SimConfig.TickDelta;
+
+            // 아레나 클리어(출구 열림) 시 플레이어 풀피 충전 — 각 ArenaRoom의 클리어 이벤트를 구독.
+            foreach (var room in FindObjectsByType<ArenaRoom>(FindObjectsSortMode.None))
+                room.OnUnlock += HealPlayerFull;
 
             Vector3 refPoint = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
 

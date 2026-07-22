@@ -101,6 +101,7 @@ Material:
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
     - _BumpScale: 1
+    - _CleanSmoothness: 0.85
     - _ClearCoatMask: 0
     - _ClearCoatSmoothness: 0
     - _Cull: 2
@@ -126,6 +127,8 @@ Material:
     - _RedSoftness: 0.15
     - _RedThreshold: 0.25
     - _RustBoost: 1.5
+    - _RustMetallic: 0.05
+    - _RustSmoothness: 0.04
     - _Smoothness: 0.28
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
@@ -137,7 +140,7 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
+    - _BaseColor: {r: 2.6, g: 2.6, b: 2.6, a: 1}
     - _Color: {r: 0.09999997, g: 0.10999996, b: 0.12999997, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _GlowColor: {r: 1, g: 1, b: 1, a: 1}

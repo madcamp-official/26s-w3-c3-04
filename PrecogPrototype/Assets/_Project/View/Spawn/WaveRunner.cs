@@ -19,6 +19,9 @@ namespace Game.View
         [Tooltip("비워두면 같은 오브젝트의 ArenaWaves를 자동으로 쓴다.")]
         public ArenaWaves config;
 
+        [Tooltip("씬 시작(아레나 진입) 시 자동으로 웨이브 0부터 순차 시작. loop와 함께 쓰면 진입하자마자 주기 스폰.")]
+        public bool autoStart = false;
+
         public State CurrentState { get; private set; } = State.Idle;
         public int   CurrentWave  { get; private set; } = -1;
 
@@ -34,12 +37,20 @@ namespace Game.View
         readonly List<HashSet<int>> spawnedIds = new List<HashSet<int>>();
         PipeCursor[] cursors = new PipeCursor[0];
         int  waveWaitTicks;
+        int  waveElapsedTicks;   // 현재 웨이브 시작 후 경과 틱(Timer 진행 기준)
         int  spawnedSoFar;
         bool sequential;   // true = 조건 충족 시 다음 웨이브로, false = 이 웨이브만
 
         void Awake()
         {
             if (config == null) config = GetComponent<ArenaWaves>();
+        }
+
+        void Start()
+        {
+            // 아레나 진입(씬 시작) 시 자동 시작. loop면 무한 순환.
+            if (autoStart && config != null && config.HasWave(0))
+                StartFrom(0, true);
         }
 
         // ── 외부(개발 콘솔) 진입점 ──
@@ -63,6 +74,16 @@ namespace Game.View
             CurrentWave  = -1;
         }
 
+        /// <summary>강제 클리어 판정 — 콘솔 '클리어'용. 진행 중인 웨이브를 즉시 Done으로 만든다
+        /// (ArenaRoom이 Done을 감지해 출구 게이트를 연다).</summary>
+        public void ForceComplete()
+        {
+            CurrentState = State.Done;
+        }
+
+        /// <summary>진행 중(대기·소환·감시)인가 — 콘솔에서 '현재 아레나'를 찾을 때 쓴다.</summary>
+        public bool IsRunning => CurrentState != State.Idle && CurrentState != State.Done;
+
         public string Status()
         {
             if (config == null) return $"[{name}] ArenaWaves 없음";
@@ -80,6 +101,7 @@ namespace Game.View
         {
             CurrentWave  = index;
             spawnedSoFar = 0;
+            waveElapsedTicks = 0;   // 시간 진행(Timer) 기준 리셋
             while (spawnedIds.Count <= index) spawnedIds.Add(new HashSet<int>());
             spawnedIds[index].Clear();
 
@@ -105,6 +127,9 @@ namespace Game.View
         // sim과 같은 주기(고정 틱)에서 돌려 스폰 타이밍을 틱에 정확히 맞춘다.
         void FixedUpdate()
         {
+            if (CurrentState == State.Idle || CurrentState == State.Done) return;
+            waveElapsedTicks++;
+
             switch (CurrentState)
             {
                 case State.WaitStart:
@@ -116,6 +141,14 @@ namespace Game.View
                 case State.Watching:
                     TickWatching();
                     break;
+            }
+
+            // 시간 기반 진행(웨이브 시작 기준). 스폰/감시 중이어도 시간이 되면 다음으로 — 주기 스폰.
+            if (CurrentState != State.Done && config.HasWave(CurrentWave))
+            {
+                Wave w = config.waves[CurrentWave];
+                if (w.advance == WaveAdvanceMode.Timer && waveElapsedTicks >= Sec2Ticks(w.advanceValue))
+                    GoNext("타이머");
             }
         }
 
@@ -214,24 +247,36 @@ namespace Game.View
                 case WaveAdvanceMode.RemainingPercent:
                     advance = total <= 0 || alive <= total * (w.advanceValue / 100f);
                     break;
+                case WaveAdvanceMode.Timer:
+                    advance = false;   // 시간 진행은 FixedUpdate 타이머가 담당 — 킬로는 안 넘긴다
+                    break;
                 default:   // KillAll
                     advance = alive <= 0;
                     break;
             }
-            if (!advance) return;
+            if (advance) GoNext($"생존 {alive}/{total}");
+        }
 
+        /// <summary>다음 웨이브로. 마지막이면 loop면 0으로 되돌아가고, 아니면 종료.</summary>
+        void GoNext(string reason)
+        {
+            int count = config.waves != null ? config.waves.Length : 0;
             int next = CurrentWave + 1;
-            if (sequential && config.HasWave(next))
+            if (next >= count)
             {
-                Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave + 1} 조건 충족(생존 {alive}/{total}) → 웨이브 {next + 1}");
-                BeginWave(next);
+                if (config.loop && count > 0) next = 0;          // 루프: 처음으로
+                else { Finish(); return; }
             }
-            else
-            {
-                CurrentState = State.Done;
-                Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave + 1} 완료 — 아레나 클리어(문 해제 훅 자리).");
-                // TODO(설계 §5): 마무리 정리(시야각+LOS·거리·지속) 및 문 해제 훅.
-            }
+            else if (!sequential && !config.loop) { Finish(); return; }   // '이 웨이브만' 모드
+            Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave + 1} → {next + 1} ({reason})");
+            BeginWave(next);
+        }
+
+        void Finish()
+        {
+            CurrentState = State.Done;
+            Debug.Log($"[WaveRunner] {name} 웨이브 {CurrentWave + 1} 완료 — 아레나 클리어(문 해제 훅 자리).");
+            // TODO(설계 §5): 마무리 정리(시야각+LOS·거리·지속) 및 문 해제 훅.
         }
 
         int AliveOfWave(int index)

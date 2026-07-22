@@ -6,7 +6,7 @@ Shader "Game/EnemyOutline"
     Properties
     {
         _OutlineColor ("Outline Color", Color) = (1,1,1,1)
-        _OutlineWidth ("Outline Width (world meters)", Range(0, 0.2)) = 0.03
+        _OutlineWidth ("Outline Width (world meters)", Range(0, 0.2)) = 0.01
     }
     SubShader
     {

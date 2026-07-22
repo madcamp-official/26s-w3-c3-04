@@ -21,7 +21,7 @@ namespace Game.View
     public class LungeTargetHighlight : MonoBehaviour
     {
         /// <summary>아웃라인 두께(오브젝트 공간). 모델 스케일에 따라 체감이 달라 콘솔/인스펙터로 조절.</summary>
-        public static float Width = 0.03f;
+        public static float Width = 0.01f;   // 흰 테두리 두께(월드 m) — 얇게(0.03→0.01)
         static readonly Color OutlineColor = Color.white;
 
         static Material outlineMat;

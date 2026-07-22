@@ -51,6 +51,15 @@ namespace Game.View
         int   prevHealth = int.MinValue;
         float flashT;
 
+        // ── 사운드 ── 차징 진입 = 대문소리, 발사 '중' = 레이저 루프(반복), 발사 '끝난 뒤' = 레이저총. 2D(거리 무관).
+        AudioSource audioSrc;    // 단발(PlayOneShot): 차징·발사후
+        AudioClip   chargeClip, fireClip;
+        const float ChargeVolume = 2.0f;   // 보스 소리는 기본 아주 크게 — 증폭(>1). 찢어지면 낮추고, 클립/믹서로 조정.
+        const float FireVolume   = 2.0f;   // 발사 끝난 뒤 레이저총도 동일하게 크게.
+
+        AudioSource beamSrc;     // 발사 '중' 반복재생(레이저 지속음). loop 소스는 volume 상한 1.0.
+        AudioClip   beamClip;
+
         /// <summary>ReplaceView가 생성 직후 1회 호출.</summary>
         public void Init()
         {
@@ -96,6 +105,24 @@ namespace Game.View
             empRing.receiveShadows = false;
             empRing.sharedMaterial = empMat;
             empRing.enabled = false;
+
+            // 사운드 — 2D 소스 + 클립 로드(임포트 전이면 null → 조용히 스킵).
+            audioSrc = gameObject.AddComponent<AudioSource>();
+            audioSrc.playOnAwake = false;
+            audioSrc.spatialBlend = 0f;   // 2D: 거리와 무관하게 크게
+            audioSrc.volume = 1f;
+            audioSrc.priority = 0;        // 최우선 — 다른 소리에 밀려 안 끊기게(브금 아래 안 깔림)
+            chargeClip = Resources.Load<AudioClip>("Sfx/Boss/Boss_Charge");
+            fireClip   = Resources.Load<AudioClip>("Sfx/Boss/Boss_Fire");
+
+            // 발사 중 반복재생 루프 — 전용 소스. 최대 음량(1.0, loop 소스는 >1 안 됨 → 더 크게는 클립/믹서).
+            beamSrc = gameObject.AddComponent<AudioSource>();
+            beamSrc.playOnAwake = false;
+            beamSrc.spatialBlend = 0f;
+            beamSrc.loop = true;
+            beamSrc.volume = 1f;
+            beamSrc.priority = 0;
+            beamClip = Resources.Load<AudioClip>("Sfx/Boss/Boss_Beam");
         }
 
         /// <summary>중앙 굵은선 1 + 바깥 링(R, 8) = 9개 하위빔 좌표.</summary>
@@ -138,6 +165,27 @@ namespace Game.View
             // EMP 충격파: 처음 나타날 때(스폰 등장) + 숨었다 재등장하는 순간(Hide→Emerge) 1회.
             if (!stateSeen || (prevState == EnemyState.Hide && state == EnemyState.Emerge))
                 PlayEmpPulse(emitter);
+
+            // 사운드 — 상태 진입 순간 1회. 차징 시작 = 대문소리(크게), 발사 시작 = 레이저총.
+            if (audioSrc != null)
+            {
+                if (state == EnemyState.Windup && prevState != EnemyState.Windup && chargeClip != null)
+                    audioSrc.PlayOneShot(chargeClip, ChargeVolume);
+                // 레이저총 = 발사를 '끝낸 뒤'(Fire→Recovery) 낸다.
+                if (state == EnemyState.Recovery && prevState == EnemyState.Fire && fireClip != null)
+                    audioSrc.PlayOneShot(fireClip, FireVolume);
+            }
+
+            // 발사 '중' 레이저 루프 — Fire 동안 반복재생, 발사 끝나는 즉시(Fire 아니면) 정지.
+            if (beamSrc != null && beamClip != null)
+            {
+                if (state == EnemyState.Fire)
+                {
+                    if (!beamSrc.isPlaying) { beamSrc.clip = beamClip; beamSrc.Play(); }
+                }
+                else if (beamSrc.isPlaying) beamSrc.Stop();
+            }
+
             stateSeen = true;
             prevState = state;
 

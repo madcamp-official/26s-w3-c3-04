@@ -60,8 +60,12 @@ namespace Game.Sim
                         ref EnemySim e = ref w.enemies[i];
                         if (!e.alive || e.combat.gloryStage > 0) continue;
                         if (HitMaskHas(in pc, i)) continue;              // 이 스윙에서 이미 때린 적
-                        if (!CombatHit.SphereHitsCapsule(center, CombatConfig.MeleeRadius,
-                                                         e.pos, e.radius, e.height)) continue;
+                        // 보스(Orb)는 구 히트박스 — 구(평타) vs 구(중심 e.pos·반경 e.radius). 나머지는 캡슐.
+                        bool hit = e.ai.mobility == MobilityType.Orb
+                            ? (center - e.pos).sqrMagnitude <=
+                              (CombatConfig.MeleeRadius + e.radius) * (CombatConfig.MeleeRadius + e.radius)
+                            : CombatHit.SphereHitsCapsule(center, CombatConfig.MeleeRadius, e.pos, e.radius, e.height);
+                        if (!hit) continue;
                         HitMaskSet(ref pc, i);
                         HitEnemy(ref w, i, CombatConfig.AtkStun(pc.attackStep));
                     }
@@ -134,9 +138,10 @@ namespace Game.Sim
                     e.combat.deathTick = w.tick;
                     return;
                 }
-                int hi = AIConfig.BossPhaseHp * 2, lo = AIConfig.BossPhaseHp;   // 30, 15
-                if ((before > hi && e.combat.health <= hi) || (before > lo && e.combat.health <= lo))
-                { e.ai.state = EnemyState.Hide; e.ai.stateTicks = 0; }   // 패턴 즉시 중단하고 숨음
+                int hi = AIConfig.BossPhaseHp * 2, lo = AIConfig.BossPhaseHp;   // 경계 6/3
+                bool crossed = (before > hi && e.combat.health <= hi) || (before > lo && e.combat.health <= lo);
+                if (AIConfig.BossCanHide && crossed)
+                { e.ai.state = EnemyState.Hide; e.ai.stateTicks = 0; }   // 숨김 켜졌을 때만: 패턴 중단하고 숨음
                 return;
             }
 

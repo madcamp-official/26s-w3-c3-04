@@ -131,10 +131,12 @@ namespace Game.Sim
                 }
             }
 
-            // 적 ↔ 플레이어 (대칭) — 플레이어 반경 + 개별 적 반경 (보스 제외 — 위와 동일 사유)
+            // 적 ↔ 플레이어 (대칭) — 플레이어 반경 + 개별 적 반경.
+            // ★ 보스(Orb)는 여기 '포함' — 플레이어가 보스에 충돌해 통과 못 한다. 단 아래 적용 루프에선
+            //   Orb를 계속 제외하므로 보스 자신은 안 밀린다(고정 포탑 유지). 즉 밀치는 건 플레이어만.
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0 || w.enemies[i].ai.mobility == MobilityType.Orb) continue;
+                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0) continue;
                 Vector3 p = Push(w.player.pos, SimConfig.PlayerHeight,
                                  w.enemies[i].pos, w.enemies[i].height,
                                  pr + w.enemies[i].radius, -1, w.enemies[i].id);

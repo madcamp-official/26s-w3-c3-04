@@ -16,6 +16,8 @@ namespace Game.EditorTools
     public class FanSpawnTool : EditorWindow
     {
         Vector3 exitEuler = new Vector3(0f, 90f, 90f);
+        float mouthGap = 0.4f;          // 입을 팬 바운즈 밖으로 밀어내는 거리(개구부 방향)
+        bool attachToSelected = false;  // true면 Fan 이름 검색 없이 '선택한 오브젝트 그대로'에 부착
         ArenaWaves waves;
         int waveIndex;
         float startDelay = 1.0f;   // "준비" 시간
@@ -41,6 +43,10 @@ namespace Game.EditorTools
                 if (GUILayout.Button("Y +90")) exitEuler.y = Mathf.Repeat(exitEuler.y + 90f, 360f);
                 if (GUILayout.Button("Z +90")) exitEuler.z = Mathf.Repeat(exitEuler.z + 90f, 360f);
             }
+            mouthGap = EditorGUILayout.Slider("입 거리(개구부 밖으로, m)", mouthGap, -3f, 5f);
+            attachToSelected = EditorGUILayout.Toggle("선택 그대로 부착(Fan 이름 검색 끔)", attachToSelected);
+            EditorGUILayout.HelpBox("입이 엉뚱하면: '선택 그대로 부착'을 켜고 실제 팬 오브젝트를 직접 선택하거나, " +
+                "부착 후 씬에서 입 핸들(주황)을 드래그해 미세조정하십시오.", MessageType.None);
             using (new EditorGUI.DisabledScope(sel == 0))
                 if (GUILayout.Button("선택 Fan에 FanSpawn 부착 + 방향 적용", GUILayout.Height(24)))
                     AttachFanSpawn();
@@ -71,19 +77,28 @@ namespace Game.EditorTools
             foreach (var go in Selection.gameObjects)
             {
                 // 선택이 _Art 래퍼 그룹이면 안쪽 실제 Fan에 붙인다(그룹에 붙이면 mouth가 엉뚱해진다).
-                GameObject target = ResolveFan(go);
+                // attachToSelected면 이름 검색 없이 선택 오브젝트에 그대로 붙인다.
+                GameObject target = attachToSelected ? go : ResolveFan(go);
                 var fs = target.GetComponent<FanSpawn>();
                 if (fs == null) fs = Undo.AddComponent<FanSpawn>(target);
                 Undo.RecordObject(fs, "FanSpawn 방향");
                 fs.exitEuler = exitEuler;
-                // 입 = 보이는 팬 바로 아래(피벗이 시각중심과 어긋난 프리팹 대응)
+                // 입 = 팬의 '개구부 방향'으로 바운즈 밖 + 여유(0.4). 방향은 (팬 회전 × exitEuler)라
+                // 팬을 어떻게 돌리든/뒤집든 입이 개구부를 따라 자동으로 옮겨진다(월드 아래 고정 폐기).
                 if (LodBounds(target, out Bounds b))
-                    fs.mouthLocal = target.transform.InverseTransformPoint(
-                        new Vector3(b.center.x, b.min.y - 0.4f, b.center.z));
+                {
+                    Vector3 openDir = ((target.transform.rotation * Quaternion.Euler(exitEuler)) * Vector3.forward).normalized;
+                    // 월드 AABB의 openDir 방향 반경 = |축|·half 투영합.
+                    float extent = Mathf.Abs(openDir.x) * b.extents.x
+                                 + Mathf.Abs(openDir.y) * b.extents.y
+                                 + Mathf.Abs(openDir.z) * b.extents.z;
+                    Vector3 mouthWorld = b.center + openDir * (extent + mouthGap);
+                    fs.mouthLocal = target.transform.InverseTransformPoint(mouthWorld);
+                }
                 EditorUtility.SetDirty(fs);
                 n++;
             }
-            Debug.Log($"[Fan 스폰] {n}개에 FanSpawn 부착 + 방향 {exitEuler} 적용(입=팬 아래 자동).");
+            Debug.Log($"[Fan 스폰] {n}개에 FanSpawn 부착 + 방향 {exitEuler} 적용(입=개구부 방향 자동, 팬 회전 따라감).");
         }
 
         /// <summary>선택이 _Art 그룹이면 그 안의 'Fan'을, 아니면 자기 자신을 돌려준다.</summary>

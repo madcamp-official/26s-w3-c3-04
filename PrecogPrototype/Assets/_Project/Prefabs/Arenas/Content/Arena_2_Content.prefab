@@ -4945,7 +4945,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.ArenaWaves
   waves:
-  - name: Wave 1
+  - name: Round 1
     startDelay: 0
     pipes:
     - marker: {fileID: 7558535497369279613}
@@ -4955,10 +4955,19 @@ MonoBehaviour:
       - kind: 0
         intervalOverride: -1
         isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
     - marker: {fileID: 3054808074021036246}
       startDelay: 0
       interval: 0.5
       mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
       - kind: 0
         intervalOverride: -1
         isGap: 0
@@ -4966,6 +4975,134 @@ MonoBehaviour:
       startDelay: 0
       interval: 0.5
       mobs:
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 7599917209149589518}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 4907389278056936390}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    advance: 2
+    advanceValue: 30
+  - name: Round 2
+    startDelay: 1.5
+    pipes:
+    - marker: {fileID: 7558535497369279613}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 3054808074021036246}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 7224847169899018417}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 7599917209149589518}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 4907389278056936390}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    advance: 2
+    advanceValue: 30
+  - name: Round 3
+    startDelay: 1.5
+    pipes:
+    - marker: {fileID: 7558535497369279613}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 3054808074021036246}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 7224847169899018417}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
       - kind: 0
         intervalOverride: -1
         isGap: 0
@@ -4976,17 +5113,26 @@ MonoBehaviour:
       - kind: 0
         intervalOverride: -1
         isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
     - marker: {fileID: 4907389278056936390}
       startDelay: 0
       interval: 0.5
       mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
       - kind: 0
         intervalOverride: -1
         isGap: 0
-    advance: 0
-    advanceValue: 0
-  - name: Wave 2
-    startDelay: 0
+    advance: 2
+    advanceValue: 30
+  - name: Round 4
+    startDelay: 1.5
     pipes:
     - marker: {fileID: 7558535497369279613}
       startDelay: 0
@@ -4995,17 +5141,35 @@ MonoBehaviour:
       - kind: 0
         intervalOverride: -1
         isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
     - marker: {fileID: 3054808074021036246}
       startDelay: 0
       interval: 0.5
       mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
       - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
         intervalOverride: -1
         isGap: 0
     - marker: {fileID: 7224847169899018417}
       startDelay: 0
       interval: 0.5
       mobs:
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
       - kind: 0
         intervalOverride: -1
         isGap: 0
@@ -5016,15 +5180,97 @@ MonoBehaviour:
       - kind: 0
         intervalOverride: -1
         isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
     - marker: {fileID: 4907389278056936390}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    advance: 2
+    advanceValue: 30
+  - name: Round 5
+    startDelay: 1.5
+    pipes:
+    - marker: {fileID: 7558535497369279613}
       startDelay: 0
       interval: 0.5
       mobs:
       - kind: 0
         intervalOverride: -1
         isGap: 0
-    advance: 0
-    advanceValue: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 3054808074021036246}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 7224847169899018417}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 7599917209149589518}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 1
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    - marker: {fileID: 4907389278056936390}
+      startDelay: 0
+      interval: 0.5
+      mobs:
+      - kind: 2
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+      - kind: 0
+        intervalOverride: -1
+        isGap: 0
+    advance: 1
+    advanceValue: 2
   cleanup:
     enabled: 1
     triggerRemaining: 3

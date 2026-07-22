@@ -9,6 +9,7 @@ namespace Game.View
         KillAll = 0,            // 이 웨이브 몹 전멸
         RemainingCount = 1,     // 이 웨이브 몹이 N마리 이하로 남으면
         RemainingPercent = 2,   // 이 웨이브 몹이 P% 이하로 남으면
+        Timer = 3,              // advanceValue초 경과(웨이브 시작 기준)면 킬 무관하게 다음 — 주기 스폰용
     }
 
     /// <summary>낑기거나 튕겨나간 몹 처리 방식.</summary>
@@ -72,7 +73,8 @@ namespace Game.View
         [Tooltip("다음 웨이브로 넘어갈 조건.")]
         public WaveAdvanceMode advance = WaveAdvanceMode.KillAll;
 
-        [Tooltip("RemainingCount면 남은 마리 수 N, RemainingPercent면 남은 비율 P(0~100). KillAll이면 무시.")]
+        [Tooltip("RemainingCount면 남은 마리 수 N, RemainingPercent면 남은 비율 P(0~100), " +
+                 "Timer면 웨이브 시작 후 경과 초. KillAll이면 무시.")]
         public float advanceValue = 0f;
 
         /// <summary>이 웨이브가 스폰할 총 마리 수(마커 없는 배관 제외).</summary>
@@ -119,6 +121,10 @@ namespace Game.View
     {
         [Tooltip("웨이브 목록. 위에서부터 순서대로 진행한다.")]
         public Wave[] waves = new Wave[0];
+
+        [Tooltip("마지막 웨이브 다음에 첫 웨이브(0)로 되돌아가 무한 반복. " +
+                 "advance=Timer 웨이브 몇 개 + loop로 '진입하면 30초마다 순환 스폰'이 된다.")]
+        public bool loop = false;
 
         [Tooltip("낑김·튕김 대비 마무리 정리 설정.")]
         public CleanupSettings cleanup = new CleanupSettings();

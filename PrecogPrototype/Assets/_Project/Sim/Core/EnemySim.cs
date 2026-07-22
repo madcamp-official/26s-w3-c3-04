@@ -91,21 +91,24 @@ namespace Game.Sim
             bool large = size == SizeClass.Large;
             float scale = large ? SimConfig.EnemyLargeScale : SimConfig.EnemyNormalScale;
             int hp = large ? SimConfig.EnemyLargeHp : SimConfig.EnemyNormalHp;
-            // 보스(구 코어): 총 HP 45 = 페이즈당 15 × 3. 페이즈 전환·처치는 CombatResolve가 처리.
+            // 보스(구 코어): 총 HP 9 = 페이즈당 3 × 3. 페이즈 전환·처치는 CombatResolve가 처리.
             if (mobility == MobilityType.Orb) hp = AIConfig.BossMaxHp;
             // 돌진몹: 반경만 1.5배 넓다(옆으로 퍼짐).
             // ★ 몸집 확대(ChargeBodyMul)는 이제 <b>렌더 전용</b> — 히트박스는 원래 크기로 두고
             //   EntityViews.visualScale / Dismemberment에서만 모델을 키운다(얇은 다리 어색함 완화 요청).
             bool isCharge = mobility == MobilityType.Charge;
             float radiusMul = isCharge ? AIConfig.ChargeRadiusMul : 1f;
+            // 보스(Orb)는 구(sphere) 히트박스 — 반경 = 비주얼 오브 반경, 높이 = 2R. 나머지는 캡슐.
+            float bodyRadius = mobility == MobilityType.Orb ? AIConfig.BossRadius : SimConfig.EnemyRadius * scale * radiusMul;
+            float bodyHeight = mobility == MobilityType.Orb ? AIConfig.BossRadius * 2f : SimConfig.EnemyHeight * scale;
             return new EnemySim
             {
                 id = id,
                 alive = true,
                 pos = at,
                 grounded = true,
-                radius = SimConfig.EnemyRadius * scale * radiusMul,
-                height = SimConfig.EnemyHeight * scale,
+                radius = bodyRadius,
+                height = bodyHeight,
                 combat = EnemyCombatState.Spawn(hp),
                 ai = EnemyAI.Spawn(combat, mobility, size),
                 traversalSlot = -1,
