@@ -67,6 +67,8 @@ namespace Game.View
                 Refresh();
             }
             if (!showMesh || !hasData) return;
+            // 도메인 리로드·NavMesh 소거 등으로 hasData(true)와 tri(내용 비움)가 어긋나면 아래 인덱싱이 NRE.
+            if (tri.indices == null || tri.vertices == null || tri.areas == null) return;
             EnsureMat();
             if (lineMat == null) return;
 
