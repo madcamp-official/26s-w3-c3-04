@@ -78,6 +78,8 @@ namespace Game.View
         // yaw는 sim 입력(cmd.yaw)에도 쓰이므로 여기 하나로 시점·조준이 동기화된다.
         public void SetLookYaw(float yaw) => input.Yaw = yaw;
         public void SetLookPitch(float pitch) => input.Pitch = pitch;
+        /// <summary>예지(F) 충전량 0~1. HUD의 PREDICTION 다이얼이 읽는다.</summary>
+        public float PredictionCharge01 => prediction.Charge01;
         public float LookYaw   => input.Yaw;
         public float LookPitch => input.Pitch;
         public void SetPredictionSpawnLocked(bool locked) => world.spawnLocked = locked;

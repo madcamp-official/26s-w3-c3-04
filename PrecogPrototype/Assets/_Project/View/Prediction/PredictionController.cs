@@ -31,6 +31,17 @@ namespace Game.View
         public State state = State.Idle;
         public bool Frozen => state != State.Idle;
 
+        // [HUD 게이지, 2026-07-22] 예지 자원(0~1). HUD의 PREDICTION 다이얼이 이 값을 읽는다.
+        // Idle 동안만 실시간으로 차오르고, 진입에 성공하면 소모된다.
+        float charge = 1f;
+        public float Charge01 => charge;
+        /// <summary>지금 F가 먹는가(하한선 이상 찼는가).</summary>
+        public bool ChargeUsable => charge >= PredictionConfig.ChargeMinToUse;
+        /// <summary>가득 찼는가 — HUD가 READY 연출을 켜는 기준.</summary>
+        public bool ChargeFull => charge >= 1f;
+        /// <summary>지금 F를 누르면 몇 초를 내다보는가. HUD 다이얼이 이 값을 보여준다.</summary>
+        public float ChargeSeconds => PredictionConfig.ChargeToSeconds(charge);
+
         Camera cam;
         Camera accentCamera;
         const int PredictionAccentLayer = 30;
@@ -51,6 +62,9 @@ namespace Game.View
         }
 
         readonly List<TimedRhythmInput> rhythmInputs = new List<TimedRhythmInput>(4);
+        // [리듬 재미 실험, 2026-07-22] 박자를 "어떻게 치게 만들 것인가"만 갈아끼우는 모드 레이어
+        // (PredictionRhythmModes.cs). 숫자키 1~5로 전환하며, Classic이 기존 동작 그대로다.
+        readonly RhythmModeRuntime rhythmMode = new RhythmModeRuntime();
         bool exitAfterFollowingStep;
         bool completedAfterFollowingStep;
         string rhythmFeedback = "";
@@ -71,6 +85,53 @@ namespace Game.View
         float missGlitchUntil;
         readonly Dictionary<Renderer, Color> swordOriginalColors = new Dictionary<Renderer, Color>();
         readonly Dictionary<Transform, int> swordOriginalLayers = new Dictionary<Transform, int>();
+
+        // ── 잔상 아바타 ──
+        // PredictionController는 MonoBehaviour가 아니라 순수 C# 클래스(Main이 new로 생성)라
+        // 인스펙터 슬롯이 없다. 그래서 프리팹은 Resources에서 "이름"으로 로드한다.
+        //   → 아무 "Resources" 폴더에 "PlayerGhost"라는 프리팹을 두면 그걸 잔상 메시로 쓴다.
+        //   → 없으면(null) 기존 기본 캡슐로 자동 폴백한다.
+        const string GhostPrefabResource = "PlayerGhost";
+        /// <summary>SkinnedMesh 잔상의 로컬 바운즈 한 변(리그 로컬 단위). 원본 메시가 2cm라
+        /// 0.01 정도가 실제 크기 — 넉넉히 키워 프러스텀 컬링을 사실상 끄기 위한 값.</summary>
+        const float GhostLocalBoundsSize = 2f;
+        GameObject playerGhostPrefab;
+        static bool ghostDiagLogged;   // 진단 로그 1회 제한
+        // 아바타 피벗 높이 보정(m). 발이 피벗이면 0. 프리팹 루트 Transform으로도 조절 가능.
+        float ghostHeightOffset = 0f;
+
+        /// <summary>잔상 오브젝트의 월드 y 오프셋. 캡슐은 중심 피벗이라 반높이를 올리고, 아바타는 ghostHeightOffset으로 조절.</summary>
+        float PivotYOffset => playerGhostPrefab != null ? ghostHeightOffset : SimConfig.PlayerHeight * 0.5f;
+
+        // ── 잔상 포즈(움직이는 잔상) ──
+        // [잔상 아바타 애니메이션, 2026-07-22] 잔상마다 Animator를 "재생"시키는 게 아니라,
+        // Mixamo 클립의 특정 시각 한 프레임만 AnimationClip.SampleAnimation으로 구워 얼린다.
+        // 이동 트레일은 경로 진행 거리로 위상을 만들어 잔상마다 다른 시각을 굽기 때문에,
+        // 늘어선 잔상 전체가 하나의 걷기 사이클처럼 읽힌다. 액션 잔상은 종류별 클립의
+        // 특징 시점 한 장(정지 스냅샷).
+        // 전제: PlayerGhost 프리팹의 FBX 자식에 Animator + 휴머노이드 Avatar가 있어야 한다
+        // (없으면 아래 rig가 안 잡혀서 전부 조용히 바인드 포즈로 폴백한다).
+        AnimationClip ghostRunClip, ghostWalkClip, ghostJumpClip, ghostSlashClip;
+        // [대시 포즈 클립 자작, 2026-07-22] Mixamo에 대시 클립이 없어서 방향별 대시 포즈를
+        // 직접 구웠다 — Run 클립의 스트라이드 프레임에서 HumanPose(머슬)를 뽑아 손으로 수정한 뒤
+        // 1프레임 휴머노이드 클립으로 저장한 것(Editor/GhostDashPoseBaker). "애니메이션"이 아니라
+        // 정지 스냅샷이므로 대시 구간 내내 같은 포즈가 유지된다.
+        AnimationClip ghostDashFwdClip, ghostDashBackClip, ghostDashLeftClip, ghostDashRightClip;
+        // 런지 전용 클립은 아직 없다 — Resources에 "GhostLunge"를 넣으면 쓰고, 없으면 Slash로 대체.
+        AnimationClip ghostLungeClip;
+
+        sealed class GhostPoseRig
+        {
+            public Transform rigRoot;               // Animator가 붙은 GO(=FBX 루트)
+            public Vector3 baseLocalPosition;
+            public Quaternion baseLocalRotation;
+            public AnimationClip lastClip;
+            public float lastTime = float.NaN;
+        }
+
+        readonly Dictionary<Transform, GhostPoseRig> ghostRigs = new Dictionary<Transform, GhostPoseRig>();
+        /// <summary>경로별 누적 이동 거리(path와 같은 인덱스). 이동 트레일 클립 위상 계산용.</summary>
+        readonly List<float[]> routeDistances = new List<float[]>();
 
         LineRenderer domeLr;
         readonly List<LineRenderer> lines = new List<LineRenderer>();
@@ -117,6 +178,14 @@ namespace Game.View
             fx.Init();
             fx.EnableOnCamera(cam);
             SetupAccentCamera();
+            // 잔상 아바타 프리팹 로드(있으면). PreWarmRoutePools보다 먼저 — 풀 생성 시 이 값을 참조한다.
+            playerGhostPrefab = Resources.Load<GameObject>(GhostPrefabResource);
+            if (playerGhostPrefab != null)
+                Debug.Log($"[예측] 잔상 아바타 프리팹 '{GhostPrefabResource}' 로드됨 — 캡슐 대신 아바타로 표시.");
+            else
+                Debug.LogWarning($"[예측] Resources.Load(\"{GhostPrefabResource}\") 실패 — 프리팹을 못 찾아 기본 캡슐로 표시합니다. " +
+                    "프리팹이 'Resources' 폴더 '직속'에 있고 이름이 정확히 'PlayerGhost'인지 확인하세요.");
+            LoadGhostClips();
             domeLr = MakeDome();
             startMarker = MakeStartMarker();
             PreWarmRoutePools();
@@ -190,9 +259,15 @@ namespace Game.View
             var mouse = Mouse.current;
             if (kb == null) return;
 
+            // 리듬 모드 전환(숫자키 1~5)은 실행 중이 아닐 때만 — 도중에 바꾸면 박자 상태가 꼬인다.
+            if (!inputBlocked && state != State.Following) RhythmModeRuntime.PollModeSwitch(kb);
+
             if (state == State.Idle)
             {
-                if (!inputBlocked && kb.fKey.wasPressedThisFrame) Enter(in w);
+                // 예지 자원 재충전 — 슬로모(timeScale)는 예측이 소유하므로 실시간으로 센다.
+                if (charge < 1f)
+                    charge = Mathf.Min(1f, charge + Time.unscaledDeltaTime / PredictionConfig.ChargeRechargeSeconds);
+                if (!inputBlocked && kb.fKey.wasPressedThisFrame && ChargeUsable) Enter(in w);
                 return;
             }
 
@@ -204,6 +279,7 @@ namespace Game.View
                 // Esc 전용으로 두고, 좌클릭은 그대로 리듬 입력으로 흘려보낸다.
                 if (!inputBlocked && kb.escapeKey.wasPressedThisFrame)
                 { Exit(); return; }   // 건너뛰기(취소)
+                rhythmMode.Update();
                 CaptureRhythmInputs(kb, mouse);
 
                 // 실제 이동·전투는 Main.FixedUpdate가 TryConsumeFollowingInput으로 구동한다.
@@ -251,7 +327,8 @@ namespace Game.View
                 enterStartCamRot = Quaternion.Euler(p, w.player.yaw, 0f);
             }
 
-            routes = RealRoutePreview.Build(in w, Main.Instance.Services, PredictionConfig.RouteColors);
+            // 게이지가 곧 예측 지평 — 얼마나 찼는지가 몇 초를 내다볼지를 정한다.
+            routes = RealRoutePreview.Build(in w, Main.Instance.Services, PredictionConfig.RouteColors, ChargeSeconds);
             if (routes.Count == 0)
             {
                 state = State.Idle;
@@ -263,6 +340,7 @@ namespace Game.View
                 Debug.LogWarning("[예측] 유효한 경로를 만들지 못해 미리보기를 취소했습니다.");
                 return;
             }
+            BuildRouteDistances();   // 이동 잔상 클립 위상(거리 기반) 계산용
             // PlanByProfile의 출력 순서나 일부 프로필의 재생 실패 여부와 무관하게
             // 공격형 대표 경로를 기본 강조/확정 대상으로 삼는다.
             selected = 0;
@@ -273,6 +351,7 @@ namespace Game.View
                 break;
             }
             previewRevealProgress = 0f;
+            charge = PredictionConfig.ChargeAfterEnter;   // 경로 확보에 성공한 경우에만 소모
             state = State.Preview;
             fx.SetExecution(false);
             fx.SetActive(true);
@@ -290,6 +369,7 @@ namespace Game.View
 
         void Exit()
         {
+            if (state == State.Following) rhythmMode.EndRoute();
             state = State.Idle;
             followingControls = null;
             followingRoute = null;
@@ -411,6 +491,9 @@ namespace Game.View
             rhythmSegmentStartTick = followingIndex;
             rhythmSegmentStartRealTime = Time.unscaledTime;
             rhythmSegmentDuration = PredictionConfig.RhythmNormalMinSeconds;
+            if (rhythmSegmentEventIndex >= 0 && rhythmJudge != null)
+                rhythmMode.OnBeatChanged(rhythmSegmentEventIndex,
+                    rhythmJudge.GetEvent(rhythmSegmentEventIndex).type);
             if (rhythmSegmentEventIndex < 0)
             {
                 rhythmSegmentStartScale = 1f;
@@ -493,6 +576,7 @@ namespace Game.View
                 };
             }
             rhythmJudge = new RhythmJudge(events);
+            rhythmMode.BeginRoute();
             rhythmInputs.Clear();
             exitAfterFollowingStep = false;
             completedAfterFollowingStep = false;
@@ -533,6 +617,16 @@ namespace Game.View
 
         void AddRhythmInput(PredictedActionType type)
         {
+            // [리듬 재미 실험, 2026-07-22] 원시 입력을 곧바로 판정 큐에 넣지 않고 모드에 통과시킨다.
+            // 연타 충전(Mash)·커맨드 중간 입력(Sequence)은 여기서 소비되고 판정에 올라가지 않는다.
+            int pending = rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1;
+            if (pending >= 0)
+            {
+                PredictedActionType expected = rhythmJudge.GetEvent(pending).type;
+                if (!rhythmMode.ResolveInput(type, expected, out PredictedActionType resolved)) return;
+                type = resolved;
+            }
+
             rhythmInputs.Add(new TimedRhythmInput
             {
                 type = type,
@@ -612,6 +706,7 @@ namespace Game.View
                             if (result == RhythmJudgement.Perfect || result == RhythmJudgement.Good)
                             {
                                 accepted = true;
+                                rhythmMode.OnAccepted(result);
                                 rhythmFeedback = result == RhythmJudgement.Perfect ? "PERFECT" : "GOOD";
                                 rhythmFeedbackUntil = Time.unscaledTime + 0.45f;
                                 CombatAudio.Hit();
@@ -641,8 +736,20 @@ namespace Game.View
                                 missGlitchStartedAt = Time.unscaledTime;
                                 missGlitchUntil = missGlitchStartedAt + PredictionConfig.MissGlitchSeconds;
                                 CombatAudio.PlayerHurt();
-                                Debug.LogWarning($"[예측 리듬] Miss — 액션을 실행하지 않고 직접 조작으로 전환");
-                                Exit();
+                                rhythmMode.OnMissed();
+                                // [리듬 재미 실험, 2026-07-22] 모드에 따라 Miss의 무게가 다르다.
+                                // Classic/Mash/Sequence는 기존대로 예지가 풀리고 직접 조작으로 넘어가지만,
+                                // Freestyle/Highway는 리듬게임처럼 "곡이 계속 간다" — 콤보만 끊기고
+                                // 그 액션은 예측대로 자동 실행되며 경로를 계속 따라간다.
+                                if (rhythmMode.MissEndsFollowing)
+                                {
+                                    Debug.LogWarning("[예측 리듬] Miss — 액션을 실행하지 않고 직접 조작으로 전환");
+                                    Exit();
+                                    cmd = default;
+                                    return false;
+                                }
+                                Debug.LogWarning("[예측 리듬] Miss — 콤보만 끊고 경로는 계속 진행");
+                                goto ConsumeFollowingControl;
                             }
                             cmd = default;
                             return false;
@@ -667,7 +774,9 @@ namespace Game.View
 
         public void DrawRhythmHud()
         {
+            if (UiVisibility.Skip) return;   // 콘솔 `ui off` / 임시 UI 숨김을 리듬 HUD도 따른다
             DrawMissGlitch();
+            RhythmModeRuntime.DrawModeBadge(state == State.Following);
             bool feedbackActive = Time.unscaledTime < rhythmFeedbackUntil;
             if (state != State.Following || rhythmJudge == null)
             {
@@ -688,6 +797,15 @@ namespace Game.View
                 / Mathf.Max(0.01f, rhythmSegmentDuration));
             float centerX = Screen.width * 0.5f;
             float centerY = Screen.height * 0.5f;
+
+            // [리듬 재미 실험, 2026-07-22] Highway 모드는 접근링 대신 노트 레일 HUD를 쓴다.
+            if (rhythmMode.ReplacesDefaultHud)
+            {
+                rhythmMode.DrawHighway(rhythmJudge, current, progress);
+                DrawExecutionSpeedFx(progress);
+                if (feedbackActive) DrawRhythmFeedback();
+                return;
+            }
             float targetSize = Mathf.Clamp(Screen.height * 0.16f, 105f, 150f);
             float approachSize = Mathf.Lerp(targetSize * 2.35f, targetSize, progress);
 
@@ -713,6 +831,7 @@ namespace Game.View
                 $"<color=white>{prompt}</color>", centerStyle);
 
             DrawRhythmSequence(current, centerX, centerY);
+            rhythmMode.DrawBeatOverlay(centerX, centerY, progress);
             DrawExecutionSpeedFx(progress);
             if (feedbackActive) DrawRhythmFeedback();
         }
@@ -1024,6 +1143,7 @@ namespace Game.View
 
         void BuildLines()
         {
+            if (!PredictionConfig.ShowRoutePathLine) return;   // 경로 선 끔 — 아예 만들지 않는다
             while (lines.Count < routes.Count)
             {
                 var go = new GameObject($"Route_{lines.Count}");
@@ -1045,6 +1165,7 @@ namespace Game.View
 
         void UpdatePreviewLines(float progress)
         {
+            if (!PredictionConfig.ShowRoutePathLine) return;   // 경로 선 끔 — 잔상 행렬로 대체
             for (int i = 0; i < lines.Count; i++)
             {
                 bool safetyRoute = i == 0 && i < routes.Count;
@@ -1169,33 +1290,364 @@ namespace Game.View
             return go.transform;
         }
 
-        Transform MakeRevealGhost()
+        /// <summary>아바타 프리팹이 설정돼 있으면 그걸 인스턴스화하고, 없으면 캡슐로 폴백.
+        /// 두 경우 모두 Collider를 제거하고 모든 Renderer에 ghostMat을 덮어씌운다.</summary>
+        Transform MakeGhostBody(string goName, Vector3 capsuleScale)
         {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            go.name = "PredictRevealGhost";
-            go.layer = PredictionAccentLayer;
-            Object.Destroy(go.GetComponent<Collider>());
-            go.transform.localScale = new Vector3(
-                SimConfig.PlayerRadius * 2.2f,
-                SimConfig.PlayerHeight * 0.55f,
-                SimConfig.PlayerRadius * 2.2f);
-            go.GetComponent<Renderer>().material = GhostMat();
-
-            // "잔상을 일정 간격으로 찍는" 대신 "움직이는 경로가 사라지는 잔상"을 만드는 부분 —
-            // 캡슐이 경로를 따라 이동하고, 지나간 자리는 TrailRenderer가 알파 0으로 페이드되며 남긴다.
+            GameObject go;
+            if (playerGhostPrefab != null)
+            {
+                go = Object.Instantiate(playerGhostPrefab);
+                foreach (var col in go.GetComponentsInChildren<Collider>(true))
+                    Object.Destroy(col);
+                var mat = GhostMat();
+                var renderers = go.GetComponentsInChildren<Renderer>(true);
+                Bounds combined = new Bounds(go.transform.position, Vector3.zero);
+                bool hasBounds = false;
+                foreach (var rnd in renderers)
+                {
+                    // 서브메시가 여러 개여도 전부 같은 고스트 머티리얼로 교체
+                    var mats = new Material[rnd.sharedMaterials.Length];
+                    for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                    rnd.materials = mats;
+                    // 리깅(SkinnedMesh) 모델은 루트만 옮기면 바운즈가 원점에 남아 프러스텀 컬링돼
+                    // 안 보일 수 있다.
+                    // [잔상 밀도 상향, 2026-07-22] 예전엔 updateWhenOffscreen=true로 막았는데,
+                    // 그건 "매 프레임 현재 포즈로 바운즈를 CPU 재계산"이라 잔상이 수백 개가 되면
+                    // 프레임을 그대로 갉아먹는다. 잔상 포즈는 한 번 찍고 얼어붙으니 매 프레임
+                    // 갱신할 이유가 없다 — 대신 로컬 바운즈를 넉넉히 키워 컬링만 사실상 끈다.
+                    // (accent 카메라는 레이어 30 = 잔상만 렌더하므로 과다 바운즈의 부작용이 없다.)
+                    if (rnd is SkinnedMeshRenderer smr)
+                    {
+                        smr.updateWhenOffscreen = false;
+                        smr.localBounds = new Bounds(Vector3.zero, Vector3.one * GhostLocalBoundsSize);
+                    }
+                    if (!hasBounds) { combined = rnd.bounds; hasBounds = true; }
+                    else combined.Encapsulate(rnd.bounds);
+                }
+                // ── 일회성 진단 로그: 렌더러 개수·크기·스케일을 실제로 찍어 원인을 특정한다 ──
+                if (!ghostDiagLogged)
+                {
+                    ghostDiagLogged = true;
+                    Debug.Log($"[예측/진단] 잔상 프리팹: 렌더러 {renderers.Length}개, " +
+                        $"SkinnedMesh {System.Array.Exists(renderers, r => r is SkinnedMeshRenderer)}, " +
+                        $"루트 스케일 {go.transform.lossyScale}, 월드 크기(size) {combined.size}, " +
+                        $"활성 렌더러 {System.Array.TrueForAll(renderers, r => r.enabled)}");
+                }
+            }
+            else
+            {
+                go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                Object.Destroy(go.GetComponent<Collider>());
+                go.transform.localScale = capsuleScale;
+                go.GetComponent<Renderer>().material = GhostMat();
+            }
+            go.name = goName;
+            // ★ 잔상은 accent 카메라가 PredictionAccentLayer(30)만 렌더링해 보여준다.
+            //   프리팹은 메시 렌더러가 자식에 있으므로 루트만 바꾸면 자식이 Default에 남아
+            //   accent 카메라가 못 잡는다 → 아무것도 안 보인다. 자식까지 전부 레이어를 바꾼다.
+            SetLayerRecursive(go.transform, PredictionAccentLayer);
+            RegisterGhostRig(go.transform);
             return go.transform;
         }
+
+        static void SetLayerRecursive(Transform t, int layer)
+        {
+            t.gameObject.layer = layer;
+            for (int i = 0; i < t.childCount; i++)
+                SetLayerRecursive(t.GetChild(i), layer);
+        }
+
+        // ── 잔상 포즈(움직이는 잔상) ──
+
+        void LoadGhostClips()
+        {
+            ghostRunClip = Resources.Load<AnimationClip>("GhostRun");
+            ghostWalkClip = Resources.Load<AnimationClip>("GhostWalk");
+            ghostJumpClip = Resources.Load<AnimationClip>("GhostJump");
+            ghostSlashClip = Resources.Load<AnimationClip>("GhostSlash");
+            ghostDashFwdClip = Resources.Load<AnimationClip>("GhostDashForward");
+            ghostDashBackClip = Resources.Load<AnimationClip>("GhostDashBackward");
+            ghostDashLeftClip = Resources.Load<AnimationClip>("GhostDashLeft");
+            ghostDashRightClip = Resources.Load<AnimationClip>("GhostDashRight");
+            ghostLungeClip = Resources.Load<AnimationClip>("GhostLunge");
+            // Run이 없으면 Walk로 폴백(둘 다 이동 사이클이라 위상 계산이 그대로 통한다).
+            if (ghostRunClip == null) ghostRunClip = ghostWalkClip;
+            // 방향별 대시 포즈가 없으면 Run으로 대체(예전 동작). 런지도 전용 포즈(GhostLunge)가
+            // 없을 때만 Slash로 대체되는데, 정규화 구간이 0→1이라 이때는 베기 전체가 재생돼 어색하다
+            // — 그런 상태면 Tools/예측/찌르기(런지) 잔상 포즈 굽기를 돌릴 것.
+            if (ghostDashFwdClip == null) ghostDashFwdClip = ghostRunClip;
+            if (ghostDashBackClip == null) ghostDashBackClip = ghostDashFwdClip;
+            if (ghostDashLeftClip == null) ghostDashLeftClip = ghostDashFwdClip;
+            if (ghostDashRightClip == null) ghostDashRightClip = ghostDashFwdClip;
+            if (ghostLungeClip == null) ghostLungeClip = ghostSlashClip;
+            if (ghostRunClip == null && ghostJumpClip == null && ghostSlashClip == null)
+            {
+                Debug.LogWarning("[예측] 잔상 애니 클립(GhostRun/GhostJump/GhostSlash)을 Resources에서 못 찾음 " +
+                    "— 잔상은 바인드 포즈(정지)로 표시됩니다.");
+                return;
+            }
+            Debug.Log($"[예측] 잔상 클립 로드 — Run:{(ghostRunClip != null ? ghostRunClip.name : "없음")} " +
+                $"Jump:{(ghostJumpClip != null ? ghostJumpClip.name : "없음")} " +
+                $"Slash:{(ghostSlashClip != null ? ghostSlashClip.name : "없음")}");
+        }
+
+        /// <summary>잔상 인스턴스의 Animator(=휴머노이드 샘플 대상)를 찾아 캐싱한다. 캡슐 폴백이거나
+        /// 프리팹에 Animator/Avatar가 없으면 등록하지 않고, 그러면 PoseGhost가 조용히 무시된다.</summary>
+        void RegisterGhostRig(Transform body)
+        {
+            var animator = body.GetComponentInChildren<Animator>(true);
+            if (animator == null || animator.avatar == null || !animator.avatar.isHuman) return;
+            Transform rigRoot = animator.transform;
+            ghostRigs[body] = new GhostPoseRig
+            {
+                rigRoot = rigRoot,
+                baseLocalPosition = rigRoot.localPosition,
+                baseLocalRotation = rigRoot.localRotation,
+            };
+        }
+
+        /// <summary>잔상 하나에 클립의 특정 시각(초) 포즈를 굽는다. 같은 (클립, 양자화된 시각)이면
+        /// 재샘플을 건너뛴다 — 정지 잔상은 사실상 한 번만 계산된다.</summary>
+        void PoseGhost(Transform body, AnimationClip clip, float timeSeconds)
+        {
+            if (clip == null || body == null) return;
+            GhostPoseRig rig;
+            if (!ghostRigs.TryGetValue(body, out rig) || rig.rigRoot == null) return;
+
+            float quantized = Mathf.Round(timeSeconds * PredictionConfig.GhostPoseSampleRate)
+                / PredictionConfig.GhostPoseSampleRate;
+            if (rig.lastClip == clip && rig.lastTime == quantized) return;
+            rig.lastClip = clip;
+            rig.lastTime = quantized;
+
+            clip.SampleAnimation(rig.rigRoot.gameObject, quantized);
+            // 휴머노이드 샘플은 루트 모션까지 대상 GO 트랜스폼에 얹는다 — 잔상의 월드 위치는
+            // 경로(PlaceRevealBody/UpdateGhostMarks)가 결정하므로 위치만 원래대로 되돌린다.
+            rig.rigRoot.localPosition = rig.baseLocalPosition;
+            rig.rigRoot.localRotation = rig.baseLocalRotation;
+            // 참고: 대시 포즈의 "몸통 눕힘"을 클립 RootQ에 담아보려 했으나 SampleAnimation이
+            // 휴머노이드 클립의 루트 회전을 적용하지 않는다(실측). 그래서 눕힘은 클립이 아니라
+            // 배치 회전(GhostPlacement.pitch/roll)이 담당한다 — PredictionConfig.GhostDash*Pitch/Roll.
+        }
+
+        /// <summary>이동 잔상 포즈 — 경로를 실제로 얼마나 걸어왔는지(누적 거리)로 달리기 클립의
+        /// 위상을 정한다. 시간이 아니라 거리 기준이라 제자리 회전 구간에서는 다리가 멈춘다.</summary>
+        void PoseGhostByTravel(Transform body, int routeIndex, float scaledIndex)
+        {
+            if (ghostRunClip == null) return;
+            float distance = TravelDistanceAt(routeIndex, scaledIndex);
+            float cycles = distance / Mathf.Max(0.01f, PredictionConfig.GhostRunStrideMeters);
+            PoseGhost(body, ghostRunClip, Mathf.Repeat(cycles, 1f) * ghostRunClip.length);
+        }
+
+        /// <summary>액션 한 종류가 "몇 틱 동안, 어느 클립의 어느 구간을" 쓰는지.</summary>
+        struct GhostActionPose
+        {
+            public AnimationClip clip;
+            public int windowTicks;
+            public float fromNormalized;
+            public float toNormalized;
+            public float pitchDegrees;   // 진행 방향으로 앞뒤로 눕는 각도(+ 앞 / − 뒤)
+            public float endPitchDegrees;// 구간 끝의 눕힘 — 런지처럼 구간 내내 깊어지는 동작용
+            public float rollDegrees;    // 옆으로 기우는 각도(옆 대시 — 얼굴은 정면 유지)
+        }
+
+        GhostActionPose ActionPoseFor(PredictedActionType type)
+        {
+            switch (type)
+            {
+                case PredictedActionType.Attack:
+                    return new GhostActionPose
+                    {
+                        clip = ghostSlashClip,
+                        windowTicks = PredictionConfig.GhostAttackWindowTicks,
+                        fromNormalized = PredictionConfig.GhostAttackFromNormalized,
+                        toNormalized = PredictionConfig.GhostAttackToNormalized,
+                    };
+                case PredictedActionType.Lunge:
+                    return new GhostActionPose
+                    {
+                        clip = ghostLungeClip,
+                        windowTicks = PredictionConfig.GhostLungeWindowTicks,
+                        fromNormalized = PredictionConfig.GhostLungeFromNormalized,
+                        toNormalized = PredictionConfig.GhostLungeToNormalized,
+                        // 준비에서 꽂힘까지 상체가 점점 깊이 눕는다(포즈 클립과 짝).
+                        pitchDegrees = PredictionConfig.GhostLungeFromPitch,
+                        endPitchDegrees = PredictionConfig.GhostLungeToPitch,
+                    };
+                case PredictedActionType.Jump:
+                    return new GhostActionPose
+                    {
+                        clip = ghostJumpClip,
+                        windowTicks = PredictionConfig.GhostJumpWindowTicks,
+                        fromNormalized = PredictionConfig.GhostJumpFromNormalized,
+                        toNormalized = PredictionConfig.GhostJumpToNormalized,
+                    };
+                default:   // Dash 4종 — 방향별 자작 포즈(1프레임)라 구간 내내 같은 스냅샷
+                {
+                    var dash = new GhostActionPose
+                    {
+                        clip = DashClipFor(type),
+                        windowTicks = PredictionConfig.GhostDashWindowTicks,
+                        fromNormalized = 0f,
+                        toNormalized = 0f,
+                    };
+                    switch (type)
+                    {
+                        case PredictedActionType.DashBackward:
+                            dash.pitchDegrees = PredictionConfig.GhostDashBackwardPitch; break;
+                        // 옆 대시는 pitch가 아니라 roll — 얼굴은 정면을 본 채 몸만 가는 쪽으로
+                        // 기울어야 앞 대시와 구분된다(포즈 클립도 그 전제로 구워져 있다).
+                        case PredictedActionType.DashLeft:
+                            dash.rollDegrees = PredictionConfig.GhostDashSideRoll; break;
+                        case PredictedActionType.DashRight:
+                            dash.rollDegrees = -PredictionConfig.GhostDashSideRoll; break;
+                        default:
+                            dash.pitchDegrees = PredictionConfig.GhostDashForwardPitch; break;
+                    }
+                    dash.endPitchDegrees = dash.pitchDegrees;   // 대시는 구간 내내 같은 스냅샷
+                    return dash;
+                }
+            }
+        }
+
+        AnimationClip DashClipFor(PredictedActionType type)
+        {
+            switch (type)
+            {
+                case PredictedActionType.DashBackward: return ghostDashBackClip;
+                case PredictedActionType.DashLeft: return ghostDashLeftClip;
+                case PredictedActionType.DashRight: return ghostDashRightClip;
+                default: return ghostDashFwdClip;
+            }
+        }
+
+        /// <summary>액션 포즈를 굽고 나온 배치 정보 — 기울기와 "이 잔상은 진행 방향이 아니라
+        /// 플레이어 시선(yaw)을 봐야 한다"는 표시.</summary>
+        struct GhostPlacement
+        {
+            public bool posed;
+            public float pitchDegrees;
+            public float rollDegrees;
+            public bool useFacingYaw;
+            public float facingYaw;
+        }
+
+        /// <summary>이 잔상이 서 있는 경로 위치(tickIndex)가 어떤 액션의 지속 구간 안이면 그
+        /// 액션 포즈를 굽는다. 구간 안 여러 잔상이 각각 다른 시점을 굽기 때문에, 늘어선 걸 한
+        /// 번에 보면 찌르기·공격 동작이 펼쳐지는 것처럼 보인다(대시는 1프레임 스냅샷이라 유지).
+        ///
+        /// 액션 잔상은 진행 방향이 아니라 <b>플레이어 시선(yaw)</b>을 향해야 한다 — 옆/뒤 대시
+        /// 포즈는 "정면을 본 채 옆으로 밀어낸다"를 전제로 구워져 있어서, 평소처럼 이동 방향으로
+        /// 돌려버리면 전부 앞 대시처럼 보인다.</summary>
+        GhostPlacement TryPoseGhostByAction(Transform body, PredictedRoute route, float tickIndex)
+        {
+            var result = new GhostPlacement();
+            if (route == null) return result;
+            var markers = route.actionMarkers;
+            // 구간이 겹치면(연속 콤보) 나중에 시작한 액션이 이긴다.
+            for (int i = markers.Count - 1; i >= 0; i--)
+            {
+                GhostActionPose pose = ActionPoseFor(markers[i].type);
+                if (pose.clip == null || pose.windowTicks <= 0) continue;
+                float delta = tickIndex - markers[i].tick;
+                if (delta < 0f || delta > pose.windowTicks) continue;
+                float u = delta / pose.windowTicks;
+                PoseGhost(body, pose.clip,
+                    Mathf.Lerp(pose.fromNormalized, pose.toNormalized, u) * pose.clip.length);
+                result.posed = true;
+                result.pitchDegrees = Mathf.Lerp(pose.pitchDegrees, pose.endPitchDegrees, u);
+                result.rollDegrees = pose.rollDegrees;
+                result.useFacingYaw = true;
+                result.facingYaw = FacingYawAt(route, tickIndex, markers[i].yaw);
+                return result;
+            }
+            return result;
+        }
+
+        /// <summary>경로의 틱별 yaw에서 시선 각도를 뽑는다(비어 있으면 액션 마커의 yaw로 폴백).</summary>
+        static float FacingYawAt(PredictedRoute route, float tickIndex, float fallbackYaw)
+        {
+            var yaws = route.yaw;
+            if (yaws == null || yaws.Count == 0) return fallbackYaw;
+            int from = Mathf.Clamp(Mathf.FloorToInt(tickIndex), 0, yaws.Count - 1);
+            int to = Mathf.Min(from + 1, yaws.Count - 1);
+            return Mathf.LerpAngle(yaws[from], yaws[to], Mathf.Clamp01(tickIndex - from));
+        }
+
+        /// <summary>액션 지점 정지 잔상 한 장 — 구간 중간쯤의 대표 포즈를 굽고, 그 포즈와
+        /// 짝을 이루는 몸통 눕힘 회전을 돌려준다.</summary>
+        Quaternion PoseGhostAtAction(Transform body, PredictedActionType type)
+        {
+            GhostActionPose pose = ActionPoseFor(type);
+            if (pose.clip == null) return Quaternion.identity;
+            const float representative = 0.45f;
+            PoseGhost(body, pose.clip,
+                Mathf.Lerp(pose.fromNormalized, pose.toNormalized, representative) * pose.clip.length);
+            return Quaternion.Euler(
+                Mathf.Lerp(pose.pitchDegrees, pose.endPitchDegrees, representative), 0f, pose.rollDegrees);
+        }
+
+        /// <summary>routes가 갱신될 때마다 경로별 누적 이동 거리를 미리 계산해 둔다(매 프레임
+        /// 잔상 수십 개가 참조하므로 프레임 중 재계산은 피한다).</summary>
+        void BuildRouteDistances()
+        {
+            routeDistances.Clear();
+            for (int ri = 0; ri < routes.Count; ri++)
+            {
+                var path = routes[ri].path;
+                var cumulative = new float[path.Count];
+                for (int i = 1; i < path.Count; i++)
+                    cumulative[i] = cumulative[i - 1] + Vector3.Distance(path[i - 1], path[i]);
+                routeDistances.Add(cumulative);
+            }
+        }
+
+        /// <summary>path 상의 (실수) 인덱스 위치까지의 누적 이동 거리(m).</summary>
+        float TravelDistanceAt(int routeIndex, float scaledIndex)
+        {
+            if (routeIndex < 0 || routeIndex >= routeDistances.Count) return 0f;
+            float[] cumulative = routeDistances[routeIndex];
+            if (cumulative.Length == 0) return 0f;
+            int from = Mathf.Clamp(Mathf.FloorToInt(scaledIndex), 0, cumulative.Length - 1);
+            int to = Mathf.Min(from + 1, cumulative.Length - 1);
+            return Mathf.Lerp(cumulative[from], cumulative[to], Mathf.Clamp01(scaledIndex - from));
+        }
+
+        /// <summary>TravelDistanceAt의 역함수 — 누적 거리로 path 상의 (실수) 인덱스를 찾는다.
+        /// 남겨두는 분신을 "경로상 일정 거리마다" 찍기 위해 쓴다(이분 탐색, 누적 거리는 단조증가).</summary>
+        float PathIndexAtDistance(int routeIndex, float distance)
+        {
+            if (routeIndex < 0 || routeIndex >= routeDistances.Count) return 0f;
+            float[] cumulative = routeDistances[routeIndex];
+            if (cumulative.Length < 2) return 0f;
+            if (distance <= 0f) return 0f;
+            if (distance >= cumulative[cumulative.Length - 1]) return cumulative.Length - 1;
+
+            int low = 0, high = cumulative.Length - 1;
+            while (high - low > 1)
+            {
+                int mid = (low + high) / 2;
+                if (cumulative[mid] <= distance) low = mid; else high = mid;
+            }
+            float span = cumulative[high] - cumulative[low];
+            return span > 1e-5f ? low + (distance - cumulative[low]) / span : low;
+        }
+
+        Transform MakeRevealGhost()
+            => MakeGhostBody("PredictRevealGhost",
+                new Vector3(SimConfig.PlayerRadius * 2.2f,
+                            SimConfig.PlayerHeight * 0.55f,
+                            SimConfig.PlayerRadius * 2.2f));
+        // "잔상을 일정 간격으로 찍는" 대신 "움직이는 경로가 사라지는 잔상"을 만드는 부분 —
+        // 캡슐이 경로를 따라 이동하고, 지나간 자리는 TrailRenderer가 알파 0으로 페이드되며 남긴다.
 
         /// <summary>Preview 중 모든 후보가 동시에 자기 경로를 따라 이동하며 트레일을 남긴다
         /// (goal: 후보가 하나씩 순차 재생되지 않고 동시에 나가야 함). 정지 스탬프(액션 지점)는
         /// UpdateGhostMarks가 따로 담당한다.</summary>
         void UpdateRevealTrails(float progress)
         {
-            float revealElapsed = Time.unscaledTime - previewRevealStartRealTime;
-            float afterimageFade = 1f - Mathf.Clamp01(
-                (revealElapsed - PredictionConfig.PreviewRevealSeconds)
-                / PredictionConfig.PreviewAfterimageFadeSeconds);
-
             // 보통 PreWarmRoutePools가 이미 RouteColors.Length(3)개를 다 채워둬서 여기서 자랄 일은
             // 없다 — 후보 수가 그 이상으로 늘어나는 미래 변경에 대비한 안전망만 유지한다.
             int revealRouteCount = routes.Count > 0 ? 1 : 0;
@@ -1230,40 +1682,69 @@ namespace Game.View
                 bool sel = ri == selected;
                 Color color = PreviewPathColor(progress);
                 color.a = sel ? 0.85f : 0.4f;
-                PlaceRevealBody(ghost, route, scaled);
+                GhostPlacement headPlacement = TryPoseGhostByAction(ghost, route, scaled);
+                if (!headPlacement.posed) PoseGhostByTravel(ghost, ri, scaled);
+                PlaceRevealBody(ghost, route, scaled, PivotYOffset, headPlacement);
                 SetMarkColor(ghost, color);
 
+                // [잔상 유지, 2026-07-22] 헤드를 따라다니는 꼬리가 아니라, 경로상 고정 지점에
+                // 일정 거리(StepMeters)마다 한 번 찍히고 그대로 남는 분신들("투사주법"). 위치가
+                // 진행률과 무관하게 고정이라 헤드가 지나가는 순간 켜지기만 하고 이후엔 움직이지도
+                // 페이드되지도 않는다 — 포즈 샘플링도 각자 한 번씩만 일어난다(캐시 적중).
+                float totalDistance = TravelDistanceAt(ri, route.path.Count - 1);
+                float step = Mathf.Max(
+                    PredictionConfig.PreviewAfterimageStepMeters,
+                    totalDistance / Mathf.Max(1, afterimages.Count));
+                float headDistance = TravelDistanceAt(ri, scaled);
                 for (int i = 0; i < afterimages.Count; i++)
                 {
-                    float afterProgress = progress
-                        - PredictionConfig.PreviewAfterimageSpacing * (i + 1);
-                    bool afterVisible = afterProgress >= 0f && afterimageFade > 0f;
+                    float stampDistance = step * (i + 1);
                     Transform afterimage = afterimages[i];
+                    // 헤드가 아직 그 지점을 지나지 않았거나, 경로 자체가 거기까지 안 가면 숨김.
+                    bool afterVisible = stampDistance <= totalDistance && stampDistance <= headDistance;
                     afterimage.gameObject.SetActive(afterVisible);
                     if (!afterVisible) continue;
 
-                    float afterScaled = afterProgress * Mathf.Max(0, route.path.Count - 1);
-                    PlaceRevealBody(afterimage, route, afterScaled);
-                    float fade = 1f - i / (float)afterimages.Count;
+                    float afterScaled = PathIndexAtDistance(ri, stampDistance);
+                    float afterProgress = route.path.Count > 1
+                        ? afterScaled / (route.path.Count - 1)
+                        : 0f;
+                    // 이 지점이 대시·런지·공격·점프 구간 안이면 그 액션 포즈를(구간 내 위치에
+                    // 맞는 시점으로), 아니면 평소처럼 이동 거리 기반 달리기 포즈를 굽는다.
+                    GhostPlacement placement = TryPoseGhostByAction(afterimage, route, afterScaled);
+                    if (!placement.posed) PoseGhostByTravel(afterimage, ri, afterScaled);
+                    PlaceRevealBody(afterimage, route, afterScaled, PivotYOffset, placement);
                     Color afterColor = PreviewPathColor(afterProgress);
                     afterColor.a = PredictionConfig.PreviewAfterimageHeadAlpha
-                        * fade * fade * afterimageFade
                         * (sel ? 1f : PredictionConfig.RouteDimMul);
                     SetMarkColor(afterimage, afterColor);
                 }
             }
         }
 
-        static void PlaceRevealBody(Transform body, PredictedRoute route, float scaled)
+        /// <summary>leanDegrees는 진행 방향으로 숙이는 각도 — 대시·런지 잔상이 "달리기"와
+        /// 구분되게 몸을 던지는 각도를 준다(월드 기준, 로컬 X축 피치라 부호가 명확하다).</summary>
+        static void PlaceRevealBody(
+            Transform body, PredictedRoute route, float scaled, float yOffset,
+            GhostPlacement placement = default(GhostPlacement))
         {
             int from = Mathf.Clamp(Mathf.FloorToInt(scaled), 0, route.path.Count - 1);
             int to = Mathf.Min(from + 1, route.path.Count - 1);
             float fraction = Mathf.Clamp01(scaled - from);
             body.position = Vector3.Lerp(route.path[from], route.path[to], fraction)
-                + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
-            Vector3 direction = route.path[to] - route.path[from];
-            if (direction.sqrMagnitude > 1e-5f)
-                body.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+                + Vector3.up * yOffset;
+
+            Quaternion facing;
+            if (placement.useFacingYaw)
+                facing = Quaternion.Euler(0f, placement.facingYaw, 0f);
+            else
+            {
+                Vector3 direction = route.path[to] - route.path[from];
+                if (direction.sqrMagnitude <= 1e-5f) return;   // 제자리면 이전 회전 유지
+                facing = Quaternion.LookRotation(direction.normalized, Vector3.up);
+            }
+            body.rotation = facing
+                * Quaternion.Euler(placement.pitchDegrees, 0f, placement.rollDegrees);
         }
 
         static Color PreviewPathColor(float progress)
@@ -1312,15 +1793,24 @@ namespace Game.View
                     bool used = i < need && (state != State.Preview || f.tick <= revealTick);
                     pool[i].gameObject.SetActive(used);
                     if (!used) continue;
-                    pool[i].position = f.playerPosition + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
-                    pool[i].rotation = Quaternion.Euler(0f, f.playerYaw, 0f);
-                    SetMarkColor(pool[i], GhostDisplayColor(r, ri, f, world.player.pos));
+                    // ghostFrames는 actionMarkers와 같은 인덱스로 대응하되 마지막 프레임만
+                    // 액션 없이 추가된다(PredictedRoute 주석) — tick이 같을 때만 액션 포즈를
+                    // 쓰고, 그 외(마지막 프레임)는 이동 포즈로 굽는다.
+                    Quaternion markTilt = Quaternion.identity;
+                    if (i < r.actionMarkers.Count && r.actionMarkers[i].tick == f.tick)
+                        markTilt = PoseGhostAtAction(pool[i], r.actionMarkers[i].type);
+                    else
+                        PoseGhostByTravel(pool[i], ri, f.tick);
+                    pool[i].position = f.playerPosition + Vector3.up * PivotYOffset;
+                    pool[i].rotation = Quaternion.Euler(0f, f.playerYaw, 0f) * markTilt;
+                    SetMarkColor(pool[i], GhostDisplayColor(r, ri, i, f, world.player.pos));
                 }
             }
         }
 
         Color GhostDisplayColor(
-            PredictedRoute route, int routeIndex, PredictedFrame frame, Vector3 playerPosition)
+            PredictedRoute route, int routeIndex, int ghostIndex,
+            PredictedFrame frame, Vector3 playerPosition)
         {
             if (state == State.Following)
             {
@@ -1338,18 +1828,38 @@ namespace Game.View
                     ? frame.tick / (float)(route.path.Count - 1)
                     : 0f;
                 Color c = PreviewPathColor(pathProgress);
-                int currentEvent = rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1;
-                int eventTick = currentEvent >= 0 ? rhythmJudge.GetEvent(currentEvent).tick : followingIndex;
-                bool imminent = Mathf.Abs(frame.tick - eventTick) <= 15;
-                if (imminent)
+
+                // [다음 잔상 강조, 2026-07-22] ghostFrames는 actionMarkers와 같은 인덱스로
+                // 대응하므로(마지막 프레임만 액션 없이 추가됨 — PredictedRoute 주석), 판정
+                // 대기 중인 이벤트 인덱스가 곧 "지금 가야 할 잔상"의 인덱스다. 예전엔 이걸
+                // 틱 거리(|frame.tick - eventTick| <= 15)로 어림잡아서 콤보처럼 액션이 촘촘한
+                // 구간에선 이미 지나간 잔상까지 같이 밝아져 목표가 흐려졌다.
+                int pending = rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1;
+                if (pending >= 0)
                 {
-                    c = Color.Lerp(c, Color.white, 0.35f);
-                    c.a = 0.28f * proximityFade;
+                    if (ghostIndex == pending)
+                    {
+                        // 근접 페이드에 하한을 깔아 도착 직전에도 목표가 남아있게 한다.
+                        float fade = Mathf.Max(proximityFade, PredictionConfig.GhostNextProximityFloor);
+                        float pulse = Mathf.Sin(
+                            Time.unscaledTime * PredictionConfig.GhostNextPulseHz * Mathf.PI * 2f);
+                        c = Color.Lerp(c, Color.white, PredictionConfig.GhostNextWhiteBlend);
+                        c.a = Mathf.Clamp01(PredictionConfig.GhostNextAlpha
+                                            + PredictionConfig.GhostNextPulseAmplitude * pulse) * fade;
+                        return c;
+                    }
+                    if (ghostIndex == pending + 1)
+                    {
+                        c = Color.Lerp(c, Color.white, PredictionConfig.GhostAfterNextWhiteBlend);
+                        c.a = PredictionConfig.GhostAfterNextAlpha * proximityFade;
+                        return c;
+                    }
                 }
-                else if (frame.tick < followingIndex)
+
+                if (frame.tick < followingIndex)
                     c.a = PredictionConfig.ExecutionGhostAlpha * proximityFade;
                 else
-                    c.a = 0.08f * proximityFade;
+                    c.a = PredictionConfig.GhostFutureAlpha * proximityFade;
                 return c;
             }
 
@@ -1379,25 +1889,19 @@ namespace Game.View
         }
 
         Transform MakeGhostMark()
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            go.name = "PredictGhostMark";
-            go.layer = PredictionAccentLayer;
-            Object.Destroy(go.GetComponent<Collider>());
-            go.transform.localScale = new Vector3(SimConfig.PlayerRadius * 2f,
-                                                  SimConfig.PlayerHeight * 0.5f,
-                                                  SimConfig.PlayerRadius * 2f);
-            go.GetComponent<Renderer>().material = GhostMat();
-            return go.transform;
-        }
+            => MakeGhostBody("PredictGhostMark",
+                new Vector3(SimConfig.PlayerRadius * 2f,
+                            SimConfig.PlayerHeight * 0.5f,
+                            SimConfig.PlayerRadius * 2f));
 
         static void SetMarkColor(Transform mark, Color color)
         {
-            Renderer renderer = mark.GetComponent<Renderer>();
-            if (renderer == null) return;
-            renderer.material.color = color;
-            if (renderer.material.HasProperty("_BaseColor"))
-                renderer.material.SetColor("_BaseColor", color);
+            foreach (var rnd in mark.GetComponentsInChildren<Renderer>())
+            {
+                rnd.material.color = color;
+                if (rnd.material.HasProperty("_BaseColor"))
+                    rnd.material.SetColor("_BaseColor", color);
+            }
         }
 
         void SetVisible(bool on)

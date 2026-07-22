@@ -38,6 +38,7 @@ namespace Game.View
         void OnGUI()
         {
             if (UiVisibility.Skip) return;      // 콘솔 `ui off` 로 숨김
+            if (HudCanvas.Instance != null) return;   // UGUI HUD가 뜨면 그쪽이 담당
             if (Main.Instance == null) return;
             int previousDepth = GUI.depth;
             GUI.depth = -100;
