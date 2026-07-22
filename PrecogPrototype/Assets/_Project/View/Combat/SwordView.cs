@@ -166,7 +166,10 @@ namespace Game.View
 
         static float AttackNt(in PlayerCombatState c)
         {
-            int wu = CombatConfig.AttackWindupTicks, ac = CombatConfig.AttackActiveTicks, re = CombatConfig.AttackRecoveryTicks;
+            // 콤보 단계별로 틱이 다르다(평타1은 후딜 짧음, 평타2는 길음)
+            int wu = CombatConfig.AtkWindup(c.attackStep),
+                ac = CombatConfig.AtkActive(c.attackStep),
+                re = CombatConfig.AtkRecovery(c.attackStep);
             float total = Mathf.Max(1, wu + ac + re);
             float e = c.attackPhase == CombatConfig.PhWindup ? c.attackPhaseTicks
                     : c.attackPhase == CombatConfig.PhActive ? wu + c.attackPhaseTicks

@@ -48,7 +48,7 @@ namespace Game.Sim
 
                 if (haveDest)
                 {
-                    int travel = Mathf.Max(1, CombatConfig.LungeTravelTicks);   // 순간이동급 블링크
+                    int travel = Mathf.Max(1, CombatConfig.LungeTravel);   // 방식에 따라 3틱(블링크) 또는 8틱(돌진)
 
                     c.lungePhase = CombatConfig.LgTravel;   // 윈드업 없음 — 즉시 발동
                     c.lungeTicks = 0;
@@ -68,9 +68,13 @@ namespace Game.Sim
                     if (ti >= 0)
                         w.enemies[ti].combat.bindTicks = travel + CombatConfig.LungeBindExtraTicks;
 
-                    // 평타 중이었으면 캔슬
+                    // 평타 중이었으면 즉시 캔슬 + 콤보 초기화(찌르기는 언제든 발동 가능)
                     c.attackPhase = CombatConfig.PhNone;
                     c.attackPhaseTicks = 0;
+                    c.attackStep = 0;
+                    c.comboStep = 0;
+                    c.comboWindow = 0;
+                    c.attackBuffered = false;
                     // 대상 응시
                     Vector3 face = dest - p.pos; face.y = 0f;
                     if (face.sqrMagnitude > 1e-4f) p.yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
@@ -79,40 +83,78 @@ namespace Game.Sim
                 // 대상 없으면 발동 안 함
             }
 
-            // ── 평타 진행/시작 ──
+            // ── 평타 진행/시작 (2연타 콤보) ──
             if (c.attackPhase == CombatConfig.PhNone)
             {
-                if (cmd.attack && c.hitStunTicks == 0)
+                // 콤보창 감소 — 만료되면 다음 좌클릭은 다시 평타1
+                if (c.comboWindow > 0)
                 {
+                    c.comboWindow--;
+                    if (c.comboWindow == 0) c.comboStep = 0;
+                }
+
+                // 선입력 포함해서 발동 판정
+                bool want = cmd.attack || c.attackBuffered;
+                if (want && c.hitStunTicks == 0)
+                {
+                    c.attackStep = c.comboStep;          // 0=평타1, 1=평타2
                     c.attackPhase = CombatConfig.PhWindup;
                     c.attackPhaseTicks = 0;
                     c.attackHitDone = false;
+                    c.attackBuffered = false;
+                    c.attackHitMask0 = 0UL;              // 새 스윙 — 때린 적 기록 초기화
+                    c.attackHitMask1 = 0UL;
+                    c.attackElapsed = 0;                 // 즉발 판정창 기준
+                    c.comboWindow = 0;                   // 발동했으니 창은 닫는다
+                }
+                else if (!want)
+                {
+                    c.attackBuffered = false;
                 }
                 return;
             }
 
-            // 콤보 캔슬: 후딜 중 대시 시 평타 즉시 종료(대시는 PlayerMovement가 이미 처리)
-            if (c.attackPhase == CombatConfig.PhRecovery && p.dashTicks > 0)
-            {
-                c.attackPhase = CombatConfig.PhNone;
-                c.attackPhaseTicks = 0;
-                return;
-            }
+            // 공격 중 좌클릭 → 선입력으로 기억(콤보창이 열리는 순간 자동 발동)
+            if (cmd.attack) c.attackBuffered = true;
+
+            // 대시로는 캔슬되지 않는다(설계상 찌르기만 평타를 끊는다 — 위쪽 런지 분기에서 처리).
 
             c.attackPhaseTicks++;
+            c.attackElapsed++;                 // 공격 시작부터의 총 경과(즉발 판정창 기준)
             switch (c.attackPhase)
             {
                 case CombatConfig.PhWindup:
-                    if (c.attackPhaseTicks >= CombatConfig.AttackWindupTicks)
-                    { c.attackPhase = CombatConfig.PhActive; c.attackPhaseTicks = 0; }
+                    if (c.attackPhaseTicks >= CombatConfig.AtkWindup(c.attackStep))
+                    {
+                        // 즉발이면 판정은 이미 0틱부터 돌았으므로 Active 페이즈에 머물 필요가 없다.
+                        // (머물면 그만큼 동작만 길어진다 — "판정 늘리니 느려진다"의 원인)
+                        c.attackPhase = CombatConfig.AttackInstantJudge
+                                      ? CombatConfig.PhRecovery : CombatConfig.PhActive;
+                        c.attackPhaseTicks = 0;
+                    }
                     break;
                 case CombatConfig.PhActive:
-                    if (c.attackPhaseTicks >= CombatConfig.AttackActiveTicks)
+                    if (c.attackPhaseTicks >= CombatConfig.AtkActive(c.attackStep))
                     { c.attackPhase = CombatConfig.PhRecovery; c.attackPhaseTicks = 0; }
                     break;
                 case CombatConfig.PhRecovery:
-                    if (c.attackPhaseTicks >= CombatConfig.AttackRecoveryTicks)
-                    { c.attackPhase = CombatConfig.PhNone; c.attackPhaseTicks = 0; }
+                    if (c.attackPhaseTicks >= CombatConfig.AtkRecovery(c.attackStep))
+                    {
+                        c.attackPhase = CombatConfig.PhNone;
+                        c.attackPhaseTicks = 0;
+                        // 평타1이 끝났으면 콤보창을 연다. 평타2는 마무리라 창 없이 초기화.
+                        if (c.attackStep == 0)
+                        {
+                            c.comboStep = 1;
+                            c.comboWindow = CombatConfig.ComboWindowTicks;
+                        }
+                        else
+                        {
+                            c.comboStep = 0;
+                            c.comboWindow = 0;
+                            c.attackBuffered = false;   // 마무리 후 눌러둔 입력은 흘린다
+                        }
+                    }
                     break;
             }
         }
@@ -141,10 +183,23 @@ namespace Game.Sim
             Vector3 look = (ti >= 0 ? w.enemies[ti].pos : c.lungeDest) - p.pos; look.y = 0f;
             if (look.sqrMagnitude > 1e-4f) p.yaw = Mathf.Atan2(look.x, look.z) * Mathf.Rad2Deg;
 
-            // 블링크: 남은 거리를 남은 틱으로 분배 → 마지막 틱에 도착점 도달. 캡슐 스윕으로 3D 관통 차단.
+            // 이동: 마지막 틱에 도착점 도달. 캡슐 스윕으로 3D 관통 차단.
+            //   기존(블링크) — 남은 거리를 남은 틱으로 등분(등속)
+            //   둠식(돌진)   — 시작점→도착점을 ease-out으로 보간해 끝에서 감속(돌진이 보인다)
             int total = Mathf.Max(1, c.lungeTravelTicks);
-            int remain = Mathf.Max(1, total - c.lungeTicks + 1);
-            Vector3 delta = (c.lungeDest - p.pos) / remain;
+            Vector3 delta;
+            if (CombatConfig.LungeDoomStyle)
+            {
+                float t = Mathf.Clamp01(c.lungeTicks / (float)total);
+                float inv = 1f - t;
+                float e = 1f - inv * inv * inv;                    // cubic ease-out
+                delta = LungeArcPoint(in c, e) - p.pos;
+            }
+            else
+            {
+                int remain = Mathf.Max(1, total - c.lungeTicks + 1);
+                delta = (c.lungeDest - p.pos) / remain;
+            }
             float dist = delta.magnitude;
             if (dist > 1e-5f)
             {
@@ -164,6 +219,33 @@ namespace Game.Sim
             // 블링크 끝 → 임팩트(CombatResolve) + 즉시 조작 복귀(후딜 0)
             if (c.lungeTicks >= total)
             { c.lungePhase = CombatConfig.LgRecovery; c.lungeTicks = 0; }
+        }
+
+        /// <summary>
+        /// 찌르기 포물선 위의 한 점. e는 이징이 적용된 진행도(0=시작, 1=도착).
+        ///
+        /// 시작→도착 직선에 <b>대상 높이 방향으로 볼록한 호</b>를 더한다.
+        ///   위 적 → 위로 부풂 · 아래 적 → 아래로 부풂 (찌르는 동작이라 항상 위로 솟으면 어색)
+        /// 부푸는 양은 sin(πe)라 양 끝에서 0 — 시작점·도착점은 직선과 정확히 같다.
+        ///
+        /// ★ 뷰(카메라)도 이 함수를 그대로 써서 에임이 실제 경로를 따라가게 한다.
+        ///   따로 계산하면 몸과 시선이 어긋난다.
+        /// </summary>
+        public static Vector3 LungeArcPoint(in PlayerCombatState c, float e)
+        {
+            Vector3 straight = Vector3.Lerp(c.lungeStart, c.lungeDest, e);
+            if (!CombatConfig.LungeDoomStyle) return straight;
+
+            float dy = c.lungeDest.y - c.lungeStart.y;
+            // 높이차에 비례하되, 수평 대상에서도 밋밋하지 않게 최소치를 준다.
+            float bulge = Mathf.Abs(dy) * CombatConfig.LungeArcAmount;
+            if (bulge < CombatConfig.LungeArcMinBulge) bulge = CombatConfig.LungeArcMinBulge;
+            if (bulge > CombatConfig.LungeArcMaxBulge) bulge = CombatConfig.LungeArcMaxBulge;
+            // 대상이 위면 위로, 아래면 아래로. 수평이면 살짝 위로(찌르며 파고드는 느낌).
+            float dir = dy >= 0f ? 1f : -1f;
+
+            straight.y += dir * bulge * Mathf.Sin(Mathf.PI * Mathf.Clamp01(e));
+            return straight;
         }
 
         /// <summary>런지 즉시 종료: 표적 바인드 해제, 피해 없음(도착 전 벽 캔슬용).</summary>

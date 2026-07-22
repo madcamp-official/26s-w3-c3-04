@@ -35,7 +35,7 @@ namespace Game.Prediction
 
         /// <summary>JumpStrike가 닿는 최대 높이차(플레이어 발밑 → 공중 적). 단일 점프가 매크로 안에서
         /// 오르는 정점(≈1.8m) + 좌클릭 높이차 허용(1m)보다 약간 보수적으로 잡아, 판정 시점에 확실히
-        /// 사거리 안이게 한다. 표준 부유 고도(FlyHoverOffset=2m)를 넉넉히 포함.</summary>
+        /// 사거리 안이게 한다. 표준 부유 고도(FlyHoverOffset, 개체별 편차 있음)를 넉넉히 포함.</summary>
         const float JumpStrikeReachHeight = 2.6f;
 
         /// <summary>buffer에 후보를 채우고 개수를 반환한다. buffer는 호출자가 재사용(풀링)한다.</summary>

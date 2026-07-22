@@ -11,8 +11,11 @@ namespace Game.View
     public enum MobKind : byte
     {
         Grunt = 0, Pinky = 1, Soldier = 2, Caco = 3, Large = 4,
-        GruntT = 5,     // 근층 — 근접 + 층이동
-        SoldierT = 6,   // 원층 — 원거리 + 층이동
+        // ★ 아래 둘(층이동)은 폐기 예정 — 층이동 특성을 안 쓰기로 했습니다(2026-07-22, 확정은 아님).
+        //   상세는 MobilityType 주석 참고. 값은 남겨둡니다(위 주석대로 번호를 바꾸면 기존 웨이브 설정이 어긋남).
+        //   새 웨이브를 짤 때는 Grunt/Soldier를 쓰십시오.
+        GruntT = 5,     // 근층 — 근접 + 층이동   [폐기 예정]
+        SoldierT = 6,   // 원층 — 원거리 + 층이동 [폐기 예정]
     }
 
     /// <summary>스폰 지점 하나 = 위치(씬의 빈 오브젝트) + 그 지점에서 나올 종류.</summary>

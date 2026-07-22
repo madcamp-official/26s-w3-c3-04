@@ -24,6 +24,15 @@ namespace Game.Sim
             h = Mix(h, c.attackPhase);
             h = Mix(h, (ulong)c.attackPhaseTicks);
             h = Mix(h, c.attackHitDone ? 1UL : 0UL);
+            // ★ 콤보 상태도 sim 상태다 — 안 섞으면 "콤보 1단계"와 "초기 상태"가
+            //   같은 해시로 잡혀 예지가 어긋난다.
+            h = Mix(h, c.attackStep);
+            h = Mix(h, c.comboStep);
+            h = Mix(h, (ulong)c.comboWindow);
+            h = Mix(h, c.attackBuffered ? 1UL : 0UL);
+            h = Mix(h, c.attackHitMask0);
+            h = Mix(h, c.attackHitMask1);
+            h = Mix(h, (ulong)c.attackElapsed);
             h = Mix(h, (ulong)c.hp);
             h = Mix(h, (ulong)c.hitStunTicks);
             h = Mix(h, c.lungePhase);

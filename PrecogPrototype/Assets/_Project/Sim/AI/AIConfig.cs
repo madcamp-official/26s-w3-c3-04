@@ -1,35 +1,84 @@
 namespace Game.Sim
 {
-    /// <summary>몹 AI 세부 수치. ★ AI 세션 소유. 전부 잠정·튜닝. DOOM 비공개 수치는 상대값/텔레그래프로.</summary>
+    /// <summary>
+    /// 몹 AI 세부 수치. ★ AI 세션 소유. 전부 잠정·튜닝. DOOM 비공개 수치는 상대값/텔레그래프로.
+    ///
+    /// ── const가 아니라 static인 이유 ──
+    /// 밸런스는 "플레이하면서 슬라이더로 맞추는" 작업이라, const면 값 하나 바꿀 때마다 재컴파일이다.
+    /// CombatConfig와 같은 방식으로 static으로 두고 F7 패널에서 실시간 조절한다.
+    ///
+    /// ★ <b>예측(예지)이 도는 중에는 값을 바꾸지 말 것.</b>
+    ///   예측은 이 값들을 그대로 재실행하므로 결정론 자체는 유지되지만,
+    ///   포크 도중에 바뀌면 앞뒤 틱이 다른 규칙으로 굴러 결과가 어긋난다.
+    ///   (CombatConfig에 있는 것과 같은 제약)
+    ///
+    /// 틱 환산: <b>60틱 = 1초</b>.
+    /// </summary>
     public static class AIConfig
     {
         // ── 근접 그런트 ──
         // 사거리 = 적 반경(개별) + 플레이어 반경 + 팔 길이. 대형몹은 반경이 커 사거리도 자동으로 커짐.
-        public const float MeleeReach         = 0.8f;  // 팔 길이
-        public const float MeleeHitExtra      = 0.3f;  // 판정 여유
-        public const int   MeleeWindupTicks   = 24;   // 0.4s 선딜·텔레그래프(committed 조준)
-        public const int   MeleeActiveTicks   = 6;    // 0.1s 판정
-        public const int   MeleeRecoveryTicks = 24;   // 0.4s 후딜
-        public const float MeleeHitHalfAngle  = 50f;  // committed 방향 부채꼴
-        public const int   MeleeDamage        = 1;
+        //
+        // ※ MeleeReach·MeleeHitExtra는 <b>확정값이 아니다 — 튜닝 대상</b>.
+        //   붙어서 맞아보며 "닿을 듯 말 듯"한 지점을 찾아야 한다. 지금 값은 예전 잠정치를
+        //   그대로 둔 것뿐이니 확정된 수치로 믿지 말 것.
+        public static float MeleeReach         = 0.8f;  // 팔 길이   ★ 미확정 — 튜닝 대상
+        public static float MeleeHitExtra      = 0.3f;  // 판정 여유 ★ 미확정 — 튜닝 대상
+        public static int   MeleeWindupTicks   = 24;    // 0.40s 선딜·텔레그래프(committed 조준)
+        public static int   MeleeActiveTicks   = 6;     // 0.10s 판정
+        public static int   MeleeRecoveryTicks = 48;    // 0.80s 후딜
+        public static float MeleeHitHalfAngle  = 50f;   // committed 방향 부채꼴
+        public static int   MeleeDamage        = 1;
 
         /// <summary>개별 반경 기반 근접 사거리(대형몹 자동 반영).</summary>
         public static float MeleeRangeFor(float enemyRadius) => enemyRadius + SimConfig.PlayerRadius + MeleeReach;
 
         // ── 돌진 (핑키형) — 근접 × Charge. 완주(피격으로 안 끊김) ──
-        public const float ChargeRadiusMul    = 1.5f;  // 반경 1.5배
-        public const float ChargeMinRange     = 6f;    // 이 안 + 시야면 돌진 개시
-        public const int   ChargeWindupTicks  = 30;    // 0.5s 텔레그래프(committed)
-        public const float ChargeSpeed        = 14f;   // 적당한 속도로 쭉
-        public const float ChargeMaxDist      = 20f;   // 매우 긴 사거리
-        public const int   ChargeDamage       = 1;     // 접촉 피해
-        public const int   ChargeHitRecovery  = 24;    // 성공 후딜(짧음)
-        public const int   ChargeMissRecovery = 40;    // 실패 후딜(김)
-        public const float ChargeWallStopFrac = 0.4f;  // 이번 틱 이동이 의도의 이 비율 미만 = 벽 정지
+        public static float ChargeRadiusMul    = 1.5f;  // 반경 1.5배(몸집 배율과 별개 — 옆으로 더 넓다)
+        // 돌진몹 <b>몸집</b> 배율 — 반경·높이에 함께 곱한다(= 히트박스가 통째로 커진다).
+        // 렌더는 EntityViews.ChargeVisualScaleMul이 같은 비율을 따로 갖고 있어야 한다.
+        //   2026-07-22: 1.0 → 1.35 (요청). 반경은 1.5×1.35=2.03배, 높이는 1.35배가 된다.
+        public static float ChargeBodyMul      = 1.35f;
+        public static float ChargeMinRange     = 3f;    // 이 안 + 시야면 돌진 개시
+        public static int   ChargeWindupTicks  = 45;    // 0.75s 텔레그래프(committed)
+        public static float ChargeSpeed        = 12f;   // 최고 속도(즉시 도달이 아니라 서서히 수렴 — 아래 참고)
+        // ── 돌진 가속 ──
+        // 기존: 첫 틱부터 ChargeSpeed 그대로 → 순간적으로 튀어나가는 느낌.
+        // 신규: 초반에 느리다가 기하급수적으로 최고 속도에 수렴한다.
+        //         v(t) = ChargeSpeed × (1 − e^(−k·t))
+        //   k가 클수록 빨리 최고속에 도달. k=6이면 약 0.5초에 95% 도달.
+        //
+        // ★ Sim 값이라 켜면 <b>예지 결과가 달라진다</b>. 기존 동작을 되돌릴 수 있게 토글로 둔다
+        //   (CombatConfig.LungeDoomStyle와 같은 방식).
+        public static bool  ChargeAccelOn = true;
+        public static float ChargeAccelK  = 6f;    // 수렴 속도. 클수록 빨리 최고속
+
+        /// <summary>돌진 시작 후 t초 시점의 속도(m/s).</summary>
+        public static float ChargeSpeedAt(float t) =>
+            ChargeAccelOn
+                ? ChargeSpeed * (1f - UnityEngine.Mathf.Exp(-UnityEngine.Mathf.Max(0.01f, ChargeAccelK) * t))
+                : ChargeSpeed;
+
+        /// <summary>돌진 시작 후 t초까지 나아간 거리(m). v(t)의 적분 — 누적 거리 판정에 쓴다.</summary>
+        public static float ChargeDistAt(float t)
+        {
+            if (!ChargeAccelOn) return ChargeSpeed * t;
+            float k = UnityEngine.Mathf.Max(0.01f, ChargeAccelK);
+            // ∫₀ᵗ v = S·(t − (1 − e^(−k·t))/k)
+            return ChargeSpeed * (t - (1f - UnityEngine.Mathf.Exp(-k * t)) / k);
+        }
+        public static float ChargeMaxDist      = 10f;   // 돌진 사거리
+        public static int   ChargeDamage       = 1;     // 접촉 피해
+        public static int   ChargeHitRecovery  = 60;    // 1.00s 명중 후 휘청
+        public static int   ChargeMissRecovery = 96;    // 1.60s 빗나감 후 휘청(더 김)
+        public static float ChargeWallStopFrac = 0.4f;  // 이번 틱 이동이 의도의 이 비율 미만 = 벽 정지
         // 평소(돌진 커밋 전) 추격 속도만 낮춤 — 실물 모델 Walk 애니메이션이 SimConfig.EnemyMoveSpeed
         // 전속력엔 못 따라가 미끄러지듯 보였다. ChargeRun 자체 속도(ChargeSpeed)는 그대로 둔다.
-        // ★ 0.65(=3.9)도 여전히 빠르다는 피드백 — 육중하게 천천히 걷는 느낌으로 더 낮춤.
-        public const float ChargeChaseSpeedMul = 0.35f;
+        // ※ <b>보류</b> — 발걸음 애니메이션 속도와 같이 봐야 확정할 수 있다.
+        // 확정(2026-07-22) — 보폭 실측 후 배속 기준으로 역산했다.
+        //   추격 속도 = EnemyMoveSpeed(4.5) × 0.591 = 2.66 m/s
+        //   걷기 클립 실측 보폭 1.33 m/s → 재생 배속 2.0배 (요청값)
+        public static float ChargeChaseSpeedMul = 0.591f;
 
         // ── 몹 분리(boids Rule 1): 겹치기 전에 이웃 반대방향으로 미리 조향. 결정론(난수 X) ──
         public static float SeparationRadius  = 1.6f;  // 몸(반경 합) 밖으로 이만큼까지 개인공간
@@ -39,36 +88,69 @@ namespace Game.Sim
         // 전부 같은 가중치면 정면으로 마주칠 때 밀어내는 힘이 대칭이라 거울처럼 진동한다(ADR-0004 개정).
         public static float SeparationScaleMin = 0.55f;
 
-        // ── 공중 원거리 (커코데몬형) — 원거리 × Flying. 낮게 부유, 공격은 지상 원거리와 공유 ──
+        // ── 공중 원거리 (커코데몬형) — 원거리 × Flying. 낮게 부유 ──
         //    벽은 MoveHorizontal 슬라이드, 몹끼리는 분리 스티어링이 담당(클래식 난수 우회 폐기).
-        public const float FlyHoverOffset  = 2f;    // 플레이어 y + 이만큼 위를 유지(낮게 = 대공 닿음)
-        public const float FlySpeed        = 3.5f;  // 느린 부유(수평·수직 공통)
-        public const float FlyBandMin      = 5f;    // 이보다 가까우면 수평 후퇴
-        public const float FlyBandMax      = 14f;   // 이보다 멀면 수평 접근
-        public const float FlyMinClearance = 1f;    // 지면 위 최소 여유(안 꺼지게)
+        //
+        // ★ 공격 타이밍을 지상 원거리와 <b>분리했다</b>(요청). 지금은 값이 같지만 공중은 회피 난이도가
+        //   달라 따로 굴려야 한다. 지상 값(RangedAimTicks 등)을 바꿔도 여기는 안 따라간다.
+        // ※ 아래 두 값은 <b>미확정</b> — 일단 이 값으로 두고 플레이하며 맞춘다(F10 공중 탭).
+        public static float FlyHoverOffset  = 2.3f;  // 플레이어 y + 이만큼 위를 유지(기준값) ★ 미확정
+        // 개체마다 호버 높이를 흩뜨린다 — 전부 같은 높이에 뜨면 한 줄로 늘어선 것처럼 보인다.
+        // EnemySim.personality(id 해시, 0~1)를 쓰므로 <b>같은 몹은 항상 같은 높이</b>이고 결정론도 유지된다.
+        public static float FlyHoverJitter  = 0.7f;  // ±이만큼 (기준 2.3m면 1.6~3.0m) ★ 미확정
+
+        /// <summary>이 개체가 유지할 호버 높이(플레이어 y 기준). personality 0~1 → −jitter~+jitter.</summary>
+        public static float FlyHoverFor(float personality)
+            => FlyHoverOffset + (personality * 2f - 1f) * FlyHoverJitter;
+        public static float FlySpeed        = 3.5f;  // 느린 부유(수평·수직 공통)
+        public static float FlyBandMin      = 3f;    // 이보다 가까우면 수평 후퇴
+        public static float FlyBandMax      = 10f;   // 이보다 멀면 수평 접근
+        public static float FlyMinClearance = 1f;    // 지면 위 최소 여유(안 꺼지게)
+        public static int   FlyAimTicks     = 120;   // 2.00s 조준 (지상과 분리 — 시작 값만 같게)
+        public static int   FlyCooldown     = 90;    // 1.50s 발사 후 정비
+
+        // ── 공중 관성 이동 ──
+        // 기존: 원하는 방향으로 즉시 FlySpeed로 움직임 → 방향을 꺾으면 그 자리에서 딱 꺾인다(기계적).
+        // 신규: 속도를 상태로 들고 가감속한다. 급선회하면 <b>원래 가던 방향으로 미끄러진다</b>.
+        //         가속: v += (목표속도 − v) × accel × dt
+        //         감속: 이동 의도가 없으면 v *= (1 − drag×dt)  → 관성으로 밀려 나감
+        //
+        // ★ Sim 값이라 켜면 <b>예지 결과가 달라진다</b>. 기존 동작으로 되돌릴 수 있게 토글로 둔다.
+        public static bool  FlyInertiaOn = true;
+        public static float FlyAccel     = 2.2f;   // 목표 속도를 따라잡는 힘. 낮을수록 굼뜨고 많이 미끄러짐
+        public static float FlyDrag      = 1.1f;   // 의도가 없을 때 감속. 낮을수록 오래 미끄러짐
+        public static float FlyMaxSpeed  = 6f;     // 관성으로 붙은 속도의 상한(FlySpeed보다 커야 의미 있음)
+        // 수직도 같은 방식으로 가감속한다 — 목표 높이가 갑자기 바뀌어도(플레이어가 점프·낙하)
+        // 즉시 따라붙지 않고 지나쳤다가 되돌아온다. 값이 크면 수평보다 민첩하게 반응.
+        public static float FlyAccelY    = 2.6f;   // 수직 가속
+        public static float FlyDragY     = 1.4f;   // 수직 감속(목표에 닿았을 때 남은 속도 정리)
+        public static float FlyMaxSpeedY = 5f;     // 수직 속도 상한
 
         // ── 지각(perception) ──
-        public const float EnemyEyeHeight = 0.8f;   // LOS 레이 원점(적)·발사 원점
-        public const float PlayerTorso    = 0.7f;   // LOS 겨냥점(플레이어 몸통)
+        public static float EnemyEyeHeight = 0.8f;   // LOS 레이 원점(적)·발사 원점
+        public static float PlayerTorso    = 0.7f;   // LOS 겨냥점(플레이어 몸통)
 
-        // ── 원거리 솔저 (플라즈마) ──
-        public const float RangedMoveSpeed = 4f;    // 플레이어 0.6× (느림)
-        public const float RangedBandMin   = 4f;    // 이보다 가까우면 후퇴(반토막)
-        public const float RangedBandMax   = 16f;   // 이보다 멀면 접근
-        public const int   RangedAimTicks  = 36;    // 0.6s 큰 텔레그래프(committed)
-        public const int   RangedCooldown  = 90;    // 발사 후 재발사까지 1.5s
-        public const int   RangedDamage    = 1;
+        // ── 원거리 솔저 (플라즈마) — 단발 저격형 ──
+        // 조준 동안 제자리(Plant)에 고정된다. 단 <b>시야는 잠기지 않는다</b> —
+        // e.yaw는 매 틱 플레이어를 따라가고, 발사 방향(committedDir)만 조준 시작 시 고정된다.
+        // ※ RangedMoveSpeed는 <b>보류</b> — 발걸음 애니메이션과 같이 봐야 확정할 수 있다.
+        public static float RangedMoveSpeed = 4f;    // ★ 보류 — 보폭 맞춘 뒤 확정
+        public static float RangedBandMin   = 2f;    // 이보다 가까우면 후퇴
+        public static float RangedBandMax   = 9f;    // 이보다 멀면 접근
+        public static int   RangedAimTicks  = 120;   // 2.00s 큰 텔레그래프(committed) — 제자리 고정
+        public static int   RangedCooldown  = 90;    // 1.50s 발사 후 재발사까지
+        public static int   RangedDamage    = 1;
 
         // 투사체 (유도 없음 → 회피 가능)
-        public const float ProjectileSpeed  = 12f;
-        public const float ProjectileRadius = 0.25f;
-        public const int   ProjectileTtl    = 300;  // 5s 안전 소멸
+        public static float ProjectileSpeed  = 12f;
+        public static float ProjectileRadius = 0.25f;
+        public static int   ProjectileTtl    = 300;  // 5s 안전 소멸
 
         // 속도 빗맞힘 (DOOM): 발사 확정 시 플레이어가 대시 중이면 일부러 빗나가게
-        public const float MissOffsetDeg = 18f;
+        public static float MissOffsetDeg = 18f;
 
         // 리드(예측) 조준: 플레이어 속도로 투사체 도달시간만큼 앞을 겨냥하되,
         // 완벽 리드(1)는 불공정 → "아주 약간"만(0.5). 0=현재위치(리드 없음), 1=완벽. 핵심 튜닝값.
-        public const float LeadFactor = 0.5f;
+        public static float LeadFactor = 0.5f;
     }
 }

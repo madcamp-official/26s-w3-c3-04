@@ -160,7 +160,12 @@ namespace Game.View
                 Vector3 q = r.playerSpawn + new Vector3(Mathf.Cos(a) * 10f, 0f, Mathf.Sin(a) * 10f);
                 if (NavMesh.SamplePosition(q, out var h, 8f, NavMesh.AllAreas)) r.spawns.Add(h.position);
             }
-            Light();
+            // 씬 지형 맵은 조명을 직접 배치한다 → 자동 Directional Light를 만들지 않는다.
+            // (예전엔 여기서도 Light()를 불렀는데, 그러면 "실내는 조명만으로 침침하게" 같은
+            //  어두운 무드를 만들어도 Play 순간 방향광이 생겨 전부 밝아져 버린다.)
+            if (Object.FindFirstObjectByType<Light>() == null)
+                Debug.LogWarning("[Map] 씬에 Light가 하나도 없습니다 — 화면이 환경광만으로 보입니다. " +
+                                 "의도한 것이 아니면 조명을 배치하십시오. (작업 중 임시로 밝게 보려면 Tools/작업용 조명)");
             return r;
         }
 

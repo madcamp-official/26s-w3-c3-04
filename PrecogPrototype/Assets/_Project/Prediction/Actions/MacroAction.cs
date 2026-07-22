@@ -54,8 +54,11 @@ namespace Game.Prediction
         /// 소비해 무시됨). +2 여유 = Travel + Recovery 종료 직후. 실전 규칙(CombatConfig)에서 파생해
         /// 런지 튜닝이 바뀌어도 따라가게 한다.
         /// </summary>
+        // ★ LungeTravelTicks(예전 3틱 상수)가 아니라 실제로 쓰이는 LungeTravel을 봐야 한다.
+        //   둠식(8틱)으로 바꾼 뒤에도 3틱을 가정하면 좌클릭 서브틱이 5틱 빨라져,
+        //   예지가 "우클릭 후 바로 좌클릭"을 실제보다 이르게 예측한다.
         public static int LungeStrikeAttackTick =>
-            CombatConfig.LungeTravelTicks + CombatConfig.LungeRecoveryTicks + 2;
+            CombatConfig.LungeTravel + CombatConfig.LungeRecoveryTicks + 2;
 
         public static MacroAction JumpStrikeAction() => new MacroAction { type = MacroActionType.JumpStrike, lungeTargetId = -1, targetYaw = float.NaN };
 

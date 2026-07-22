@@ -23,7 +23,7 @@ namespace Game.Sim.Tests
     {
         /// <summary>
         /// 사람이라면 "우클릭 접근 → 좌클릭"으로 확실히 잡는 배치: 공중 원거리 1마리가
-        /// hover 고도(플레이어 y + FlyHoverOffset≈2m), 런지 사거리(1.2~7m) 안, 정면.
+        /// hover 고도(플레이어 y + FlyHoverOffset, 개체별 ±FlyHoverJitter), 런지 사거리(1.2~7m) 안, 정면.
         /// StubCollision은 지면 y=0·LOS 통과·캡슐 점유 가능이라 런지 게이팅이 성립한다.
         /// </summary>
         static SimWorld BuildLoneFlyerWorld()
@@ -220,6 +220,7 @@ namespace Game.Sim.Tests
             public bool SampleGround(Vector3 feet, float maxDown, out float groundY) { groundY = 0f; return false; }
             public bool HasLineOfSight(Vector3 from, Vector3 to) => true;
             public bool CanOccupyCapsule(Vector3 feet, float radius, float height) => false;
+            public Vector3 Depenetrate(Vector3 feet, float radius, float height) => Vector3.zero;
         }
 
         /// <summary>회귀 고정: 착지점 아래 지면이 안 잡히는(구덩이 위 hover 등) 상황에서도
