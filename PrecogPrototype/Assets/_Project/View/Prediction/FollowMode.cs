@@ -292,22 +292,13 @@ namespace Game.View
         public static readonly PredictionDrumRhythm DrumRhythm = new PredictionDrumRhythm();
         public static readonly PredictionSlowAim SlowAim = new PredictionSlowAim();
 
-        // ★ 모드 추가 지점 — 여기 한 줄. 순서가 곧 숫자키 순서다.
+        // [2026-07-22] 예측 추적 방식은 SLOW-AIM 하나로 확정 — F를 누르면 바로 이 모드로 실행된다.
+        // 다른 후보 모드(Classic/Freerun/ClickChain/…)는 선택지에서 제거했다. 각 상태 기계 클래스와
+        // 위의 static 인스턴스는 참조 안정성 때문에 남겨뒀지만, 이 배열에 없으면 게임에선 쓸 수 없다.
+        // 다시 실험하려면 그 줄을 배열에 되돌려 넣기만 하면 된다.
         static readonly IFollowMode[] modes =
         {
-            new RhythmFollowMode(PredictionRhythmMode.Classic, Rhythm),     // 1
-            new RhythmFollowMode(PredictionRhythmMode.Mash, Rhythm),        // 2
-            new RhythmFollowMode(PredictionRhythmMode.Freestyle, Rhythm),   // 3
-            new RhythmFollowMode(PredictionRhythmMode.Highway, Rhythm),     // 4
-            new RhythmFollowMode(PredictionRhythmMode.Sequence, Rhythm),    // 5
-            new FreerunFollowMode(Freerun),                                 // 6
-            new ClickChainFollowMode(ClickChain),                           // 7
-            new MagnetRunFollowMode(MagnetRun),                             // 8
-            // 9번은 Classic 판정 그대로에 카메라만 3인칭으로 바꾼 변종이다 — 새 상태 기계 없음.
-            new RhythmFollowMode(PredictionRhythmMode.ThirdPerson, Rhythm,
-                                 FollowCameraMode.ThirdPersonOrbit),        // 9
-            new DrumRhythmFollowMode(DrumRhythm),                           // 10
-            new SlowAimFollowMode(SlowAim),                                 // 11 (숫자키 없음 — ` 로 순환)
+            new SlowAimFollowMode(SlowAim),   // 11 SLOW-AIM — 유일 모드
         };
 
         const string PrefKey = "PredictionRhythmMode";

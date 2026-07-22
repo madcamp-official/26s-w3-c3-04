@@ -661,6 +661,10 @@ namespace Game.View
             followingControls = r.controls;
             followingIndex = 0;
 
+            // [2026-07-22] 시작 위치 마커(=나 아바타)는 미리보기 전용 — 1인칭 실행 중엔 카메라가
+            // 그 안에 들어가 화면 전체가 잔상 색으로 덮인다. 실행 진입 시 꺼서 시야를 확보한다.
+            if (startMarker != null) startMarker.gameObject.SetActive(false);
+
             Mode.Begin(r, in w);
 
             // [추적 방식 추상화, 2026-07-22] RhythmJudge를 쓰지 않는 방식(자유 주행·클릭 체인)은

@@ -343,8 +343,11 @@ namespace Game.View
             string accent = ColorUtility.ToHtmlStringRGB(RhythmModeConfig.ModeAccent);
             string body = $"<color=#{accent}>FOLLOW MODE · {FollowModeRegistry.Current.Name}</color>";
             if (!following)
-                body += $"\n<size=12><color=#8FB3AB>{FollowModeRegistry.Current.Hint}" +
-                        $"   (숫자키 1~{FollowModeRegistry.Count} 전환)</color></size>";
+            {
+                body += $"\n<size=12><color=#8FB3AB>{FollowModeRegistry.Current.Hint}";
+                if (FollowModeRegistry.Count > 1) body += $"   (숫자키 1~{FollowModeRegistry.Count} 전환)";
+                body += "</color></size>";
+            }
             GUI.Label(new Rect(18f, 14f, 620f, 52f), body, style);
         }
 
