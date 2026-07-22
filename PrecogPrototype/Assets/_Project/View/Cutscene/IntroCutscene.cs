@@ -752,7 +752,7 @@ namespace Game.View
         {
             impacted = true;
             flash = 1f;
-            CombatAudio.Landing();
+            CombatAudio.CutsceneLanding();
             if (impulse != null) impulse.GenerateImpulseWithForce(LandImpulse);
             EmitDust();
         }

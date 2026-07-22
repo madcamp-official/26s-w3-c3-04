@@ -141,7 +141,7 @@ namespace Game.View
             WireSparks.EmitScaled(pos, s.sparkCount, s.sparkSize, s.sparkSpeed, s.sparkLife);
 
             if (SoundHook != null) SoundHook(pos);
-            else if (UseFallbackSound) CombatAudio.EnemyStep();
+            else if (UseFallbackSound) CombatAudio.EnemyStep(pos);   // 위치 기반(가까운 적만 크게)
         }
     }
 }

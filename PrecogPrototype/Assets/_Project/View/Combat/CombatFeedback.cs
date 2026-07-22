@@ -306,8 +306,8 @@ namespace Game.View
         {
             DirectionalShake(pos, 0.12f, 0.35f);   // 타격 각도: 적→카메라 반동 + 약간 위로
             EmitSparks(pos, 14);
-            CombatAudio.Hit();        // 칼 타격(금속)
-            CombatAudio.EnemyPain();  // 적 신음(유기)
+            CombatAudio.Hit();        // [되돌림] 예전 금속 검격음
+            CombatAudio.EnemyPain();  // [되돌림] 예전 합성 신음
         }
 
         void OnDeath(Vector3 pos)
@@ -315,7 +315,10 @@ namespace Game.View
             DirectionalShake(pos, 0.18f, 0.5f);    // 처치: 더 강한 반동 + 위로 펀치
             ScreenFx.Impact(0.4f);                 // 색수차 버스트
             EmitSparks(pos, 30);
-            CombatAudio.Death();
+            // [2026-07-22] 죽이는 타격도 일반 타격과 같은 소리(평타피격+로봇피격)로 통일.
+            // 예전 Death()(옛 살점 "썰리는 소리")는 최근 에셋과 안 어울려 제거.
+            CombatAudio.Hit();
+            CombatAudio.EnemyPain();
         }
 
         // 무방향(정적 진입점 등): DefaultVelocity 방향으로 세기만.

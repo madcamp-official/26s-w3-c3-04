@@ -68,7 +68,8 @@ namespace Game.View
             {
                 case Phase.Up:
                     pos01 = 0f;
-                    if (resp) Go(Phase.Descending);
+                    // [2026-07-22] 대기 상태에서 하강 시작 = 소환 직전 팬 하강 → 기계음.
+                    if (resp) { CombatAudio.FanMove(transform.position); Go(Phase.Descending); }
                     break;
 
                 case Phase.Descending:
