@@ -88,12 +88,12 @@ namespace Game.View
         }
 
         // ── 정적 접근자 (null 안전) ──
-        public static void Swing()      => Play(inst?.swing,      6.50f, 0.06f);   // 허공 베기(살짝 키움)
-        public static void Hit()        => Play(inst?.hit,        1.00f, 0.10f);   // 평타1/2피격 랜덤(볼륨 낮춤)
-        public static void Dash()       => Play(inst?.dash,       4.50f,  0.05f);
+        public static void Swing()      => Play(inst?.swing,      10.0f, 0.06f);   // 허공 베기(살짝 키움)
+        public static void Hit()        => Play(inst?.hit,        2.00f, 0.10f);   // 평타1/2피격 랜덤(볼륨 낮춤)
+        public static void Dash()       => Play(inst?.dash,       7.50f,  0.05f);
         public static void GuardRaise() => Play(inst?.guardRaise, 0.35f, 0.06f);  // 막기 켜는 소리(스윽)
         public static void Block()      => Play(inst?.block,      0.45f, 0.05f);  // 실제 방어 성공(챙) — 적 공격 생기면 사용
-        public static void Backstrike() => Play(inst?.backstrike, 1.80f,  0.05f);   // 찌르기(볼륨 상향)
+        public static void Backstrike() => Play(inst?.backstrike, 2.80f,  0.05f);   // 찌르기(볼륨 상향)
         public static void Death()      => Play(inst?.death,      0.8f,  0.08f);
 
         // ── 이동 SFX ──
@@ -107,7 +107,7 @@ namespace Game.View
         //  근접 그런트: Windup 진입 → EnemyWindup(), Active 판정 → EnemyMelee()
         //  원거리 솔저: Aim 진입 → EnemyAim(), Fire → EnemyFire()
         //  피격 신음(EnemyPain)은 CombatFeedback이 이미 연결.
-        public static void EnemyWindup() => Play(inst?.enWindup, 0.5f,  0.05f);
+        public static void EnemyWindup() => Play(inst?.enWindup, 0.8f,  0.05f);
         public static void EnemyMelee()  => Play(inst?.enMelee,  0.6f,  0.05f);   // 일반 근접(박치기는 ChargeImpact로 분리됨 → 여긴 합성음)
         public static void EnemyAim()    => Play(inst?.enAim,    0.22f, 0.03f);   // 조준 차징(에셋 교체 + 볼륨 낮춤)
         public static void EnemyFire()   => Play(inst?.enFire,   0.6f,  0.05f);
@@ -143,7 +143,7 @@ namespace Game.View
             if (Time.unscaledTime < fanCooldownUntil) return;   // 겹침 방지(여러 팬 동시 하강 = 1회)
             fanCooldownUntil = Time.unscaledTime + 0.5f;
             float a = DistAtten(pos, 15f, 60f);
-            if (a > 0.02f) Play(inst?.fanMove, 0.22f * a, 0.03f);
+            if (a > 0.02f) Play(inst?.fanMove, 0.88f * a, 0.03f);
         }
         public static void EnemyPain()   => Play(inst?.enPain,   2.80f,  0.10f);   // 로봇피격 11종(최근 에셋)
         /// <summary>몹이 발을 딛는 소리. 자주 나므로 볼륨을 낮게, 피치 편차를 넓게 준다.</summary>
