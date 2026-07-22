@@ -234,9 +234,12 @@ namespace Game.View
         // (TryConsumeFollowingInput이 pending==0일 때 Miss 판정을 걸지 않음) — 이 값은 오직
         // 접근링 연출 속도용이며 실제 입력 마감과는 무관하다.
         public const float RhythmFirstBeatDisplaySeconds = 1.2f;
-        public const float ExecutionGhostAlpha = 0.16f;
-        public const float ExecutionGhostFadeNear = 0.65f;
-        public const float ExecutionGhostFadeFar = 3.2f;
+        // [2026-07-22] 실행 시작 시 1인칭 시야가 내 잔상에 가려 적이 안 보인다는 피드백.
+        // 주변(지나간·먼 미래) 잔상은 여러 개가 겹쳐 쌓여 불투명 벽이 되므로 알파를 낮추고,
+        // 카메라 주변 잔상이 사라지는 반경(FadeNear)을 넓혀 앞쪽 시야를 비운다.
+        public const float ExecutionGhostAlpha = 0.10f;      // 지나간 잔상(더 옅게)
+        public const float ExecutionGhostFadeNear = 1.4f;    // 이 거리 안쪽 잔상은 사라짐(넓힘)
+        public const float ExecutionGhostFadeFar = 3.6f;
 
         // >>> [다음 잔상 강조, 2026-07-22] Following 중 "다음에 어디로 가야 하는가"가 안 읽힌다는
         // 피드백. 예전엔 판정 대상 잔상이 alpha 0.28, 지나간 잔상이 0.16, 남은 잔상이 0.08로
@@ -255,8 +258,8 @@ namespace Game.View
         /// <summary>다음의 다음 액션 잔상 — "그 뒤엔 저기"를 미리 알려주는 예고 단계.</summary>
         public const float GhostAfterNextAlpha = 0.34f;
         public const float GhostAfterNextWhiteBlend = 0.2f;
-        /// <summary>아직 한참 남은 잔상(예전 하드코딩 0.08).</summary>
-        public const float GhostFutureAlpha = 0.07f;
+        /// <summary>아직 한참 남은 잔상. [2026-07-22] 여러 개가 겹쳐 시야를 막아 더 옅게(0.07→0.04).</summary>
+        public const float GhostFutureAlpha = 0.04f;
         // <<< [다음 잔상 강조 끝]
         public static readonly Color ExecutionFxTint = new Color(0.52f, 1f, 0.62f);
         public static readonly Color ExecutionFxVignetteColor = new Color(0.01f, 0.22f, 0.06f);
@@ -447,6 +450,13 @@ namespace Game.View
         public const float SlowAimPocketTimeScale = 0.18f;
         /// <summary>노드 사이 주행 배속.</summary>
         public const float SlowAimRunTimeScale = 1f;
+        /// <summary>[2026-07-22] 좌·우·뒤(그리고 앞) 대시가 재생되는 동안의 배속. 대시는 몇 틱
+        /// 안에 멀리 이동해서 1배속으로 재생하면 "순간이동"처럼 보인다 — 이 구간만 시간을 느리게
+        /// 흘려 "옆으로 대시했다"가 눈에 읽히게 한다.</summary>
+        public const float SlowAimDashTimeScale = 0.32f;
+        /// <summary>대시 발동 후 이만큼의 틱 동안 <see cref="SlowAimDashTimeScale"/>로 느리게 본다.
+        /// 대시 지속(sim)보다 넉넉히 잡아 이동이 끝까지 보이게 한다.</summary>
+        public const int SlowAimDashViewTicks = 14;
         /// <summary>느려지는 속도(초당 배속 변화). 작을수록 부드럽게 브레이크가 걸린다.</summary>
         public const float SlowAimSlowDownRate = 1.6f;
         /// <summary>빨라지는 속도. 감속보다 훨씬 커야 "클릭 → 시원하게 터진다"가 된다.</summary>
@@ -497,8 +507,10 @@ namespace Game.View
         /// 액션 간격이 20틱 남짓이라 이 값이 크면 감속 구간이 안 남는다(=조준이 완전 정지에서만
         /// 일어남). 액션 재생을 덮을 만큼만 짧게.</summary>
         public const int SlowAimBurstTicks = 8;
-        /// <summary>잔상과 딱 맞췄을 때의 가속 배속. 1보다 커야 "보상"으로 읽힌다.</summary>
-        public const float SlowAimBurstBoost = 1.45f;
+        /// <summary>잔상과 딱 맞췄을 때의 가속 배속.
+        /// [2026-07-22] 액션 사이 이동이 "너무 빠르다(순간이동 같다)"는 피드백 — 예측 안 썼을 때와
+        /// 같은 이동 속도를 원함. 1.0으로 두어 발동 후에도 정상 속도로만 재생한다(가속 보상 제거).</summary>
+        public const float SlowAimBurstBoost = 1f;
         /// <summary>이 각도(도) 안이면 정타 — 가속 + 금색 연출.</summary>
         public const float SlowAimPerfectAngle = 14f;
 

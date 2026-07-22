@@ -79,6 +79,10 @@ namespace Game.View
                || t == PredictedActionType.DashRight
                || t == PredictedActionType.DashBackward;
 
+        /// <summary>대시 종류(4방향 전부)인가 — 대시 슬로우 재생 창 판정용.</summary>
+        static bool IsDash(PredictedActionType t)
+            => t == PredictedActionType.DashForward || IsAutoDash(t);
+
         readonly List<Node> nodes = new List<Node>();
 
         // [중요] 더블 점프를 합치면서 노드 개수가 원본 액션 마커 개수보다 적어진다. 그런데
@@ -109,6 +113,8 @@ namespace Game.View
         int remainTicks = int.MaxValue;
         /// <summary>이 틱까지는 무조건 정상 속도 이상으로 달린다(액션 직후 구간).</summary>
         int burstUntilTick;
+        /// <summary>[2026-07-22] 이 틱까지는 대시가 눈에 보이도록 느리게 재생한다(대시 발동 시 설정).</summary>
+        int dashViewUntilTick = int.MinValue;
         float burstScale = 1f;
         /// <summary>연속 성공 수 — 좌클릭이 연달아 나올 때 "쳤다"를 세어서 보여준다.</summary>
         public int Streak { get; private set; }
@@ -117,6 +123,7 @@ namespace Game.View
         bool lookSeeded;
         float aimError;          // 현재 조준과 목표 방향의 각도차(도) — HUD·판정 공용
         float targetYaw;
+        Vector3 aimTargetWorld;  // 조준 대상 적의 몸 중앙(월드) — 리티클을 여기에 얹는다
         bool hasTarget;
         string feedback = "";
         float feedbackUntil;
@@ -136,6 +143,7 @@ namespace Game.View
             Approaching = false;
             currentTick = 0;
             burstUntilTick = 0;
+            dashViewUntilTick = int.MinValue;
             burstScale = 1f;
             Streak = 0;
             hitFlashUntil = 0f;
@@ -382,13 +390,28 @@ namespace Game.View
             // 통째로 무효가 된다(예측이 가정한 위치에 안 서게 되므로). 4방향은 이산값이라
             // 월드 방향을 보존하며 재매핑하는 것도 90° 단위가 아니면 불가능하다.
             //
-            // 그래서 <b>대상이 있는 액션(런지)만</b> 각도를 묻는다. 대시·점프는 키만 누르면 되고,
-            // 회전은 "다음 표적을 미리 봐두는" 자유로만 남는다.
-            if (n.targetId < 0) return;
+            // 그래서 <b>대상이 있는 액션(런지·평타)만</b> 각도를 묻는다. 대시·점프는 키만 누르면
+            // 되고, 회전은 "다음 표적을 미리 봐두는" 자유로만 남는다.
+            //
+            // [2026-07-22 추가] 평타(L-CLICK)도 런지처럼 표적 원 + 조준 게이트를 준다. 평타는
+            // targetId를 안 들고 있으므로(런지 전용) 노드 자리에서 가장 가까운 적을 표적으로
+            // 잡는다 — "정확히 미래를 그대로 따라간다"는 확정감을 위해 자유도를 주지 않는다.
+            Vector3 targetCenter;   // 적 몸 중앙(월드) — 조준 리티클을 여기에 얹는다
+            if (n.targetId >= 0)
+            {
+                int ti = PlayerCombat.FindEnemyIndex(in w, n.targetId);
+                if (ti < 0) return;
+                targetCenter = w.enemies[ti].pos + Vector3.up * (w.enemies[ti].height * 0.5f);
+            }
+            else if (n.type == PredictedActionType.Attack)
+            {
+                if (!TryNearestEnemy(in w, n.anchor, out targetCenter)) return;
+            }
+            else return;   // 대시·점프는 방향을 묻지 않는다(위 주석 참고)
 
-            int ti = PlayerCombat.FindEnemyIndex(in w, n.targetId);
-            if (ti < 0) return;
-            Vector3 to = w.enemies[ti].pos - w.player.pos;
+            aimTargetWorld = targetCenter;   // DrawAimGuide가 이 위치(적 몸 중앙)에 리티클을 그린다
+
+            Vector3 to = targetCenter - w.player.pos;
 
             to.y = 0f;
             if (to.sqrMagnitude < 0.04f) return;   // 거의 제자리 — 방향을 물을 게 없다
@@ -399,6 +422,24 @@ namespace Game.View
             hasTarget = true;
         }
 
+        /// <summary>노드 자리(from)에서 가장 가까운 살아있는 적의 <b>몸 중앙</b>을 찾는다. 평타 표적
+        /// 추정용(평타는 런지와 달리 targetId를 기록하지 않으므로 위치로 되짚는다).</summary>
+        static bool TryNearestEnemy(in SimWorld w, Vector3 from, out Vector3 center)
+        {
+            center = Vector3.zero;
+            float best = float.MaxValue;
+            for (int i = 0; i < w.enemyCount; i++)
+            {
+                if (!w.enemies[i].alive) continue;
+                Vector3 d = w.enemies[i].pos - from; d.y = 0f;
+                float sq = d.sqrMagnitude;
+                if (sq >= best) continue;
+                best = sq;
+                center = w.enemies[i].pos + Vector3.up * (w.enemies[i].height * 0.5f);
+            }
+            return best < float.MaxValue;
+        }
+
         /// <summary>
         /// 감속은 천천히, 복귀는 빠르게. 이 비대칭이 "브레이크 걸고 → 시원하게 터진다"를 만든다.
         /// </summary>
@@ -406,7 +447,12 @@ namespace Game.View
         {
             float target;
 
-            if (currentTick < burstUntilTick)
+            if (currentTick <= dashViewUntilTick)
+            {
+                // 대시 재생 구간 — 최우선. 이동이 빠른 만큼 느리게 봐서 방향이 읽히게 한다.
+                target = PredictionConfig.SlowAimDashTimeScale;
+            }
+            else if (currentTick < burstUntilTick)
             {
                 // 액션 직후 — 무조건 빠르게. 다음 노드가 코앞이어도 여기서는 안 느려진다.
                 // 정확히 맞춘 경우엔 1배속을 넘겨 가속한다(보상).
@@ -435,6 +481,10 @@ namespace Game.View
             float rate = target < TimeScale
                 ? PredictionConfig.SlowAimSlowDownRate    // 느려질 때 — 천천히
                 : PredictionConfig.SlowAimSpeedUpRate;    // 빨라질 때 — 빠르게
+            // 대시 구간은 짧으므로 천천히 브레이크를 걸면 대시가 끝난 뒤에야 느려진다 —
+            // 진입/복귀 모두 빠른 rate로 스냅해 대시 지속 동안 확실히 슬로우가 걸리게 한다.
+            if (currentTick <= dashViewUntilTick)
+                rate = PredictionConfig.SlowAimSpeedUpRate;
             TimeScale = Mathf.MoveTowards(TimeScale, target, rate * Time.unscaledDeltaTime);
         }
 
@@ -558,6 +608,11 @@ namespace Game.View
                 ? PredictionConfig.SlowAimBurstBoost
                 : PredictionConfig.SlowAimRunTimeScale;
 
+            // [2026-07-22] 대시(좌·우·뒤·앞)는 재생 구간을 느리게 봐서 "옆으로 대시했다"가 읽히게.
+            // UpdateTimeScale이 이 창을 최우선으로 처리한다.
+            if (IsDash(n.type))
+                dashViewUntilTick = n.throughTick + PredictionConfig.SlowAimDashViewTicks;
+
             Cursor = index + 1;
             AdvanceCursor();
             ClosePocket();
@@ -654,7 +709,11 @@ namespace Game.View
         public void DrawHud(in SimWorld w, Camera cam)
         {
             EnsureTextures();
-            DrawTargetMarker(in w, cam);
+            // [2026-07-22] 조준 중(적을 향해 조준 가이드가 뜨는 상태)엔 표적 위치 마커(흰 원)를
+            // 그리지 않는다 — 조준 가이드(적 위 원)와 표적 마커가 동시에 떠서 원이 두 개로
+            // 보인다는 피드백. 조준할 게 없는 노드(대시·점프)에서만 표적 마커를 남긴다.
+            bool aiming = PocketOpen && CursorWantsAim && hasTarget;
+            if (!aiming) DrawTargetMarker(in w, cam);
             DrawGauge();
             DrawHitFlash();
             if (PocketOpen)
@@ -804,21 +863,29 @@ namespace Game.View
 
             float cx = Screen.width * 0.5f;
             float cy = Screen.height * 0.5f;
-            // 화면 폭 절반이 시야각 절반에 대응한다고 보고 편차를 픽셀로 환산.
-            float halfFov = cam != null ? cam.fieldOfView * cam.aspect * 0.5f : 45f;
-            float px = cx + Mathf.Clamp(delta / Mathf.Max(1f, halfFov), -1.15f, 1.15f) * (Screen.width * 0.5f);
 
+            // [2026-07-22] 리티클을 화면 중앙 높이에 고정하지 않고 <b>대상 적의 몸 중앙</b> 화면
+            // 위치에 얹는다 — 공중 적처럼 높이 뜬 적도 그 몸에 표적이 가서, 카메라가 위로 치켜올라
+            // "위쪽만 보이는" 문제가 사라진다. 화면 밖(뒤)이면 예전처럼 중앙 높이 + 좌우 편차로 폴백.
             float size = Mathf.Clamp(Screen.height * 0.1f, 70f, 150f);
+            float rx, ry;
+            Vector3 sp = cam != null ? cam.WorldToScreenPoint(aimTargetWorld) : new Vector3(0, 0, -1);
+            if (sp.z > 0f)
+            {
+                rx = sp.x;
+                ry = Screen.height - sp.y;   // GUI 좌표는 y가 위→아래
+            }
+            else
+            {
+                float halfFov = cam != null ? cam.fieldOfView * cam.aspect * 0.5f : 45f;
+                rx = cx + Mathf.Clamp(delta / Mathf.Max(1f, halfFov), -1.15f, 1.15f) * (Screen.width * 0.5f);
+                ry = cy;
+            }
+
             Color old = GUI.color;
-
-            // 허용 범위 — 이 폭 안에 들어오면 통과. 널널하다는 걸 눈으로 알게 한다.
-            float tolPx = Mathf.Clamp(tolerance / Mathf.Max(1f, halfFov), 0f, 1.15f) * (Screen.width * 0.5f);
-            GUI.color = new Color(0.35f, 1f, 0.78f, 0.12f);
-            GUI.DrawTexture(new Rect(cx - tolPx, cy - size * 0.5f, tolPx * 2f, size), bar);
-
             GUI.color = ok ? PredictionConfig.ClickChainReticleBright
                            : new Color(1f, 0.72f, 0.4f, 0.9f);
-            GUI.DrawTexture(new Rect(px - size * 0.5f, cy - size * 0.5f, size, size), ring);
+            GUI.DrawTexture(new Rect(rx - size * 0.5f, ry - size * 0.5f, size, size), ring);
             GUI.color = old;
         }
 

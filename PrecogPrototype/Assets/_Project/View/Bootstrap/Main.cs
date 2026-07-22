@@ -86,6 +86,11 @@ namespace Game.View
         public float LookYaw   => input.Yaw;
         public float LookPitch => input.Pitch;
         public void SetPredictionSpawnLocked(bool locked) => world.spawnLocked = locked;
+        /// <summary>예측(미리보기·실행 포함)이 진행 중인가. 연출(런지 타깃 윤곽 등)이 예측 중엔
+        /// 표시를 끄기 위해 읽는다.</summary>
+        public bool PredictionActive => prediction.Frozen;
+        /// <summary>몹 뷰 접근(런지 타깃 윤곽 연출 등 순수 연출이 읽는다).</summary>
+        public EntityViews Views => views;
 
         /// <summary>컷신 종료 시 플레이어를 현재 시선(yaw) 정면으로 dist만큼 이동(봉인 박스 탈출).
         /// 스크립트 텔레포트라 결정론과 무관(예측 중엔 컷신을 트리거하지 않음). prevWorld도 맞춰 보간 튐 방지.</summary>
@@ -231,6 +236,9 @@ namespace Game.View
 
             fixedAccum += Time.deltaTime;
             float alpha = Mathf.Clamp01(fixedAccum / Time.fixedDeltaTime);
+            // [2026-07-22] 미리보기 중엔 sim이 안 도므로(아래 FixedUpdate가 Preview에서 early-return)
+            // 몹 애니메이터도 얼린다 — 정지 화면에서 몹 다리만 계속 걷던 버그 수정.
+            EntityViews.SimFrozen = prediction.state == PredictionController.State.Preview;
             views.Sync(in world, in prevWorld, alpha);
             // 시선이 사용자 것인 동안에는 자동 추종 카메라를 쓰지 않는다 — 자유 주행처럼
             // 통째로 넘긴 경우뿐 아니라, 슬로우 포켓 동안만 빌려준 경우(모드 11)도 포함이다.

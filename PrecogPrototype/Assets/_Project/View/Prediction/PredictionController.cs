@@ -1988,7 +1988,10 @@ namespace Game.View
                 for (int i = 0; i < pool.Count; i++)
                 {
                     PredictedFrame f = i < need ? r.ghostFrames[i] : default;
-                    bool used = i < need && (state != State.Preview || f.tick <= revealTick);
+                    // [2026-07-22] 실행(Following) 시작 시 첫 잔상(i==0)이 1인칭 카메라 바로 앞에
+                    // 서서 시야를 통째로 가린다는 피드백 — 실행 중엔 첫 잔상을 숨긴다.
+                    bool used = i < need && (state != State.Preview || f.tick <= revealTick)
+                                && !(state == State.Following && i == 0);
                     pool[i].gameObject.SetActive(used);
                     if (!used) continue;
                     // ghostFrames는 actionMarkers와 같은 인덱스로 대응하되 마지막 프레임만
@@ -2079,12 +2082,9 @@ namespace Game.View
                                             + PredictionConfig.GhostNextPulseAmplitude * pulse) * fade;
                         return c;
                     }
-                    if (ghostIndex == pending + 1)
-                    {
-                        c = Color.Lerp(c, Color.white, PredictionConfig.GhostAfterNextWhiteBlend);
-                        c.a = PredictionConfig.GhostAfterNextAlpha * proximityFade;
-                        return c;
-                    }
+                    // [2026-07-22] 다음 표적(pending+1) 강조 제거 — 현재 표적과 다음 표적 원이
+                    // 둘 다 떠서 헷갈린다는 피드백. 현재 표적(pending)만 강조하고, 다음 것은
+                    // 아래 일반 경로 색으로 흐리게 둔다.
                 }
 
                 if (frame.tick < followingIndex)

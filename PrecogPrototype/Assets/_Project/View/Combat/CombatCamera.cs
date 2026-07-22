@@ -120,13 +120,19 @@ namespace Game.View
 
             // 대상: 글로리킬 처형 몹 우선, 아니면 런지 표적 몹(몸통 겨냥). 표적은 바인드로 정지.
             // 대상의 '실제' 높이로 중심을 겨냥 — 대형몹(×3)의 발치를 보던 버그 수정.
-            Vector3 targetPos; float targetHeight;
+            Vector3 targetPos; float targetHeight; bool targetFlying;
             if (glory)
-            { targetPos = w.enemies[c.gloryTargetId].pos; targetHeight = w.enemies[c.gloryTargetId].height; }
+            {
+                targetPos = w.enemies[c.gloryTargetId].pos;
+                targetHeight = w.enemies[c.gloryTargetId].height;
+                targetFlying = w.enemies[c.gloryTargetId].ai.mobility == MobilityType.Flying;
+            }
             else
-            { targetPos = LungeTargetPos(in w, c.lungeTargetId, out targetHeight); }
+            { targetPos = LungeTargetPos(in w, c.lungeTargetId, out targetHeight, out targetFlying); }
             // 둠식은 가슴~머리를 본다. 예전(0.5=몸통 중심)은 겨냥이 낮아 화면이 아래로 다이빙했다.
-            float ratio = doomStyle ? aimHeightRatio : 0.5f;
+            // [2026-07-22] 공중 원거리 적은 예외 — 가슴~머리를 겨냥하면 카메라가 위로 치켜올라
+            // "위쪽만 보이는" 문제. 공중 적은 몸 중앙(0.5)을 겨냥해 화면 중앙에 오게 한다.
+            float ratio = (doomStyle && !targetFlying) ? aimHeightRatio : 0.5f;
             Vector3 aimAt = targetPos + Vector3.up * (targetHeight * ratio);
 
             float lockYaw, lockPitch;
@@ -203,11 +209,17 @@ namespace Game.View
                 vcam.transform.rotation = Quaternion.Euler(curPitch, curYaw, 0f);
         }
 
-        static Vector3 LungeTargetPos(in SimWorld w, int targetId, out float height)
+        static Vector3 LungeTargetPos(in SimWorld w, int targetId, out float height, out bool flying)
         {
             for (int i = 0; i < w.enemyCount; i++)
-                if (w.enemies[i].id == targetId) { height = w.enemies[i].height; return w.enemies[i].pos; }
+                if (w.enemies[i].id == targetId)
+                {
+                    height = w.enemies[i].height;
+                    flying = w.enemies[i].ai.mobility == MobilityType.Flying;
+                    return w.enemies[i].pos;
+                }
             height = SimConfig.EnemyHeight;
+            flying = false;
             return w.player.combat.lungeDest;   // 표적 소실 시 도착점
         }
     }
