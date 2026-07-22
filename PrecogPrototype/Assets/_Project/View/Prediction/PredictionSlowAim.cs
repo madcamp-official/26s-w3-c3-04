@@ -127,7 +127,7 @@ namespace Game.View
         bool hasTarget;
         string feedback = "";
         float feedbackUntil;
-        Texture2D bar, ring, arrow;
+        Texture2D bar, ring, glow;
 
         // ───────────────────────── 생명주기 ─────────────────────────
 
@@ -422,6 +422,25 @@ namespace Game.View
             hasTarget = true;
         }
 
+        /// <summary>
+        /// 현재 커서 노드의 "표적" 월드 위치. 표적 마커·방향 글로우가 이 지점을 가리킨다.
+        /// [2026-07-22] 예전엔 노드 anchor(=내가 설 자리)를 썼는데, 도착할수록 그 지점이 카메라
+        /// 코앞·뒤로 와서 화면 안에 적이 보이는데도 엉뚱한 모서리에 글로우가 떴다. 대상이 있는
+        /// 노드(런지·평타)는 <b>적 몸 중앙</b>을, 그 외(대시·점프)는 노드 자리를 가리키게 바꾼다.
+        /// </summary>
+        Vector3 MarkerWorld(in SimWorld w)
+        {
+            Node n = nodes[Cursor];
+            if (n.targetId >= 0)
+            {
+                int ti = PlayerCombat.FindEnemyIndex(in w, n.targetId);
+                if (ti >= 0) return w.enemies[ti].pos + Vector3.up * (w.enemies[ti].height * 0.5f);
+            }
+            if (n.type == PredictedActionType.Attack && TryNearestEnemy(in w, n.anchor, out Vector3 c))
+                return c;
+            return n.anchor + Vector3.up * PredictionConfig.ClickChainAimHeight;
+        }
+
         /// <summary>노드 자리(from)에서 가장 가까운 살아있는 적의 <b>몸 중앙</b>을 찾는다. 평타 표적
         /// 추정용(평타는 런지와 달리 targetId를 기록하지 않으므로 위치로 되짚는다).</summary>
         static bool TryNearestEnemy(in SimWorld w, Vector3 from, out Vector3 center)
@@ -709,11 +728,11 @@ namespace Game.View
         public void DrawHud(in SimWorld w, Camera cam)
         {
             EnsureTextures();
-            // [2026-07-22] 조준 중(적을 향해 조준 가이드가 뜨는 상태)엔 표적 위치 마커(흰 원)를
-            // 그리지 않는다 — 조준 가이드(적 위 원)와 표적 마커가 동시에 떠서 원이 두 개로
-            // 보인다는 피드백. 조준할 게 없는 노드(대시·점프)에서만 표적 마커를 남긴다.
+            // [2026-07-22] 조준 중엔 화면 안 표적 링(흰 원)을 생략한다 — 조준 가이드(적 위 원)와
+            // 겹쳐 원이 둘로 보인다는 피드백. 단, 화면 밖 표적 방향 빛번짐은 조준 중에도 유지한다
+            // (등 뒤 표적을 찾는 데 필요) — DrawTargetMarker가 showRing=false여도 모서리 글로우는 그린다.
             bool aiming = PocketOpen && CursorWantsAim && hasTarget;
-            if (!aiming) DrawTargetMarker(in w, cam);
+            DrawTargetMarker(in w, cam, showRing: !aiming);
             DrawGauge();
             DrawHitFlash();
             if (PocketOpen)
@@ -735,13 +754,13 @@ namespace Game.View
         ///   · 화면 안 → 그 자리에 맥동하는 링 + 거리
         ///   · 화면 밖·뒤 → 화면 가장자리로 밀어붙인 삼각 화살표가 그쪽을 가리킨다
         /// </summary>
-        void DrawTargetMarker(in SimWorld w, Camera cam)
+        void DrawTargetMarker(in SimWorld w, Camera cam, bool showRing)
         {
             if (cam == null || Cursor >= nodes.Count) return;
 
-            Vector3 world = nodes[Cursor].anchor + Vector3.up * PredictionConfig.ClickChainAimHeight;
+            Vector3 world = MarkerWorld(in w);
             Vector3 sp = cam.WorldToScreenPoint(world);
-            float distance = Vector3.Distance(w.player.pos, nodes[Cursor].anchor);
+            float distance = Vector3.Distance(w.player.pos, world);
 
             // 깜박임 — 잔상 맥동과 같은 박자로 뛰게 해서 둘이 한 몸으로 읽히게 한다.
             float blink = 0.5f + 0.5f * Mathf.Sin(
@@ -757,6 +776,8 @@ namespace Game.View
 
             if (onScreen)
             {
+                // 조준 중이면 화면 안 링은 생략(조준 가이드가 대신) — 화면 안이므로 글로우도 불필요.
+                if (!showRing) return;
                 float gx = sp.x;
                 float gy = Screen.height - sp.y;
                 float size = Mathf.Clamp(Screen.height * 0.055f, 34f, 74f);
@@ -776,44 +797,32 @@ namespace Game.View
                 return;
             }
 
-            // ── 화면 밖(뒤 포함) — 가장자리 화살표 ──
-            // 카메라 뒤면 투영이 뒤집히므로 방향을 반전해야 한다.
+            // ── 화면 밖(뒤 포함) — 그 방향 화면 모서리를 빛번짐으로 밝힌다(화살표 대신) ──
+            // [2026-07-22] 배틀그라운드 피격 방향 표시처럼, 표적이 있는 쪽 가장자리가 은은하게
+            // 빛나 "저쪽에 표적이 있다"를 직관적으로 알린다. 카메라 뒤면 투영이 뒤집히므로 방향 반전.
             var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
             Vector2 dir = new Vector2(sp.x, sp.y) - center;
             if (behind) dir = -dir;
             if (dir.sqrMagnitude < 1e-4f) dir = Vector2.down;
             dir.Normalize();
 
-            float margin = PredictionConfig.SlowAimMarkerEdgeMargin;
-            float hx = Screen.width * 0.5f - margin;
-            float hy = Screen.height * 0.5f - margin;
-            // 사각형 화면 경계에 맞춰 스케일 — 원형으로 하면 모서리 쪽이 안쪽으로 들어간다.
+            // 실제 화면 경계(마진 0) 위의 점 — 글로우 중심을 여기 두면 절반이 화면 밖으로
+            // 잘려 "가장자리에서 안쪽으로 번지는" 느낌이 난다.
+            float hx = Screen.width * 0.5f;
+            float hy = Screen.height * 0.5f;
             float scale = Mathf.Min(
                 hx / Mathf.Max(0.0001f, Mathf.Abs(dir.x)),
                 hy / Mathf.Max(0.0001f, Mathf.Abs(dir.y)));
             float ex = center.x + dir.x * scale;
             float ey = Screen.height - (center.y + dir.y * scale);
 
-            float asize = Mathf.Clamp(Screen.height * 0.05f, 30f, 62f);
-            // 화면 좌표는 y가 아래로 자라므로 각도 부호를 뒤집는다.
-            float angle = Mathf.Atan2(-dir.y, dir.x) * Mathf.Rad2Deg + 90f;
-            Matrix4x4 m = GUI.matrix;
-            GUIUtility.RotateAroundPivot(angle, new Vector2(ex, ey));
-            GUI.color = c;
-            GUI.DrawTexture(Centered(ex, ey, asize), arrow);
-            GUI.matrix = m;
+            // 큰 소프트 글로우 — 화면 높이에 비례. 맥동으로 은은하게 숨쉬게 한다.
+            float glowSize = Mathf.Clamp(Screen.height * 0.6f, 300f, 760f);
+            float pulse = 0.72f + 0.28f * blink;
+            Color glowCol = new Color(0.45f, 1f, 0.82f);   // 민트-시안(표적 방향)
+            GUI.color = new Color(glowCol.r, glowCol.g, glowCol.b, 0.55f * pulse);
+            GUI.DrawTexture(Centered(ex, ey, glowSize), glow);
             GUI.color = old;
-
-            var style = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = Mathf.RoundToInt(Mathf.Clamp(Screen.height * 0.018f, 12f, 19f)),
-                fontStyle = FontStyle.Bold,
-                richText = true,
-            };
-            string where = behind ? "뒤" : "밖";
-            GUI.Label(new Rect(ex - 90f, ey + asize * 0.55f, 180f, 24f),
-                      $"<color=#FFFFFFDD>{where} · {distance:0.0}m</color>", style);
         }
 
         void DrawGauge()
@@ -1028,29 +1037,30 @@ namespace Game.View
             ring.SetPixels(px);
             ring.Apply();
 
-            // 화면 밖 목표를 가리키는 삼각 화살표(위쪽을 향한 상태로 굽고, 그릴 때 회전시킨다).
-            const int asize = 64;
-            arrow = new Texture2D(asize, asize, TextureFormat.RGBA32, false)
+            // 표적 방향 모서리 빛번짐용 소프트 글로우 — 중심이 밝고 부드럽게 사라지는 원형.
+            const int gsize = 128;
+            glow = new Texture2D(gsize, gsize, TextureFormat.RGBA32, false)
             {
-                name = "PredictionSlowAimArrow",
+                name = "PredictionSlowAimGlow",
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp,
             };
-            var ap = new Color[asize * asize];
-            for (int y = 0; y < asize; y++)
+            var gp = new Color[gsize * gsize];
+            for (int y = 0; y < gsize; y++)
             {
-                for (int x = 0; x < asize; x++)
+                for (int x = 0; x < gsize; x++)
                 {
-                    float u = (x + 0.5f) / asize;
-                    float v = (y + 0.5f) / asize;   // 0=아래, 1=위
-                    // 위로 갈수록 좁아지는 삼각형. 아래 15%는 잘라 꼬리를 만든다.
-                    float halfWidth = Mathf.Lerp(0.46f, 0.02f, v);
-                    bool inside = v > 0.15f && Mathf.Abs(u - 0.5f) <= halfWidth;
-                    ap[y * asize + x] = new Color(1f, 1f, 1f, inside ? 1f : 0f);
+                    float dx = (x + 0.5f) / gsize - 0.5f;
+                    float dy = (y + 0.5f) / gsize - 0.5f;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;   // 0=중심, 1=가장자리
+                    // 부드러운 감쇠(가운데 밝고 바깥으로 번지듯 사라짐).
+                    float a = Mathf.Clamp01(1f - d);
+                    a = a * a;   // 더 부드럽게
+                    gp[y * gsize + x] = new Color(1f, 1f, 1f, a);
                 }
             }
-            arrow.SetPixels(ap);
-            arrow.Apply();
+            glow.SetPixels(gp);
+            glow.Apply();
         }
 
         static string LabelOf(PredictedActionType t)
