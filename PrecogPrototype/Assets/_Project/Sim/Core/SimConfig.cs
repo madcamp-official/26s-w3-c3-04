@@ -24,6 +24,8 @@ namespace Game.Sim
         public const int   SpawnLaunchMinTicks  = 8;     // 최소 체공 — 스폰 즉시 착지 판정 방지
         public const int   SpawnLaunchMaxTicks  = 180;   // 안전 타임아웃(3초) — 어디 걸려도 반드시 해제
         public const int   SpawnLaunchFlyTicks  = 30;    // 공중몹: 착지 개념이 없어 이 틱 뒤 정상 AI
+        public const float SpawnFlyingDownSpeed = 3f;    // 공중몹 스폰 펄스: 아래 성분(팬에서 흘러나오듯)
+        public const float SpawnFlyingSideSpeed = 1.5f;  // 공중몹 스폰 펄스: 사선 성분(순번 기반 방향 — 결정론)
 
         // 이동 시 넘을 수 있는 수직 턱 높이(step-up). 이 이하 턱은 올라타고, 초과면 벽으로 막힘.
         // NavMesh가 잇는 작은 턱(잔단차 0.3 등)을 모터도 넘게 해 "경로는 있는데 몸이 낌"을 방지.

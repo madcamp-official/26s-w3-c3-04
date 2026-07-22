@@ -179,10 +179,40 @@ namespace Game.Sim
                 if (steer.sqrMagnitude > 1e-6f) dir = steer.normalized;
                 // 돌진몹은 커밋 전 평소 추격만 살짝 느리게(ChargeRun 본 속도는 안 건드림) — 실물 모델 Walk
                 // 애니메이션이 전속력을 못 따라가 미끄러지듯 보이는 문제.
-                float speedMul = e.ai.mobility == MobilityType.Charge ? AIConfig.ChargeChaseSpeedMul : 1f;
+                // 근접 그런트(mobility=Ground, combat=Melee)는 별도로 0.7배(요청). 돌진(mobility=Charge)이
+                // 우선 판정돼, combat이 같은 Melee여도 돌진 배율만 적용된다.
+                float speedMul = e.ai.mobility == MobilityType.Charge ? AIConfig.ChargeChaseSpeedMul
+                               : e.ai.combat == CombatType.Melee ? AIConfig.MeleeChaseMul : 1f;
                 horiz = dir * SimConfig.EnemyMoveSpeed * speedMul * dt;
             }
             Move(ref e, horiz, in svc, dt);
+        }
+
+        /// <summary>
+        /// 스폰 즉시 SpawnDrop 링크를 타게 한다(펄스 폐기 — 지상·돌진몹). 몹이 팬 아래 입에서
+        /// 생겨나 착지점으로 수직 낙하한다. 주저 없이 곧바로 Airborne으로 진입.
+        ///
+        /// 결정론: 입력(착지·clearance·중력)이 고정이면 StepTraversal이 매 틱 같은 아치로 재구성한다
+        /// (에디터 프리뷰·예측 포크와 동일). 링크 그래프 id는 없으므로 -1.
+        /// </summary>
+        public static void BeginSpawnDrop(ref EnemySim e, Vector3 landing, float clearance, float gravity)
+        {
+            e.activeMoveKind = MoveKind.Drop;
+            e.activeTraversalLinkId = -1;
+            e.traversalSlot = 0;
+            e.traversalTicks = 0;
+            e.jumpStart = e.pos;
+            e.jumpEnd = landing;
+            e.traversalClearance = clearance;
+            e.traversalGravity = gravity > 0f ? gravity : SimConfig.TraversalGravity;
+            BallisticArc arc = TraversalBallistics.Solve(e.jumpStart, e.jumpEnd, e.traversalClearance, e.traversalGravity);
+            e.jumpDuration = arc.flightTicks;
+            e.traversalPauseTicks = 0;                                  // 스폰 즉시 낙하(주저 없음)
+            e.traversalRecoverTicks = SimConfig.TraversalRecoveryTicks; // 착지 후 잠깐 경직
+            e.launchTicks = 0;                                          // 펄스 아님
+            e.vel = Vector3.zero;
+            e.grounded = false;
+            e.traversalPhase = TraversalPhase.Airborne;
         }
 
         static void StartTraversal(ref EnemySim e, in PathStep step, int slot, in SimServices svc)

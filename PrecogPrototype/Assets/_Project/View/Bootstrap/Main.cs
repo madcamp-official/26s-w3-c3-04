@@ -66,6 +66,19 @@ namespace Game.View
             return id;
         }
 
+        /// <summary>웨이브 배관용: 스폰 위치(팬 아래 입)에서 <b>즉시 SpawnDrop 링크를 타고 낙하</b>한다.
+        /// 펄스 폐기 — 지상·돌진몹은 이 경로로 수직 낙하한다(공중몹은 SpawnEnemyLaunched로 약한 펄스).</summary>
+        public int SpawnEnemyDropping(Vector3 pos, CombatType combat, MobilityType mobility, SizeClass size,
+                                      Vector3 landing, float clearance, float gravity)
+        {
+            int id = SpawnEnemyAt(pos, combat, mobility, size);
+            if (id < 0) return -1;
+            for (int i = 0; i < world.enemyCount; i++)
+                if (world.enemies[i].id == id)
+                { EnemyMovement.BeginSpawnDrop(ref world.enemies[i], landing, clearance, gravity); break; }
+            return id;
+        }
+
         /// <summary>주어진 id들 중 살아있는 적 수 — 웨이브별 생존 카운트용(Sim 수정 없이 웨이브 소속 추적).</summary>
         public int AliveCountAmong(System.Collections.Generic.HashSet<int> ids)
         {
@@ -415,6 +428,11 @@ namespace Game.View
                 cam = go.AddComponent<Camera>();
             }
             cam.nearClipPlane = 0.1f;   // 벽면 최소거리(≈0.25) 안쪽 → 벽에 붙어도 뒤가 안 잘림
+
+            // 안티앨리어싱(SMAA) — 계단·흐릿한 테두리 완화. 뷰모델 오버레이 카메라도 같은 값을 쓴다.
+            var camData = cam.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>()
+                       ?? cam.gameObject.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+            camData.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.SubpixelMorphologicalAntiAliasing;
 
             // Cinemachine: Brain이 vcam pose를 따라 실제 카메라를 움직인다. 1인칭·예측·컷신을 vcam으로 통일.
             var brain = cam.GetComponent<CinemachineBrain>() ?? cam.gameObject.AddComponent<CinemachineBrain>();

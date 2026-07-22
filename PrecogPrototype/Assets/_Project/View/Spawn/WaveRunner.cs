@@ -137,7 +137,9 @@ namespace Game.View
                 // 간격 0인 몹은 같은 틱에 이어서 뱉는다(동시 방출 묶음).
                 while (cursors[i].index < pipe.MobCount)
                 {
-                    SpawnOne(pipe, pipe.mobs[cursors[i].index]);
+                    // 공백(대기) 엔트리는 소환하지 않고 간격만 소비한다(번갈아 리듬). Fan도 또잉하지 않음.
+                    MobEmit entry = pipe.mobs[cursors[i].index];
+                    if (!entry.isGap) SpawnOne(pipe, entry, cursors[i].index);
                     cursors[i].index++;
                     if (cursors[i].index >= pipe.MobCount) break;
 
@@ -153,25 +155,42 @@ namespace Game.View
             if (allDone) CurrentState = State.Watching;
         }
 
-        void SpawnOne(PipeEmission pipe, MobEmit emit)
+        void SpawnOne(PipeEmission pipe, MobEmit emit, int spawnIndex)
         {
             Main main = Main.Instance;
             if (main == null) return;
 
             var (c, m, s) = MapSpawnConfig.Axes(emit.kind);
 
-            // 설계 §4: 배관 바깥(마커 forward)으로 펄스를 받고 튀어나온다.
-            // 출발점을 배관 면에서 조금 앞으로 빼야 첫 틱에 지오메트리와 겹쳐 캐스트가 막히지 않는다.
-            Vector3 dir = pipe.marker.forward;
-            Vector3 at  = pipe.marker.position
-                        + dir * SimConfig.SpawnLaunchStartGap
-                        + Vector3.down * config.spawnDropOffset;   // 【임시방편】 펄스 정착되면 0으로
-            Vector3 vel = dir * SimConfig.SpawnLaunchSpeed + Vector3.up * SimConfig.SpawnLaunchUp;
+            // Fan의 SpawnDrop 링크를 순번 순환으로 하나 고른다(결정론). 스폰 위치 = 링크 시작점(팬 아래 입).
+            var fan  = pipe.marker != null ? pipe.marker.GetComponent<FanSpawn>() : null;
+            var link = fan != null ? fan.LinkForIndex(spawnIndex) : null;
+            Vector3 at = link != null ? link.PointA
+                       : fan  != null ? fan.Mouth
+                       : pipe.marker != null ? pipe.marker.position : Vector3.zero;
 
-            int id = main.SpawnEnemyLaunched(at, c, m, s, vel);
+            int id;
+            if (m == MobilityType.Flying)
+            {
+                // 공중몹: 링크 안 탐 — 아래로 + 순번 기반 사선(결정론) 약한 펄스로 흘러나옴.
+                float ang = spawnIndex * 1.7f;
+                Vector3 side = new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * SimConfig.SpawnFlyingSideSpeed;
+                Vector3 pulse = Vector3.down * SimConfig.SpawnFlyingDownSpeed + side;
+                id = main.SpawnEnemyLaunched(at, c, m, s, pulse);
+            }
+            else if (link != null)
+            {
+                // 지상·돌진몹: 펄스 없이 즉시 링크 낙하. SpawnDrop clearance는 항상 0(수직 낙하).
+                float grav = link.gravity > 0f ? link.gravity : SimConfig.TraversalGravity;
+                id = main.SpawnEnemyDropping(at, c, m, s, link.Low, 0f, grav);
+            }
+            else
+            {
+                id = main.SpawnEnemyAt(at, c, m, s);   // 폴백: FanSpawn/링크 없으면 그냥 스폰
+            }
+
             if (id >= 0) { spawnedIds[CurrentWave].Add(id); spawnedSoFar++; }
-
-            SpawnPipeFx.Play(pipe.marker);   // 배관 꿀렁 연출(View 전용)
+            // (배관 꿀렁 SpawnPipeFx는 Fan을 흔들어 '또잉'처럼 보여 제거. Fan 연출은 FanSpawnActor가 전담.)
         }
 
         void TickWatching()
