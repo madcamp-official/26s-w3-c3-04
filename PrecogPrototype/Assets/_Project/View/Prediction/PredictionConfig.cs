@@ -34,7 +34,13 @@ namespace Game.View
                        Mathf.Clamp01(charge01));
 
         // 미리보기 카메라 (3인칭 궤도 — 마우스로 플레이어 중심 회전)
-        public const float CamDist  = 7f;      // 피벗에서 뒤로
+        public const float CamDist  = 7f;      // 피벗에서 뒤로(휠 줌의 기본값)
+        // [2026-07-22] 미리보기 중 마우스 휠로 궤도 거리를 조절한다. 경로가 길면 뒤로 빼서
+        // 전체를 보고, 액션 잔상을 자세히 볼 땐 당긴다. 표시 전용이라 예측 결과에는 영향 없다.
+        public const float CamDistMin = 2.5f;
+        public const float CamDistMax = 22f;
+        /// <summary>휠 한 칸당 거리 변화(m).</summary>
+        public const float CamZoomPerNotch = 1.1f;
         public const float CamLookY = 1.2f;    // 피벗 높이(플레이어 기준)
         public const float OrbitSens      = 0.15f;
         public const float OrbitPitchInit = 18f;    // 진입 시 살짝 위에서
@@ -70,7 +76,10 @@ namespace Game.View
         public const float RouteAlphaDim = 0.4f;    // 비선택 루트 반투명도(더 흐리게)
         // [예측 세션 수정, 2026-07-20] 1.6 → 2.8: 이동 헤드와 경로가 전개되는 과정을
         // 충분히 눈으로 따라갈 수 있게 늦춘다. 예측 계산·판정·실행 속도에는 영향이 없다.
-        public const float PreviewRevealSeconds = 5.0f;
+        // [2026-07-22] 5.0 → 8.0: 잔상이 깔리는 속도가 아직 빨라 경로를 읽기 전에 다 펼쳐진다는
+        // 피드백. 이건 <b>표시 전용 타이머</b>라 예측 결과·판정·실행에는 전혀 영향이 없다
+        // (Preview 중 좌클릭으로 언제든 확정 가능 — 다 펼쳐질 때까지 기다릴 필요 없다).
+        public const float PreviewRevealSeconds = 8.0f;
         // [잔상 유지, 2026-07-22] 예전엔 헤드 바로 뒤에 붙어 따라오다 스윕이 끝나면 통째로
         // 페이드아웃되는 "꼬리"였다(PreviewAfterimageSpacing / PreviewAfterimageFadeSeconds).
         // 지금은 "투사주법"처럼 — 헤드가 지나간 자리에 일정 거리마다 분신을 한 번 찍어두고,
@@ -85,12 +94,20 @@ namespace Game.View
         /// 걷기 동작이 이어져 보이는 최소선은 유지하면서 너무 빽빽하지 않은 값.</summary>
         public const float PreviewAfterimageStepMeters = 0.4f;
         /// <summary>남은 분신의 불투명도(스윕이 끝나도 이 값 그대로 유지된다). 촘촘해진 만큼
-        /// 겹침이 심해서 낮춰 잡는다 — 겹쳐 쌓이면서 자연스럽게 진해진다.</summary>
-        public const float PreviewAfterimageHeadAlpha = 0.16f;
-        public static readonly Color PreviewPathGreen = new Color(0.12f, 1f, 0.35f);
-        public static readonly Color PreviewPathBlue = new Color(0.08f, 0.4f, 1f);
-        public static readonly Color PreviewPathPurple = new Color(0.72f, 0.12f, 1f);
-        public static readonly Color PreviewPathRed = new Color(1f, 0.06f, 0.03f);
+        /// 겹침이 심해서 낮춰 잡는다 — 겹쳐 쌓이면서 자연스럽게 진해진다.
+        /// [2026-07-22] 0.16 → 0.24: 배경 윤곽선과 구분되도록 잔상 쪽을 올렸다.</summary>
+        public const float PreviewAfterimageHeadAlpha = 0.24f;
+        // [2026-07-22] 경로 그라데이션을 <b>초록 → 군청/남색</b> 스펙트럼으로 교체.
+        // 예전엔 초록 → 파랑 → 보라 → 빨강이라 뒤쪽 절반이 예지의 초록 톤(RadialInvert
+        // 네온 그린)과 완전히 따로 놀았다. 지금은 같은 계열 안에서 시간이 흐를수록
+        // 차갑고 깊어지기만 한다 — "가까운 미래는 선명, 먼 미래는 가라앉는다"로 읽힌다.
+        // 이름 순서 = 경로 진행 순서(0 → 1).
+        public static readonly Color PreviewPathGreen = new Color(0.16f, 1f, 0.42f);   // 초록
+        public static readonly Color PreviewPathTeal  = new Color(0.06f, 0.86f, 0.78f); // 청록
+        public static readonly Color PreviewPathBlue  = new Color(0.10f, 0.42f, 0.96f); // 파랑
+        // [2026-07-22] 배경을 어둡게 누른 만큼 끝단을 올렸다 — 원래 (0.09,0.11,0.52)는
+        // 어두운 바탕에 그대로 잠겨서 먼 미래 잔상이 안 보였다. 남색은 유지하되 명도만 확보.
+        public static readonly Color PreviewPathNavy  = new Color(0.16f, 0.24f, 0.86f); // 군청/남색
         public const float MissGlitchSeconds = 0.38f;
         public const float MissGlitchMaxAlpha = 0.58f;
         // <<< [예측 세션 추가 끝]
@@ -155,10 +172,14 @@ namespace Game.View
         // 정지 포스트fx (산데비스탄 에메랄드 틴트 + 비네트)
         public const float FxSaturation      = 0f;
         public const float FxExposure        = -0.3f;
-        public static readonly Color FxTint  = new Color(0.75f, 0.95f, 0.85f);
+        // [2026-07-22] 흰색으로 바꿔봤다가 산데비스탄 초록 톤으로 되돌림(RadialInvert 셰이더와
+        // 같은 결정). saturation=0으로 이미 흑백이라 여기 색이 그대로 화면 바탕색이 된다.
+        // [2026-07-22] 잔상과 배경이 같은 초록 대역에서 겹친다는 피드백 — 배경(월드)을 더
+        // 어둡고 덜 선명하게 눌러 뒤로 물린다. 잔상은 채도 높은 냉색이라 그대로 앞으로 나온다.
+        public static readonly Color FxTint  = new Color(0.40f, 0.56f, 0.48f);
         public const float FxVignette        = 0.55f;
         public const float FxVignetteSmooth  = 0.65f;
-        public static readonly Color FxVignetteColor = new Color(0.02f, 0.08f, 0.05f);
+        public static readonly Color FxVignetteColor = new Color(0.01f, 0.05f, 0.03f);
         public const float FxWeightSpeed     = 8f;   // 정지 진입/해제 페이드 속도
 
         // [2026-07-21 추가] 정지 진입 색반전(RadialInvertFeature) — 카메라 pull-back 진행률(0~1)에
@@ -484,10 +505,15 @@ namespace Game.View
         /// <summary>성공 순간 링이 터지는 시간(초).</summary>
         public const float SlowAimHitFlashSeconds = 0.3f;
 
-        /// <summary>다음에 칠 잔상 색 — 하얗게 태워 확실히 구분시킨다(빛기둥 대체).</summary>
-        public static readonly Color SlowAimNextGhostColor = new Color(1f, 1f, 1f, 0.95f);
-        /// <summary>그 외 잔상 — 확 눌러서 대비를 만든다.</summary>
-        public static readonly Color SlowAimOtherGhostColor = new Color(0.35f, 0.62f, 0.58f, 0.16f);
+        // [2026-07-22 롤백] 목표 잔상을 흰색으로 덮어쓰던 방식은 경로 그라데이션과 따로 놀아
+        // 어색했다 — 색은 기본 규칙(그라데이션 + GhostNextPulse* 맥동)에 맡기고, 위치는
+        // 아래 화면 표지로 알린다.
+        /// <summary>목표 표지가 깜박이는 속도(Hz).</summary>
+        public const float SlowAimMarkerBlinkHz = 1.8f;
+        public static readonly Color SlowAimMarkerBright = new Color(1f, 1f, 1f, 0.95f);
+        public static readonly Color SlowAimMarkerDim = new Color(0.85f, 0.9f, 1f, 0.28f);
+        /// <summary>화면 밖 화살표를 가장자리에서 이만큼 안쪽에 둔다(px).</summary>
+        public const float SlowAimMarkerEdgeMargin = 74f;
         // <<< [슬로우 조준 끝]
     }
 }

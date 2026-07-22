@@ -105,6 +105,8 @@ namespace Game.View
         public bool Approaching { get; private set; }
 
         int currentTick;
+        /// <summary>다음 노드까지 남은 틱. 점진 감속이 이 값으로 배속을 만든다.</summary>
+        int remainTicks = int.MaxValue;
         /// <summary>이 틱까지는 무조건 정상 속도 이상으로 달린다(액션 직후 구간).</summary>
         int burstUntilTick;
         float burstScale = 1f;
@@ -118,7 +120,7 @@ namespace Game.View
         bool hasTarget;
         string feedback = "";
         float feedbackUntil;
-        Texture2D bar, ring;
+        Texture2D bar, ring, arrow;
 
         // ───────────────────────── 생명주기 ─────────────────────────
 
@@ -266,6 +268,7 @@ namespace Game.View
 
             Node n = nodes[Cursor];
             int remain = n.tick - tick;
+            remainTicks = Mathf.Max(0, remain);
 
             if (remain > 0)
             {
@@ -417,7 +420,16 @@ namespace Game.View
                     ? PredictionConfig.SlowAimPocketTimeScale
                     : PredictionConfig.SlowAimRunTimeScale;
             }
-            else if (Approaching) target = PredictionConfig.SlowAimApproachTimeScale;
+            else if (Approaching)
+            {
+                // [2026-07-22] 예전엔 접근 구간 내내 고정 배속(0.42)이라 "툭 하고 한 단 떨어지는"
+                // 느낌이었다. 지금은 남은 거리에 따라 <b>연속적으로</b> 줄인다 — 멀면 거의
+                // 제 속도, 가까울수록 포켓 배속까지 부드럽게 수렴한다.
+                float u = Mathf.Clamp01(remainTicks / (float)PredictionConfig.SlowAimSlowLeadTicks);
+                target = Mathf.Lerp(PredictionConfig.SlowAimPocketTimeScale,
+                                    PredictionConfig.SlowAimRunTimeScale,
+                                    Mathf.SmoothStep(0f, 1f, u));
+            }
             else target = PredictionConfig.SlowAimRunTimeScale;
 
             float rate = target < TimeScale
@@ -642,6 +654,7 @@ namespace Game.View
         public void DrawHud(in SimWorld w, Camera cam)
         {
             EnsureTextures();
+            DrawTargetMarker(in w, cam);
             DrawGauge();
             DrawHitFlash();
             if (PocketOpen)
@@ -650,6 +663,98 @@ namespace Game.View
                 DrawPrompt();
             }
             DrawFeedback();
+        }
+
+        /// <summary>
+        /// 다음 목표가 어디 있는지 <b>항상</b> 알려주는 화면 표지.
+        ///
+        /// 잔상 색을 바꾸는 방식은 롤백했다(경로 그라데이션과 따로 놀아 어색했다). 대신
+        /// 화면에 표지를 띄운다 — 잔상이 근접해서 깨졌거나, 지형에 가렸거나, <b>카메라 정반대
+        /// 뒤에 있어도</b> 방향을 잃지 않는다. 원형 포위 경로는 다음 대상이 등 뒤인 구간이
+        /// 반드시 생기므로(경로 진단에서 확인) 이게 없으면 매번 헤맨다.
+        ///
+        ///   · 화면 안 → 그 자리에 맥동하는 링 + 거리
+        ///   · 화면 밖·뒤 → 화면 가장자리로 밀어붙인 삼각 화살표가 그쪽을 가리킨다
+        /// </summary>
+        void DrawTargetMarker(in SimWorld w, Camera cam)
+        {
+            if (cam == null || Cursor >= nodes.Count) return;
+
+            Vector3 world = nodes[Cursor].anchor + Vector3.up * PredictionConfig.ClickChainAimHeight;
+            Vector3 sp = cam.WorldToScreenPoint(world);
+            float distance = Vector3.Distance(w.player.pos, nodes[Cursor].anchor);
+
+            // 깜박임 — 잔상 맥동과 같은 박자로 뛰게 해서 둘이 한 몸으로 읽히게 한다.
+            float blink = 0.5f + 0.5f * Mathf.Sin(
+                Time.unscaledTime * PredictionConfig.SlowAimMarkerBlinkHz * Mathf.PI * 2f);
+            Color c = Color.Lerp(PredictionConfig.SlowAimMarkerDim,
+                                 PredictionConfig.SlowAimMarkerBright, blink);
+
+            bool behind = sp.z <= 0f;
+            bool onScreen = !behind && sp.x >= 0f && sp.x <= Screen.width
+                            && sp.y >= 0f && sp.y <= Screen.height;
+
+            Color old = GUI.color;
+
+            if (onScreen)
+            {
+                float gx = sp.x;
+                float gy = Screen.height - sp.y;
+                float size = Mathf.Clamp(Screen.height * 0.055f, 34f, 74f);
+                GUI.color = c;
+                GUI.DrawTexture(Centered(gx, gy, size * 2f), ring);
+                GUI.color = old;
+
+                var st = new GUIStyle(GUI.skin.label)
+                {
+                    alignment = TextAnchor.UpperCenter,
+                    fontSize = Mathf.RoundToInt(Mathf.Clamp(Screen.height * 0.018f, 12f, 19f)),
+                    richText = true,
+                };
+                GUI.Label(new Rect(gx - 100f, gy + size + 2f, 200f, 24f),
+                          $"<color=#FFFFFFCC>{distance:0.0}m</color>", st);
+                GUI.color = old;
+                return;
+            }
+
+            // ── 화면 밖(뒤 포함) — 가장자리 화살표 ──
+            // 카메라 뒤면 투영이 뒤집히므로 방향을 반전해야 한다.
+            var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            Vector2 dir = new Vector2(sp.x, sp.y) - center;
+            if (behind) dir = -dir;
+            if (dir.sqrMagnitude < 1e-4f) dir = Vector2.down;
+            dir.Normalize();
+
+            float margin = PredictionConfig.SlowAimMarkerEdgeMargin;
+            float hx = Screen.width * 0.5f - margin;
+            float hy = Screen.height * 0.5f - margin;
+            // 사각형 화면 경계에 맞춰 스케일 — 원형으로 하면 모서리 쪽이 안쪽으로 들어간다.
+            float scale = Mathf.Min(
+                hx / Mathf.Max(0.0001f, Mathf.Abs(dir.x)),
+                hy / Mathf.Max(0.0001f, Mathf.Abs(dir.y)));
+            float ex = center.x + dir.x * scale;
+            float ey = Screen.height - (center.y + dir.y * scale);
+
+            float asize = Mathf.Clamp(Screen.height * 0.05f, 30f, 62f);
+            // 화면 좌표는 y가 아래로 자라므로 각도 부호를 뒤집는다.
+            float angle = Mathf.Atan2(-dir.y, dir.x) * Mathf.Rad2Deg + 90f;
+            Matrix4x4 m = GUI.matrix;
+            GUIUtility.RotateAroundPivot(angle, new Vector2(ex, ey));
+            GUI.color = c;
+            GUI.DrawTexture(Centered(ex, ey, asize), arrow);
+            GUI.matrix = m;
+            GUI.color = old;
+
+            var style = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = Mathf.RoundToInt(Mathf.Clamp(Screen.height * 0.018f, 12f, 19f)),
+                fontStyle = FontStyle.Bold,
+                richText = true,
+            };
+            string where = behind ? "뒤" : "밖";
+            GUI.Label(new Rect(ex - 90f, ey + asize * 0.55f, 180f, 24f),
+                      $"<color=#FFFFFFDD>{where} · {distance:0.0}m</color>", style);
         }
 
         void DrawGauge()
@@ -821,6 +926,9 @@ namespace Game.View
                       $"<color=#7CFFD0>{feedback}</color>", style);
         }
 
+        static Rect Centered(float x, float y, float size)
+            => new Rect(x - size * 0.5f, y - size * 0.5f, size, size);
+
         void EnsureTextures()
         {
             if (bar == null)
@@ -852,6 +960,30 @@ namespace Game.View
             }
             ring.SetPixels(px);
             ring.Apply();
+
+            // 화면 밖 목표를 가리키는 삼각 화살표(위쪽을 향한 상태로 굽고, 그릴 때 회전시킨다).
+            const int asize = 64;
+            arrow = new Texture2D(asize, asize, TextureFormat.RGBA32, false)
+            {
+                name = "PredictionSlowAimArrow",
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+            var ap = new Color[asize * asize];
+            for (int y = 0; y < asize; y++)
+            {
+                for (int x = 0; x < asize; x++)
+                {
+                    float u = (x + 0.5f) / asize;
+                    float v = (y + 0.5f) / asize;   // 0=아래, 1=위
+                    // 위로 갈수록 좁아지는 삼각형. 아래 15%는 잘라 꼬리를 만든다.
+                    float halfWidth = Mathf.Lerp(0.46f, 0.02f, v);
+                    bool inside = v > 0.15f && Mathf.Abs(u - 0.5f) <= halfWidth;
+                    ap[y * asize + x] = new Color(1f, 1f, 1f, inside ? 1f : 0f);
+                }
+            }
+            arrow.SetPixels(ap);
+            arrow.Apply();
         }
 
         static string LabelOf(PredictedActionType t)
@@ -919,21 +1051,17 @@ namespace Game.View
                 runtime.ShatterProgress(index),
                 PredictionSlowAim.ProximityBreak(position, w.player.pos, isNext));
 
-            // [2026-07-22 수정] 예전엔 <b>모든</b> 잔상에 색을 지정해서(다음=흰색 / 나머지=어두운
-            // 청록) 기존 경로 그라데이션이 통째로 사라졌다. 지금은 <b>다음에 칠 잔상 하나만</b>
-            // 덮어쓰고, 나머지는 hasTint=false로 둬서 컨트롤러의 기존 색 규칙을 그대로 쓴다.
-            // 흰색은 키를 누를 때가 아니라 <b>그쪽으로 가기 시작할 때부터</b> 켜진다 —
-            // Cursor는 발동 즉시 다음 노드로 넘어가므로 이동 내내 목표가 흰색으로 남는다.
-            Color tint = PredictionConfig.SlowAimNextGhostColor;
-            tint.a *= 1f - shatter;
-
+            // [2026-07-22 롤백] 목표 잔상을 흰색으로 덮어쓰던 걸 되돌린다 — 색을 갈아끼우니
+            // 경로 그라데이션과 따로 놀아 어색했다. 색은 컨트롤러 기본 규칙(그라데이션 +
+            // 다음 잔상 맥동 GhostNextPulse*)에 맡기고, "어디가 목표인가"는 화면 표지
+            // (DrawTargetMarker)로 알린다. HighlightIndex를 내주고 있으므로 기본 맥동은
+            // 자동으로 이 노드에 걸린다.
             visual = new FollowNodeVisual
             {
                 visible = runtime.StateOf(index) != SlowAimNodeState.Gone && shatter < 1f,
                 position = position,
                 shatter = shatter,
-                hasTint = isNext,
-                tint = tint,
+                hasTint = false,
             };
             return true;
         }
