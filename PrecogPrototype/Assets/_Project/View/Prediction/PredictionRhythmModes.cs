@@ -24,6 +24,10 @@ namespace Game.View
         Highway = 3,
         /// <summary>5 — 커맨드. 박자 하나가 짧은 입력 시퀀스(예: A→W→좌클릭)로 확장된다.</summary>
         Sequence = 4,
+        /// <summary>6 — 자유 주행. 이동은 내가 직접, 액션 잔상에 닿으면 그 액션이 자동으로 터진다.
+        /// 위 다섯 모드와 달리 판정축 자체가 시간이 아니라 공간이라, 기록 입력 재생과 RhythmJudge를
+        /// 통째로 우회한다(<see cref="PredictionFreerun"/>).</summary>
+        Freerun = 5,
     }
 
     /// <summary>모드 레이어 전용 튜닝값. 전투/이동 수치는 여기 두지 않는다.</summary>
@@ -105,6 +109,7 @@ namespace Game.View
             if (kb.digit3Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Freestyle); return true; }
             if (kb.digit4Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Highway); return true; }
             if (kb.digit5Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Sequence); return true; }
+            if (kb.digit6Key.wasPressedThisFrame) { Select(PredictionRhythmMode.Freerun); return true; }
             return false;
         }
 
@@ -117,6 +122,7 @@ namespace Game.View
                 case PredictionRhythmMode.Freestyle: return "3 FREESTYLE";
                 case PredictionRhythmMode.Highway: return "4 HIGHWAY";
                 case PredictionRhythmMode.Sequence: return "5 COMMAND";
+                case PredictionRhythmMode.Freerun: return "6 FREERUN";
                 default: return m.ToString();
             }
         }
@@ -130,6 +136,7 @@ namespace Game.View
                 case PredictionRhythmMode.Freestyle: return "아무 액션 키나 OK(정타는 보너스) · Miss해도 계속 간다";
                 case PredictionRhythmMode.Highway: return "다음 박자들이 레일로 내려온다 · Miss해도 계속 간다";
                 case PredictionRhythmMode.Sequence: return "박자 하나가 3연 커맨드 · 마지막 입력이 판정";
+                case PredictionRhythmMode.Freerun: return "이동은 내가 직접 · 잔상에 닿으면 그 액션이 터진다 (타이밍 없음)";
                 default: return "";
             }
         }

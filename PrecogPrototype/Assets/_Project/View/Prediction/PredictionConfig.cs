@@ -243,5 +243,68 @@ namespace Game.View
         public const float RhythmSidePromptAlpha = 0.38f;
         public const float ExecutionSpeedLineAlpha = 0.13f;
         public const float ExecutionSpeedLineRate = 2.8f;
+
+        // >>> [자유 주행(Freerun), 2026-07-22] PredictionFreerun 전용 튜닝값. 위의 Rhythm* 는
+        // "정해진 틱에 키를 누른다"(시간축)를 위한 값이고, 아래는 "잔상에 닿으면 터진다"
+        // (공간축)를 위한 값이라 서로 안 섞인다.
+        /// <summary>노드 발동 수평 반경(m). 난이도를 낮게 두는 게 목적이라 넉넉하게 잡는다.</summary>
+        public const float FreerunNodeRadius = 2.2f;
+        /// <summary>노드 발동 수직 허용치(m). 공중 노드는 점프 궤적을 정확히 맞출 수 없으므로
+        /// 공중 적의 표준 hover 높이(AIConfig.FlyHoverOffset=2m)를 덮을 만큼 관대해야 한다.</summary>
+        public const float FreerunNodeVerticalRadius = 3.0f;
+        /// <summary>대상이 있는 노드가 그 적으로부터 유지하는 거리(m) — 실제 타격 거리 어림값.
+        /// <see cref="FreerunNodesFollowTarget"/>가 true일 때만 쓰인다.</summary>
+        public const float FreerunTargetStandoff = 1.8f;
+        /// <summary>대상이 있는 노드를 그 적을 따라 움직이게 할 것인가.
+        /// [2026-07-22 false로 되돌림] 이론상으론 추종이 맞지만("적이 움직이면 그 자리에 적이
+        /// 없다"), 실제 플레이에서는 <b>목표가 움직이는 것 자체가 훨씬 큰 혼란</b>이었다.
+        /// 예측이 보여준 그림과 실행 중 그림이 달라지면 예지를 보는 의미가 없다.</summary>
+        public const bool FreerunNodesFollowTarget = false;
+        /// <summary>지금 노드부터 몇 개 앞까지 발동을 허용하는가. 1이면 하나까지 건너뛸 수 있다.</summary>
+        public const int FreerunLookaheadNodes = 1;
+        /// <summary>노드 발동 후 다음 노드가 터지기까지의 최소 간격(틱). 런지 이동(8틱) 중
+        /// 다음 노드가 겹쳐 터지는 것을 막되, 런지→평타 콤보는 살아남을 만큼 짧게.</summary>
+        public const int FreerunNodeCooldownTicks = 6;
+        /// <summary>평타 노드가 조준을 스냅해줄 최대 거리(m). 이 밖이면 조준을 안 건드린다.</summary>
+        public const float FreerunAttackAssistRange = 4.0f;
+        /// <summary>처치 확정 시 느려지는 실시간 길이(초)와 그 최저 배속.</summary>
+        public const float FreerunKillSlowSeconds = 0.35f;
+        public const float FreerunKillSlowScale = 0.35f;
+        /// <summary>노드에 닿은 직후 느려지는 길이(초)와 배속 — "다음은 어디로"를 찾을 판독 시간.
+        /// 처벌이 아니라 안내라서 매번 걸리며, 처치 슬로모보다 짧고 덜 깊다.</summary>
+        public const float FreerunNodeSlowSeconds = 0.55f;
+        public const float FreerunNodeSlowScale = 0.45f;
+
+        // ── 다음 목표 안내(화면) ──
+        /// <summary>안내 마름모를 노드보다 이만큼 위에 띄운다(m) — 잔상 머리 위.</summary>
+        public const float FreerunGuideHeight = 2.4f;
+        /// <summary>화면 가장자리 여백(px). 이 안쪽이면 "화면 안"으로 본다.</summary>
+        public const float FreerunGuideEdgeMargin = 70f;
+        public const float FreerunGuideSize = 26f;
+        public const float FreerunGuidePulseHz = 1.6f;
+        public static readonly Color FreerunGuideBright = new Color(0.45f, 1f, 0.82f, 0.95f);
+        public static readonly Color FreerunGuideDim = new Color(0.25f, 0.75f, 0.62f, 0.45f);
+        /// <summary>이동 키 안내에서 한 축을 "눌러야 한다"고 볼 최소 비중(전체 거리 대비).
+        /// 낮을수록 대각(W+D)이 자주 뜨고, 높을수록 한 키만 뜬다.</summary>
+        public const float FreerunMoveKeyGate = 0.35f;
+
+        // ── 다음 목표 안내(월드 기둥) ──
+        /// <summary>다음 노드 자리에 세우는 빛기둥의 높이·굵기(m).</summary>
+        public const float FreerunBeaconHeight = 5f;
+        public const float FreerunBeaconRadius = 0.22f;
+        public static readonly Color FreerunBeaconColor = new Color(0.45f, 1f, 0.82f, 0.5f);
+        /// <summary>잔상이 깨져 사라지는 데 걸리는 실시간(초).</summary>
+        public const float FreerunShatterSeconds = 0.45f;
+        /// <summary>깨지는 동안 부풀어 오르는 배율(1 → 이 값).</summary>
+        public const float FreerunShatterScale = 1.8f;
+        /// <summary>깨지는 동안 떠오르는 높이(m).</summary>
+        public const float FreerunShatterRise = 0.7f;
+        /// <summary>제한 시간 = 예측 지평 × 이 배수 + 여유(초). 직접 걸어가면 예측(최적 궤적)
+        /// 보다 느릴 수밖에 없으므로 넉넉히 준다.</summary>
+        public const float FreerunTimeBudgetMul = 3.0f;
+        public const float FreerunTimeBudgetPad = 4.0f;
+        /// <summary>마지막 노드를 소진한 뒤 여운으로 남기는 시간(초).</summary>
+        public const float FreerunFinishLingerSeconds = 0.8f;
+        // <<< [자유 주행 끝]
     }
 }

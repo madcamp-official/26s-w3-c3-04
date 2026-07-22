@@ -31,6 +31,16 @@ namespace Game.View
         public State state = State.Idle;
         public bool Frozen => state != State.Idle;
 
+        // >>> [자유 주행, 2026-07-22] Main이 "지금 조작권이 누구에게 있는가"를 묻는 두 프로퍼티.
+        // 기존 Following은 기록 입력을 재생하므로 실시간 입력·시점을 통째로 막았지만(Frozen),
+        // 자유 주행은 이동·시점의 소유권이 사용자에게 있으므로 막으면 안 된다.
+        /// <summary>자유 주행(6번 모드)으로 실행 중인가.</summary>
+        public bool FreerunActive => state == State.Following && freerun.Active;
+        /// <summary>실시간 입력 폴링·1인칭 시점 갱신을 막아야 하는가(Main.Update가 읽는다).</summary>
+        public bool BlocksLiveInput => state == State.Preview
+                                       || (state == State.Following && !FreerunActive);
+        // <<< [자유 주행 끝]
+
         // [HUD 게이지, 2026-07-22] 예지 자원(0~1). HUD의 PREDICTION 다이얼이 이 값을 읽는다.
         // Idle 동안만 실시간으로 차오르고, 진입에 성공하면 소모된다.
         float charge = 1f;
@@ -65,6 +75,9 @@ namespace Game.View
         // [리듬 재미 실험, 2026-07-22] 박자를 "어떻게 치게 만들 것인가"만 갈아끼우는 모드 레이어
         // (PredictionRhythmModes.cs). 숫자키 1~5로 전환하며, Classic이 기존 동작 그대로다.
         readonly RhythmModeRuntime rhythmMode = new RhythmModeRuntime();
+        // [자유 주행, 2026-07-22] 6번 모드 전용 상태 기계(PredictionFreerun.cs). Active일 때
+        // 기록 입력 재생과 RhythmJudge를 통째로 우회하고, 이동 소유권이 사용자에게 넘어간다.
+        readonly PredictionFreerun freerun = new PredictionFreerun();
         bool exitAfterFollowingStep;
         bool completedAfterFollowingStep;
         string rhythmFeedback = "";
@@ -130,6 +143,8 @@ namespace Game.View
         }
 
         readonly Dictionary<Transform, GhostPoseRig> ghostRigs = new Dictionary<Transform, GhostPoseRig>();
+        /// <summary>[자유 주행, 2026-07-22] 깨짐 연출이 스케일을 만지므로 생성 시 원래 크기를 기억한다.</summary>
+        readonly Dictionary<Transform, Vector3> ghostBaseScale = new Dictionary<Transform, Vector3>();
         /// <summary>경로별 누적 이동 거리(path와 같은 인덱스). 이동 트레일 클립 위상 계산용.</summary>
         readonly List<float[]> routeDistances = new List<float[]>();
 
@@ -148,6 +163,8 @@ namespace Game.View
         // 실행 중인 selected 경로만 채워진다(그 외 경로 인덱스는 need=0으로 비어있음).
         readonly List<List<Transform>> ghostMarksByRoute = new List<List<Transform>>();    // 액션 지점 정지 잔상(가독성용)
         Transform startMarker;   // 시작 위치(=나) 표시 캡슐
+        /// <summary>[자유 주행, 2026-07-22] 다음 노드 자리에 세우는 빛기둥(UpdateFreerunBeacon).</summary>
+        Transform freerunBeacon;
         readonly List<Transform> revealGhosts = new List<Transform>();       // 경로별 이동 트레일 헤드
         readonly List<List<Transform>> revealAfterimagesByRoute = new List<List<Transform>>();
         // [예측 세션 수정, 2026-07-20] 매 프레임 new Gradient()를 만들면 GC 압박으로 프레임이
@@ -279,6 +296,18 @@ namespace Game.View
                 // Esc 전용으로 두고, 좌클릭은 그대로 리듬 입력으로 흘려보낸다.
                 if (!inputBlocked && kb.escapeKey.wasPressedThisFrame)
                 { Exit(); return; }   // 건너뛰기(취소)
+
+                // [자유 주행, 2026-07-22] 박자 입력을 받지 않는다 — 이동은 사용자가 직접 하고
+                // 액션은 잔상에 닿을 때 터지므로, 여기서는 실시간 연출·종료 판정만 돌린다.
+                if (freerun.Active)
+                {
+                    freerun.UpdateFrame(in w);
+                    if (freerun.WantsExit) { Exit(); return; }
+                    UpdateGhostMarks(in w);
+                    UpdateFreerunBeacon(in w);
+                    return;
+                }
+
                 rhythmMode.Update();
                 CaptureRhythmInputs(kb, mouse);
 
@@ -327,6 +356,10 @@ namespace Game.View
                 enterStartCamRot = Quaternion.Euler(p, w.player.yaw, 0f);
             }
 
+            // [진단, 2026-07-22] "미리보기가 공중 적을 안 노린다" 원인 특정용 — 원인을 잡으면
+            // 이 줄과 AerialTargetingDiagnostic.cs를 함께 지운다.
+            AerialTargetingDiagnostic.Report(in w, Main.Instance.Services);
+
             // 게이지가 곧 예측 지평 — 얼마나 찼는지가 몇 초를 내다볼지를 정한다.
             routes = RealRoutePreview.Build(in w, Main.Instance.Services, PredictionConfig.RouteColors, ChargeSeconds);
             if (routes.Count == 0)
@@ -369,7 +402,8 @@ namespace Game.View
 
         void Exit()
         {
-            if (state == State.Following) rhythmMode.EndRoute();
+            if (state == State.Following && !freerun.Active) rhythmMode.EndRoute();
+            freerun.End();
             state = State.Idle;
             followingControls = null;
             followingRoute = null;
@@ -396,6 +430,12 @@ namespace Game.View
         void UpdateRhythmTimeScale()
         {
             float target = 1f;
+            if (state == State.Following && freerun.Active)
+            {
+                // 자유 주행은 사용자가 직접 움직이므로 기본 1배속 — 처치 확정 순간에만 느려진다.
+                Time.timeScale = freerun.TimeScale;
+                return;
+            }
             if (state == State.Following)
             {
                 int pending = rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1;
@@ -564,6 +604,32 @@ namespace Game.View
             followingRoute = r;
             followingControls = r.controls;
             followingIndex = 0;
+
+            // [자유 주행, 2026-07-22] 6번 모드는 기록 입력을 재생하지 않고 RhythmJudge도 안 만든다.
+            // 아래 리듬 세팅을 통째로 건너뛰되, 카메라/연출 전환은 공통으로 쓴다.
+            if (RhythmModeRuntime.Current == PredictionRhythmMode.Freerun)
+            {
+                freerun.Begin(r, in w);
+                rhythmJudge = null;
+                rhythmInputs.Clear();
+                exitAfterFollowingStep = false;
+                completedAfterFollowingStep = false;
+                rhythmFeedback = "";
+                rhythmFeedbackUntil = 0f;
+                rhythmSegmentEventIndex = -1;
+                rhythmWaitEventIndex = -1;
+                fx.SetExecution(false);
+                if (Main.Instance != null) Main.Instance.SetPredictionSpawnLocked(true);
+                cameraYawVelocity = 0f;
+                ApplyFollowingVisuals();
+                ToggleSword(true);
+                SetSwordExecutionStyle(true);
+                Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
+                Debug.Log($"[예측] 루트 {selected} 확정 — 자유 주행 ({freerun.NodeCount}개 노드). " +
+                          "직접 이동해서 잔상에 닿으면 그 액션이 터진다 · Esc 취소");
+                return;
+            }
+
             var events = new PredictedActionEvent[r.actionMarkers.Count];
             for (int i = 0; i < events.Length; i++)
             {
@@ -640,7 +706,23 @@ namespace Game.View
         /// false가 된 경우엔 자동으로 Idle로 돌아간다(Exit 호출).
         /// </summary>
         public bool TryConsumeFollowingInput(out InputCmd cmd)
+            => TryConsumeFollowingInput(InputCmd.Empty, out cmd);
+
+        /// <summary>
+        /// [자유 주행, 2026-07-22] 위 메서드의 확장. <paramref name="live"/>는 이번 틱의 실제
+        /// 사용자 입력이며 자유 주행에서만 쓰인다(그 외 모드는 기록 입력을 재생하므로 무시).
+        /// </summary>
+        public bool TryConsumeFollowingInput(in InputCmd live, out InputCmd cmd)
         {
+            if (state == State.Following && freerun.Active)
+            {
+                // 이동·시점은 사용자 것 그대로, 그 위에 노드 발동만 얹는다.
+                cmd = live;
+                freerun.TryInject(in Main.Instance.World, ref cmd);
+                followingIndex++;   // 잔상 페이드 등 틱 기반 표시가 계속 진행되도록.
+                return true;
+            }
+
             if (state != State.Following || followingControls == null || followingIndex >= followingControls.Length)
             {
                 cmd = default;
@@ -777,6 +859,12 @@ namespace Game.View
             if (UiVisibility.Skip) return;   // 콘솔 `ui off` / 임시 UI 숨김을 리듬 HUD도 따른다
             DrawMissGlitch();
             RhythmModeRuntime.DrawModeBadge(state == State.Following);
+            // [자유 주행] 박자 HUD 대신 "다음에 어디로" 안내를 그린다.
+            if (freerun.Active)
+            {
+                freerun.DrawHud(in Main.Instance.World, cam);
+                return;
+            }
             bool feedbackActive = Time.unscaledTime < rhythmFeedbackUntil;
             if (state != State.Following || rhythmJudge == null)
             {
@@ -1348,6 +1436,9 @@ namespace Game.View
             //   accent 카메라가 못 잡는다 → 아무것도 안 보인다. 자식까지 전부 레이어를 바꾼다.
             SetLayerRecursive(go.transform, PredictionAccentLayer);
             RegisterGhostRig(go.transform);
+            // [자유 주행, 2026-07-22] 깨짐 연출이 스케일을 만지므로 원래 크기를 기억해둔다 —
+            // 캡슐 폴백과 프리팹의 기본 스케일이 서로 달라서 Vector3.one으로 되돌리면 안 된다.
+            ghostBaseScale[go.transform] = go.transform.localScale;
             return go.transform;
         }
 
@@ -1801,8 +1892,25 @@ namespace Game.View
                         markTilt = PoseGhostAtAction(pool[i], r.actionMarkers[i].type);
                     else
                         PoseGhostByTravel(pool[i], ri, f.tick);
-                    pool[i].position = f.playerPosition + Vector3.up * PivotYOffset;
+
+                    // [자유 주행, 2026-07-22] 잔상이 곧 판정 대상이므로 좌표에 못 박아두지 않는다 —
+                    // 대상이 있는 노드는 그 적을 따라가고, 발동한 노드는 부풀며 깨진다.
+                    Vector3 markPosition = f.playerPosition;
+                    float shatter = 0f;
+                    if (freerun.Active && i < r.actionMarkers.Count)
+                    {
+                        if (freerun.StateOf(i) == FreerunNodeState.Gone)
+                        { pool[i].gameObject.SetActive(false); continue; }
+                        markPosition = freerun.NodeWorldPosition(i, in world);
+                        shatter = freerun.ShatterProgress(i);
+                    }
+
+                    pool[i].position = markPosition + Vector3.up
+                        * (PivotYOffset + shatter * PredictionConfig.FreerunShatterRise);
                     pool[i].rotation = Quaternion.Euler(0f, f.playerYaw, 0f) * markTilt;
+                    if (freerun.Active && ghostBaseScale.TryGetValue(pool[i], out Vector3 baseScale))
+                        pool[i].localScale = baseScale
+                            * Mathf.Lerp(1f, PredictionConfig.FreerunShatterScale, shatter);
                     SetMarkColor(pool[i], GhostDisplayColor(r, ri, i, f, world.player.pos));
                 }
             }
@@ -1834,7 +1942,11 @@ namespace Game.View
                 // 대기 중인 이벤트 인덱스가 곧 "지금 가야 할 잔상"의 인덱스다. 예전엔 이걸
                 // 틱 거리(|frame.tick - eventTick| <= 15)로 어림잡아서 콤보처럼 액션이 촘촘한
                 // 구간에선 이미 지나간 잔상까지 같이 밝아져 목표가 흐려졌다.
-                int pending = rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1;
+                // [자유 주행, 2026-07-22] 판정 대기 인덱스 = "지금 가야 할 잔상". 자유 주행에는
+                // RhythmJudge가 없으므로 노드 커서가 같은 역할을 한다(강조 규칙은 공유).
+                int pending = freerun.Active
+                    ? (freerun.Cursor < freerun.NodeCount ? freerun.Cursor : -1)
+                    : (rhythmJudge != null ? rhythmJudge.FirstPendingIndex : -1);
                 if (pending >= 0)
                 {
                     if (ghostIndex == pending)
@@ -1888,6 +2000,46 @@ namespace Game.View
             return previewColor;
         }
 
+        /// <summary>
+        /// [자유 주행, 2026-07-22] 다음에 가야 할 노드 자리에 세우는 빛기둥. 1인칭에서 잔상만으로는
+        /// "어느 게 다음 것인지" 안 읽힌다는 피드백 대응 — 잔상 강조(색·맥동)는 가까이 와야
+        /// 구분되지만 기둥은 멀리서도 보이고 지형에 가려도 위쪽이 삐져나온다.
+        /// 화면 쪽 안내(마름모·거리·이동 키)는 PredictionFreerun.DrawHud가 따로 그린다.
+        /// </summary>
+        void UpdateFreerunBeacon(in SimWorld w)
+        {
+            if (!freerun.TryGetNext(in w, out Vector3 target, out _))
+            {
+                if (freerunBeacon != null) freerunBeacon.gameObject.SetActive(false);
+                return;
+            }
+
+            if (freerunBeacon == null)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                Object.Destroy(go.GetComponent<Collider>());
+                go.name = "PredictFreerunBeacon";
+                go.GetComponent<Renderer>().material = GhostMat();
+                SetLayerRecursive(go.transform, PredictionAccentLayer);
+                freerunBeacon = go.transform;
+            }
+
+            // 실린더 프리미티브는 높이 2가 기본이라 원하는 높이의 절반을 스케일로 준다.
+            freerunBeacon.gameObject.SetActive(true);
+            freerunBeacon.localScale = new Vector3(
+                PredictionConfig.FreerunBeaconRadius * 2f,
+                PredictionConfig.FreerunBeaconHeight * 0.5f,
+                PredictionConfig.FreerunBeaconRadius * 2f);
+            freerunBeacon.position = target + Vector3.up * (PredictionConfig.FreerunBeaconHeight * 0.5f);
+            freerunBeacon.rotation = Quaternion.identity;
+
+            float pulse = 0.5f + 0.5f * Mathf.Sin(
+                Time.unscaledTime * PredictionConfig.FreerunGuidePulseHz * Mathf.PI * 2f);
+            Color c = PredictionConfig.FreerunBeaconColor;
+            c.a *= Mathf.Lerp(0.55f, 1f, pulse);
+            SetMarkColor(freerunBeacon, c);
+        }
+
         Transform MakeGhostMark()
             => MakeGhostBody("PredictGhostMark",
                 new Vector3(SimConfig.PlayerRadius * 2f,
@@ -1912,6 +2064,8 @@ namespace Game.View
                 for (int i = 0; i < ghostMarksByRoute[ri].Count; i++)
                     ghostMarksByRoute[ri][i].gameObject.SetActive(on);
             if (startMarker != null) startMarker.gameObject.SetActive(on);
+            // 빛기둥은 자유 주행 중에만 UpdateFreerunBeacon이 다시 켠다.
+            if (freerunBeacon != null) freerunBeacon.gameObject.SetActive(false);
             for (int i = 0; i < revealGhosts.Count; i++)
             {
                 revealGhosts[i].gameObject.SetActive(on && state == State.Preview);
