@@ -34,10 +34,10 @@ namespace Game.Sim
         public static float MeleeRangeFor(float enemyRadius) => enemyRadius + SimConfig.PlayerRadius + MeleeReach;
 
         // ── 돌진 (핑키형) — 근접 × Charge. 완주(피격으로 안 끊김) ──
-        public static float ChargeRadiusMul    = 1.5f;  // 반경 1.5배(몸집 배율과 별개 — 옆으로 더 넓다)
-        // 돌진몹 <b>몸집</b> 배율 — 반경·높이에 함께 곱한다(= 히트박스가 통째로 커진다).
-        // 렌더는 EntityViews.ChargeVisualScaleMul이 같은 비율을 따로 갖고 있어야 한다.
-        //   2026-07-22: 1.0 → 1.35 (요청). 반경은 1.5×1.35=2.03배, 높이는 1.35배가 된다.
+        // 반경 배율 — 1.0 = grunt(근접)와 완전히 동일한 히트박스. (예전 1.5는 옆으로 넓히던 값, 요청으로 원복)
+        public static float ChargeRadiusMul    = 1.0f;
+        // 돌진몹 몸집 배율 — ★ 이제 <b>렌더 전용</b>이다(히트박스엔 안 들어감).
+        // EntityViews.visualScale / Dismemberment에서만 곱해 모델만 키운다. 히트박스는 grunt와 같다.
         public static float ChargeBodyMul      = 1.35f;
         public static float ChargeMinRange     = 3f;    // 이 안 + 시야면 돌진 개시
         public static int   ChargeWindupTicks  = 45;    // 0.75s 텔레그래프(committed)
@@ -69,8 +69,8 @@ namespace Game.Sim
         }
         public static float ChargeMaxDist      = 10f;   // 돌진 사거리
         public static int   ChargeDamage       = 1;     // 접촉 피해
-        public static int   ChargeHitRecovery  = 60;    // 1.00s 명중 후 휘청
-        public static int   ChargeMissRecovery = 96;    // 1.60s 빗나감 후 휘청(더 김)
+        public static int   ChargeHitRecovery  = 90;    // 1.50s 명중 후 휘청(연출: 회복 내내 자세 잡음)
+        public static int   ChargeMissRecovery = 120;   // 2.00s 빗나감 후 휘청(더 김)
         public static float ChargeWallStopFrac = 0.4f;  // 이번 틱 이동이 의도의 이 비율 미만 = 벽 정지
         // 평소(돌진 커밋 전) 추격 속도만 낮춤 — 실물 모델 Walk 애니메이션이 SimConfig.EnemyMoveSpeed
         // 전속력엔 못 따라가 미끄러지듯 보였다. ChargeRun 자체 속도(ChargeSpeed)는 그대로 둔다.
@@ -79,6 +79,11 @@ namespace Game.Sim
         //   추격 속도 = EnemyMoveSpeed(4.5) × 0.591 = 2.66 m/s
         //   걷기 클립 실측 보폭 1.33 m/s → 재생 배속 2.0배 (요청값)
         public static float ChargeChaseSpeedMul = 0.591f;
+
+        // 근접 그런트(mobility=Ground, combat=Melee) 추격 속도 배율. 돌진몹(combat도 Melee지만
+        // mobility=Charge)에는 안 걸리게 WalkTowards가 mobility로 구분한다.
+        //   2026-07-22 요청: 0.7배 → 추격 속도 = EnemyMoveSpeed(4.5) × 0.7 = 3.15 m/s
+        public static float MeleeChaseMul = 0.7f;
 
         // ── 몹 분리(boids Rule 1): 겹치기 전에 이웃 반대방향으로 미리 조향. 결정론(난수 X) ──
         public static float SeparationRadius  = 1.6f;  // 몸(반경 합) 밖으로 이만큼까지 개인공간

@@ -123,6 +123,7 @@ namespace Game.View
             // 다른 시스템이 들고 있던 참조도 비운다
             var pp = PosePlayer.Instance;      if (pp != null) pp.ForgetRoot();
             var vc = ViewmodelCamera.Instance; if (vc != null) vc.ForgetRoot();
+            var kc = KatanaClipper.Instance;   if (kc != null) kc.Forget();
             return true;
         }
 

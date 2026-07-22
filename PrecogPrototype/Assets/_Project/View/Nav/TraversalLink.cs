@@ -9,6 +9,8 @@ namespace Game.View
         Normal = 0,             // ① 일반      — 하강·상승 모두 전 지상몹
         AscendRestricted = 1,   // ② 상승제한  — 하강 전부, 상승은 Traversal 특성만
         DescendOnly = 2,        // ③ 하강전용  — 하강만(아무도 못 올라옴)
+        SpawnDrop = 3,          // ④ 스폰낙하  — 평상시 길찾기용 아님. 몹이 Fan에서 스폰되는 순간
+                                //              곧바로 타는 하강 전용 링크(높은 곳=Fan 입 → 낮은 곳=착지점).
     }
 
     /// <summary>
@@ -65,8 +67,12 @@ namespace Game.View
 
         public float Length => Vector3.Distance(PointA, PointB);
 
-        /// <summary>상승(낮은 곳 → 높은 곳)이 허용되는가. 종류로만 결정된다.</summary>
-        public bool AscendAllowed => kind != TraversalLinkKind.DescendOnly;
+        /// <summary>상승(낮은 곳 → 높은 곳)이 허용되는가. 종류로만 결정된다.
+        /// 하강전용·스폰낙하는 상승 불가(스폰낙하는 스폰 순간 아래로만).</summary>
+        public bool AscendAllowed => kind != TraversalLinkKind.DescendOnly
+                                  && kind != TraversalLinkKind.SpawnDrop;
+        /// <summary>스폰 전용 링크인가 — 평상시 길찾기 그래프에서는 제외해야 한다.</summary>
+        public bool IsSpawnDrop => kind == TraversalLinkKind.SpawnDrop;
         /// <summary>상승이 Traversal 특성 몹으로 제한되는가.</summary>
         public bool AscendTraversalOnly => kind == TraversalLinkKind.AscendRestricted;
 
@@ -127,6 +133,23 @@ namespace Game.View
         float FitClearance(out bool isBlocked, out Vector3 hitAt)
         {
             float radius = ValidateRadius, height = ValidateHeight;
+
+            // 스폰낙하: 몹이 천장에서 '떨어지는' 링크다. 서 있는 캡슐로 아치를 쓸면 시작점(천장 바로 아래)이
+            // 항상 천장·팬에 걸려 무조건 무효가 된다. 낙하 중엔 서 있을 필요가 없으므로,
+            // 착지점(Low)에 캡슐이 들어갈 자리만 확인한다(벽·지오메트리 속 스폰 방지).
+            if (kind == TraversalLinkKind.SpawnDrop)
+            {
+                // 착지점에 캡슐을 세워 '벽에 낀 스폰'만 걸러낸다. 단 바닥에서 살짝 띄운다 —
+                // 착지점은 바닥 표면이라 캡슐 밑구가 바닥을 그레이징해 무조건 겹침으로 잡히기 때문.
+                Vector3 feet = Low + Vector3.up * 0.12f;
+                Vector3 b = feet + Vector3.up * radius;
+                Vector3 t = feet + Vector3.up * Mathf.Max(radius, height - radius);
+                isBlocked = Physics.CheckCapsule(b, t, radius * 0.9f,
+                                                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+                hitAt = Low;
+                return 0f;   // 낙하는 상승 아치가 없다
+            }
+
             float desired = DesiredClearance;
             float min = SimConfig.TraversalMinClearance;
 

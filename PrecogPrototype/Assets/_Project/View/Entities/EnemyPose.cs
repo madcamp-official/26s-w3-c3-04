@@ -95,14 +95,28 @@ namespace Game.View
             var ai = e.ai;
             switch (ai.state)
             {
+                case EnemyState.ChargeRun:
+                    if (ai.mobility == MobilityType.Charge)
+                    {
+                        // C2 돌진 부스트 — 준비에서 뒤로 장전한 몸을 앞으로 폭발시킨다(라인하르트 돌진).
+                        //   상체를 크게 앞으로 다이브시키고 낮게 깔아, 뒤에서 밀려 날아가는 실루엣을 만든다.
+                        //   진입 직후 최대치로 튀도록 짧게(≈0.15s)만 ease-in 한다.
+                        float t = Prog(ai.stateTicks, Mathf.Max(1, AIConfig.ChargeWindupTicks / 5));
+                        pitch += s.chargeBoostLean * t;                   // 앞으로 크게 숙임(양수 = 앞)
+                        drop  += -s.chargeBoostDrop * t;                  // 낮게 깔림
+                        pitch += Shake(now, s.chargeBoostShakeRate) * s.chargeBoostShake; // 전방 추진 진동
+                        Label = "돌진!";
+                    }
+                    break;
+
                 case EnemyState.Windup:
                     if (ai.mobility == MobilityType.Charge)
                     {
-                        // C1 돌진 준비 — 크게 젖히고 웅크린다. 끝으로 갈수록 진동이 커진다.
+                        // C1 돌진 준비 — 뒤로 크게 장전하며 깊게 웅크린다. 끝으로 갈수록 진동이 커진다.
                         float t = Prog(ai.stateTicks, AIConfig.ChargeWindupTicks);
                         float ease = Ease(t);
-                        pitch += -s.chargeLean * ease;                    // 뒤로 젖힘(예비)
-                        drop  += -s.chargeCrouch * ease;                  // 웅크림
+                        pitch += -s.chargeLean * ease;                    // 뒤로 젖힘(스프링 장전)
+                        drop  += -s.chargeCrouch * ease;                  // 깊게 웅크림
                         pitch += Shake(now, s.chargeShakeRate) * s.chargeShake * ease;
                         Label = $"돌진준비 {t * 100f:0}%";
                     }
@@ -190,6 +204,12 @@ namespace Game.View
         public float chargeShake;
         public float chargeShakeRate;
 
+        // C2 돌진 부스트(ChargeRun) — 앞으로 다이브 + 낮게 깔림
+        public float chargeBoostLean;      // 앞으로 숙이는 각(도)
+        public float chargeBoostDrop;      // 낮게 깔리는 양(m)
+        public float chargeBoostShake;     // 전방 추진 진동 폭(도)
+        public float chargeBoostShakeRate;
+
         // D1 차징
         public float aimLean;
         public float aimShake;
@@ -211,7 +231,10 @@ namespace Game.View
 
             meleeLean = 14f, meleeShake = 1.2f, meleeShakeRate = 34f,
 
-            chargeLean = 22f, chargeCrouch = 0.16f, chargeShake = 2.2f, chargeShakeRate = 26f,
+            // 뒤로 크게 장전(35°) + 깊게 웅크림(0.35m). 진동도 키워 "터지기 직전" 긴장감.
+            chargeLean = 35f, chargeCrouch = 0.35f, chargeShake = 3.5f, chargeShakeRate = 28f,
+            // 돌진 순간 앞으로 28° 다이브 + 0.15m 낮게. drop은 발이 바닥을 뚫지 않게 보수적으로 시작.
+            chargeBoostLean = 28f, chargeBoostDrop = 0.15f, chargeBoostShake = 2f, chargeBoostShakeRate = 34f,
 
             aimLean = 9f, aimShake = 1.6f, aimShakeRate = 30f,
 

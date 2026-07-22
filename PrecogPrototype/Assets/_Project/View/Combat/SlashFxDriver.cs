@@ -252,6 +252,30 @@ namespace Game.View
 
         /// <summary>피격 지점(월드)에서 사방으로 참격을 터뜨린다. 겐지식 연출.
         /// 카메라를 향해 정렬하므로 어느 방향에서 봐도 별 모양이 보인다.</summary>
+        /// <summary>지정한 월드 위치·회전에 슬롯의 궤적 이펙트를 1회 띄운다(칼끝 단면 등).
+        /// 배치 오프셋·추종은 무시하고 넘어온 좌표를 그대로 쓴다.</summary>
+        public SwordSlash SpawnAt(string slotName, Vector3 worldPos, Quaternion rot)
+        {
+            if (!active) return null;
+            var s = Find(slotName);
+            // enabled는 "공격 시 자동 발동" 여부다. SpawnAt은 명시적 호출(단면 이펙트 등)이라
+            // enabled와 무관하게 띄운다 — 찌르기 궤적은 자동으론 꺼두고 여기서만 쓸 수 있게.
+            if (s == null) return null;
+
+            var fx = SwordSlash.Spawn(worldPos, rot, s.which);
+            if (fx == null) return null;
+            fx.transform.SetPositionAndRotation(worldPos, rot * Quaternion.Euler(0f, 0f, s.roll));
+            fx.transform.localScale = Vector3.one * Mathf.Max(0.05f, s.scale);
+            s.ApplyTo(fx);
+            fx.Refresh();
+            if (s.onViewmodelLayer)
+            {
+                int vl = LayerMask.NameToLayer(ViewmodelCamera.DefaultLayer);
+                if (vl >= 0) ViewmodelCamera.SetLayerRecursive(fx.transform, vl);
+            }
+            return fx;
+        }
+
         public void BurstAt(Vector3 worldPos, Slot s = null, float delay = 0f)
         {
             s = s ?? Find("피격");

@@ -91,10 +91,11 @@ namespace Game.Sim
             bool large = size == SizeClass.Large;
             float scale = large ? SimConfig.EnemyLargeScale : SimConfig.EnemyNormalScale;
             int hp = large ? SimConfig.EnemyLargeHp : SimConfig.EnemyNormalHp;
-            // 돌진몹: 반경만 1.5배 넓고(옆으로 퍼짐), 거기에 몸집 배율(ChargeBodyMul)이 반경·높이에 함께 곱해진다.
+            // 돌진몹: 반경만 1.5배 넓다(옆으로 퍼짐).
+            // ★ 몸집 확대(ChargeBodyMul)는 이제 <b>렌더 전용</b> — 히트박스는 원래 크기로 두고
+            //   EntityViews.visualScale / Dismemberment에서만 모델을 키운다(얇은 다리 어색함 완화 요청).
             bool isCharge = mobility == MobilityType.Charge;
-            float bodyMul   = isCharge ? AIConfig.ChargeBodyMul : 1f;
-            float radiusMul = (isCharge ? AIConfig.ChargeRadiusMul : 1f) * bodyMul;
+            float radiusMul = isCharge ? AIConfig.ChargeRadiusMul : 1f;
             return new EnemySim
             {
                 id = id,
@@ -102,7 +103,7 @@ namespace Game.Sim
                 pos = at,
                 grounded = true,
                 radius = SimConfig.EnemyRadius * scale * radiusMul,
-                height = SimConfig.EnemyHeight * scale * bodyMul,
+                height = SimConfig.EnemyHeight * scale,
                 combat = EnemyCombatState.Spawn(hp),
                 ai = EnemyAI.Spawn(combat, mobility, size),
                 traversalSlot = -1,

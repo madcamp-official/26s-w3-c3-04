@@ -79,14 +79,14 @@ namespace Game.View
                 wantPitch = -Mathf.Atan2(to.y, Mathf.Max(0.01f, horiz)) * Mathf.Rad2Deg;  // 위를 보면 음수
             }
 
-            // 한계를 넘으면 그 한계에서 대기(몸통이 돌 때까지) — 목이 꺾이지 않게
+            // 머리가 도달할 수 있는 전체 한계(로봇 목이라 크게 잡는다). 넘으면 그 한계에서 대기.
             wantYaw   = Mathf.Clamp(wantYaw,   -s.maxYaw,   s.maxYaw);
             wantPitch = Mathf.Clamp(wantPitch, -s.maxPitch, s.maxPitch);
 
             // 시선을 끌 상황이면 목표를 0으로 (정면 복귀)
             if (s.weight <= 0.001f) { wantYaw = 0f; wantPitch = 0f; }
 
-            // ── 각속도 제한 — 홱 돌면 로봇처럼 보인다 ──
+            // ── 각속도 제한 ──
             float step = Mathf.Max(1f, s.turnSpeed) * dt;
             curYaw   = Mathf.MoveTowards(curYaw,   wantYaw,   step);
             curPitch = Mathf.MoveTowards(curPitch, wantPitch, step);
@@ -94,17 +94,25 @@ namespace Game.View
             float w = Mathf.Clamp01(s.weight);
             float yaw = curYaw * w, pitch = curPitch * w;
 
-            // ── 3본 분산 — 머리만 돌리면 목이 꺾여 보인다 ──
-            Rot(head,   headRest,   yaw * s.headShare,   pitch * s.headShare);
-            Rot(spine2, spine2Rest, yaw * s.spine2Share, pitch * s.spine2Share);
-            Rot(spine1, spine1Rest, yaw * s.spine1Share, pitch * s.spine1Share);
+            // ── 2단 분산(로봇 목) ──
+            //   ① 몸통(척추)은 편한 범위(torsoMax)까지만 따라 돈다 — 크게 잡으면 코르크스크루처럼 꼬인다.
+            //   ② 머리가 나머지 극단 각을 단독으로 커버 → 목만 빙 도는 느낌.
+            float torsoYaw   = Mathf.Clamp(yaw,   -s.torsoMaxYaw,   s.torsoMaxYaw);
+            float torsoPitch = Mathf.Clamp(pitch, -s.torsoMaxPitch, s.torsoMaxPitch);
+
+            // 척추 둘이 torso 몫을 나눠 가진다(위 척추 spine2가 더 많이). 합이 정확히 torso가 되게 정규화.
+            float denom = s.spine2Share + s.spine1Share;
+            float up = denom > 1e-4f ? s.spine2Share / denom : 0.6f;
+            Rot(spine1, torsoYaw * (1f - up), torsoPitch * (1f - up));
+            Rot(spine2, torsoYaw * up,        torsoPitch * up);
+            // 머리는 척추가 이미 torso만큼 돌았으니, 전체각까지의 나머지만 더한다.
+            Rot(head, yaw - torsoYaw, pitch - torsoPitch);
         }
 
-        /// <summary>기준 회전에 상대 오프셋을 더한다(클립 결과를 덮지 않고 가산).</summary>
-        static void Rot(Transform t, Quaternion rest, float yaw, float pitch)
+        /// <summary>클립 결과 위에 상대 오프셋을 곱해 더한다(덮지 않고 가산).</summary>
+        static void Rot(Transform t, float yaw, float pitch)
         {
-            if (t == null) return;
-            // 클립이 이미 t.localRotation을 써 놨다. 그 위에 오프셋을 곱해 더한다.
+            if (t == null || (Mathf.Abs(yaw) < 1e-4f && Mathf.Abs(pitch) < 1e-4f)) return;
             t.localRotation = t.localRotation * Quaternion.Euler(pitch, yaw, 0f);
         }
 
@@ -116,19 +124,23 @@ namespace Game.View
     [System.Serializable]
     public struct EnemyLookSettings
     {
-        public float weight;       // 0=끔, 1=최대
-        public float maxYaw;       // 좌우 한계(도)
-        public float maxPitch;     // 상하 한계(도)
-        public float turnSpeed;    // 각속도 제한(도/초)
-        public float headShare, spine2Share, spine1Share;   // 3본 분배 비율
+        public float weight;         // 0=끔, 1=최대
+        public float maxYaw;         // 머리가 도달 가능한 좌우 전체 한계(도). 로봇이라 크게.
+        public float maxPitch;       // 상하 전체 한계(도)
+        public float torsoMaxYaw;    // 몸통(척추)이 따라 도는 좌우 한계 — 넘는 각은 머리가 단독 처리
+        public float torsoMaxPitch;  // 몸통이 따라 젖히는 상하 한계
+        public float turnSpeed;      // 각속도 제한(도/초)
+        public float spine2Share, spine1Share;   // torso 몫을 위/아래 척추가 나누는 비율
 
         public static EnemyLookSettings Default => new EnemyLookSettings
         {
             weight = 1f,
-            maxYaw = 70f,
-            maxPitch = 35f,
-            turnSpeed = 180f,
-            headShare = 0.5f, spine2Share = 0.3f, spine1Share = 0.2f,
+            maxYaw = 180f,          // 목이 거의 뒤까지 돈다(로봇)
+            maxPitch = 80f,         // 점프한 플레이어도 올려다봄
+            torsoMaxYaw = 40f,      // 몸통은 40°까지만 — 그 이상은 머리가 단독으로
+            torsoMaxPitch = 25f,
+            turnSpeed = 400f,       // 빠르게 추적(로봇식 스냅 허용)
+            spine2Share = 0.6f, spine1Share = 0.4f,
         };
     }
 }

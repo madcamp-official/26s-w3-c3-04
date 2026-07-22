@@ -182,7 +182,8 @@ namespace Game.View
             if (mobility == MobilityType.Flying && flyingSrc != null)
             { src = flyingSrc; shell = flyingShellMat; scale = baseScale * FlyingVisualScaleMul; return; }
             if (mobility == MobilityType.Charge && chargeSrc != null)
-            { src = chargeSrc; shell = chargeShellMat; scale = baseScale * ChargeVisualScaleMul; return; }
+            // 돌진몹은 몸집 확대(ChargeBodyMul)가 렌더 전용이라 히트박스(height)엔 없다 → 시체도 여기서 곱해 살아있을 때와 크기를 맞춘다.
+            { src = chargeSrc; shell = chargeShellMat; scale = baseScale * ChargeVisualScaleMul * AIConfig.ChargeBodyMul; return; }
             // 층이동(Traversal)도 EntityViews와 동일하게 combat 기준으로 몸체를 고른다(총/칼 모델 일치).
             if (combat == CombatType.Ranged && rangedSrc != null)
             { src = rangedSrc; shell = rangedShellMat; scale = baseScale * RangedVisualScaleMul; return; }

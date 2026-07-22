@@ -27,6 +27,10 @@ namespace Game.View
 
         [Tooltip("직전 마리 이후 이 마리까지의 대기(초). 0 = 직전과 동시. 음수 = 이 배관의 기본 간격 사용.")]
         public float intervalOverride;
+
+        [Tooltip("공백(대기) 엔트리 — 이 순번엔 몹을 안 뱉고 간격만 소비한다(번갈아 소환 리듬용). " +
+                 "Fan은 이 엔트리에서 '또잉'하지 않는다. 공백만 있는 배관도 Fan은 준비 동작에 참여한다.")]
+        public bool isGap;
     }
 
     /// <summary>

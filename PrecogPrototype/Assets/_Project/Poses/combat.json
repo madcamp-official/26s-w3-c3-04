@@ -19,7 +19,7 @@
     "lgWindup": 0,
     "lgTravel": 3,
     "lgRecovery": 0,
-    "lgHitStop": 7,
+    "lgHitStop": 11,
     "lgMaxRange": 7.0,
     "lgMinRange": 1.2000000476837159,
     "lgDoom": true,
@@ -30,6 +30,7 @@
     "camLimit": 20.0,
     "camRate": 55.0,
     "camRestore": 0.18000000715255738,
+    "camLockAim": false,
     "fbDashFwd": 1.690000057220459,
     "fbDashBack": 0.6676056385040283,
     "fbAttack": 22.389999389648439,
@@ -40,6 +41,8 @@
     "fbLungeOut": 0.0,
     "fbLungeRise": 0.0,
     "fbLungeFall": 1.5,
+    "fbLungeInTime": 0.07999999821186066,
+    "fbLungeOutTime": 0.4000000059604645,
     "maxHp": 3,
     "hitStun": 0
 }

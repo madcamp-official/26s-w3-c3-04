@@ -161,6 +161,10 @@ namespace Game.View
             var vmData = vmCam.GetUniversalAdditionalCameraData();
             vmData.renderType = CameraRenderType.Overlay;
             vmData.renderShadows = false;
+            // 포스트프로세싱은 뷰모델에 끈다 — 켜면 Bloom이 밝은 팔 가장자리를 번지게 해서
+            // "합성한 듯한 흰 테두리(halo)"가 생긴다. 대신 SMAA로 테두리만 다듬는다.
+            vmData.renderPostProcessing = false;
+            vmData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
 
             var baseData = baseCam.GetUniversalAdditionalCameraData();
             if (baseData != null && !baseData.cameraStack.Contains(vmCam))

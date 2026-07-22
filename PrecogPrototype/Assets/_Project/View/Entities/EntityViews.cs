@@ -26,6 +26,7 @@ namespace Game.View
         readonly List<EnemyMotion> viewMotion  = new List<EnemyMotion>();  // 절차 레이어(시선 추적) 개체 상태
         readonly List<EnemyGlow>   viewGlow    = new List<EnemyGlow>();    // 발광(어두운 맵 식별 + 상태 텔레그래프)
         readonly List<int>         viewPrevHp  = new List<int>();          // 피격 감지용
+        readonly List<int>         viewSpawnedId = new List<int>();        // 슬롯의 현재 몹 id — 바뀌면 새 몹(실체화 VFX 발동)
         readonly List<FootstepDetector> viewFoot = new List<FootstepDetector>();  // 발 딛는 순간 감지
 
         // ── 발자국 스파크·소리 ──
@@ -34,6 +35,13 @@ namespace Game.View
         readonly List<RustyJoints> viewRusty   = new List<RustyJoints>();  // 녹슨 관절(고착+스프링)
         readonly List<EnemyPose>   viewPose    = new List<EnemyPose>();    // 상태 텔레그래프(예비·차징·피격)
         readonly List<EnemyMove>   viewMove    = new List<EnemyMove>();    // 이동·상황 자세(급선회·휘청·뱅킹 등)
+        readonly List<ChargeAnim>  viewCharge  = new List<ChargeAnim>();   // 돌진 전신 순수 절차(준비·돌진·이후)
+
+        // ── 돌진 전신 절차 ──
+        /// <summary>전역 on/off — 끄면 돌진 단계에서도 클립(Walk/Run)이 그대로 나온다.</summary>
+        public static bool ChargeAnimEnabled = true;
+        static ChargeAnimSettings chargeSettings = ChargeAnimSettings.Default;
+        public static ref ChargeAnimSettings Charge => ref chargeSettings;
 
         // ── 이동·상황 자세 ──
         /// <summary>전역 on/off — 콘솔 mv. 생동감 레이어라 텔레그래프와 따로 끈다.</summary>
@@ -49,6 +57,10 @@ namespace Game.View
         // ★ 실제 수평 속도(m/s). e.vel.x/z는 항상 0이다(EnemyMovement가 "이동은 변위로 처리"한다).
         //   그래서 틱 차분(world - prevWorld)으로 직접 잰다. Sync에서 채우고 LateSync가 읽는다.
         readonly List<float>       viewSpeed   = new List<float>();
+        // 재생 배속 전용 <b>저역통과(스무딩)</b> 속도. 경사에서 틱마다 진행량이 요동쳐도 다리 재생이 안 끊기게.
+        // viewSpeed(방향·idle 판정용)는 그대로 두고, 배속 입력만 이걸 쓴다. 접지 시 3D 속도(경사면 실거리) 반영.
+        readonly List<float>       viewAnimSpeed = new List<float>();
+        readonly List<float>       viewAirTime   = new List<float>();     // IsAirborne 디바운스용(연속 공중 시간)
         readonly List<Vector3>     viewDir     = new List<Vector3>();      // 실제 이동 방향(단위)
         readonly List<float>       viewVertSpeed = new List<float>();      // 수직 속도(공중몹)
         // 조준 중 상체 비틀기 — 발은 viewAimBase에 고정하고 차이를 척추에 준다
@@ -92,9 +104,10 @@ namespace Game.View
         public static bool LookAtEnabled = true;
         static EnemyLookSettings lookBiped  = EnemyLookSettings.Default;
         static EnemyLookSettings lookCharge = new EnemyLookSettings
-        {   // 돌진몹은 둔하게 — 추적 각도 좁고 느리게
-            weight = 1f, maxYaw = 45f, maxPitch = 25f, turnSpeed = 110f,
-            headShare = 0.55f, spine2Share = 0.3f, spine1Share = 0.15f,
+        {   // 돌진몹은 조금 둔하게 — 몸통은 덜 돌지만 머리는 크게 돈다(로봇 목)
+            weight = 1f, maxYaw = 160f, maxPitch = 70f,
+            torsoMaxYaw = 30f, torsoMaxPitch = 20f, turnSpeed = 300f,
+            spine2Share = 0.6f, spine1Share = 0.4f,
         };
         public static ref EnemyLookSettings BipedLook  => ref lookBiped;
         public static ref EnemyLookSettings ChargeLook => ref lookCharge;
@@ -123,6 +136,7 @@ namespace Game.View
             public bool running;     // IsRunning  — 걷기/달리기 전환
             public bool hurt;        // IsHurt     — 피격
             public bool dead;        // IsDead     — 사망
+            public bool moving;      // IsMoving   — 이동/정지(Idle) 전환. 있으면 컨트롤러가 Idle을 갖는 것으로 본다
             public bool probed;
 
             public static AnimCaps Probe(Animator a)
@@ -138,6 +152,7 @@ namespace Game.View
                         case "IsRunning":  c.running  = true; break;
                         case "IsHurt":     c.hurt     = true; break;
                         case "IsDead":     c.dead     = true; break;
+                        case "IsMoving":   c.moving   = true; break;
                     }
                 }
                 return c;
@@ -148,6 +163,16 @@ namespace Game.View
         // ※ FootSoldier_Run.fbx 는 이미 있으나 컨트롤러에 Run 상태가 없어 놀고 있다.
         //   컨트롤러에 IsRunning + Run 상태만 추가하면 이 값으로 바로 동작한다.
         const float RunThresholdSpeed = 4.2f;
+        // IsAirborne 디바운스 시간(초). grounded가 이 시간 이상 연속 false여야 Jump로 본다.
+        // 경사에서 1~2틱(<0.05s) 깜빡이는 건 무시하고, 진짜 점프·낙하(>0.15s)만 잡는다.
+        const float AirborneDebounceTime = 0.1f;
+
+        // 정지(Idle) 판정 속도(m/s). 이 미만이면 "서 있음"으로 보고 IsMoving=false를 던진다.
+        //   컨트롤러에 IsMoving+Idle이 있으면 Idle 클립이 재생되고,
+        //   아직 없으면(임시) 걷기 클립을 정지(anim.speed=0)시켜 제자리걸음을 막는다.
+        const float IdleSpeedThreshold = 0.2f;
+        // 배속 스무딩 속도(1/초). 클수록 빨리 따라가고 작을수록 부드럽다. 4 ≈ 시정수 0.25초(저주파 변동까지 뭉갬).
+        const float AnimSpeedSmoothRate = 4f;
 
         // FlyingEnemy/ChargeEnemy/MeleeEnemy/RangedEnemy 프리팹: 래퍼 루트(스케일 1, yaw만 회전) + 자식이 임포트 시
         // 축변환·스케일을 그대로 들고 1m 기준으로 맞춰져 있음. Sync에서 wrapper.localScale = Vector3.one * e.height
@@ -286,7 +311,7 @@ namespace Game.View
                 if (enemyViews[i] != null) Object.Destroy(enemyViews[i].gameObject);
             enemyViews.Clear(); viewKinds.Clear(); viewRenderers.Clear();
             viewAnimators.Clear(); viewYaw.Clear(); viewMotion.Clear();
-            viewGlow.Clear(); viewPrevHp.Clear(); viewRusty.Clear(); viewSpeed.Clear();
+            viewGlow.Clear(); viewPrevHp.Clear(); viewRusty.Clear(); viewSpeed.Clear(); viewAnimSpeed.Clear(); viewAirTime.Clear();
             viewFoot.Clear();
             // 남아 있는 전선·조각도 함께 정리(부모가 없어 자동으로 안 사라진다)
             foreach (var w in Object.FindObjectsByType<DanglingWire>(FindObjectsSortMode.None))
@@ -391,6 +416,15 @@ namespace Game.View
                     // 개체 풀 재사용으로 이동방식/전투방식이 바뀐 슬롯 → 시각을 다시 만든다.
                     ViewKind wantKind = KindFor(w.enemies[i].ai.mobility, w.enemies[i].ai.combat);
                     if (viewKinds[i] != wantKind) ReplaceView(i, $"Enemy_{i}", wantKind, w.enemies[i].yaw);
+
+                    // 스폰 실체화 VFX — 이 슬롯에 '새 몹'(id 변경)이 들어오면 재생. 트리거는 sim 순간
+                    // 상태가 아니라 '플레이어가 처음 본 순간'(SpawnMaterialize 내부 레이캐스트). 슬롯 재사용·
+                    // 스폰 방식과 무관하게 확실히 발동한다.
+                    if (w.enemies[i].alive && viewSpawnedId[i] != w.enemies[i].id)
+                    {
+                        viewSpawnedId[i] = w.enemies[i].id;
+                        SpawnMaterialize.Play(enemyViews[i]);
+                    }
                 }
                 enemyViews[i].gameObject.SetActive(active);
                 if (!active) continue;
@@ -406,6 +440,15 @@ namespace Game.View
                     if (d.sqrMagnitude > 1e-8f) viewDir[i] = d.normalized;
                     // 수직 속도(공중몹 뱅킹·고도 변화용)
                     viewVertSpeed[i] = (e.pos.y - prev.enemies[i].pos.y) / SimConfig.TickDelta;
+                    // 배속용 속도: 접지 시 경사면 실거리(3D)로 재고(경사에서 느리게 재생돼 미끄러지는 것 방지),
+                    //   틱마다 요동치는 진행량을 저역통과로 눌러 다리 재생이 안 끊기게 한다. 공중(낙하/점프)은 수직이
+                    //   커서 튀므로 수평만 쓴다. viewSpeed 자체는 방향·idle 판정용이라 손대지 않는다.
+                    // ★ 수평 속도만 쓴다(과거 버전과 동일). 경사에서 수직 성분 v=Δy/틱 은 미분이라
+                    //   y-스냅의 미세 변동을 크게 증폭해 배속을 흔들고(=몸 구부러지며 덜컹), 위치(히트박스)는
+                    //   매끈한데 배속만 튀는 회귀를 만들었다. 경사에서 약간 느리게 재생(미끄러짐)은 감수한다.
+                    float rawAnim = viewSpeed[i];
+                    viewAnimSpeed[i] = Mathf.Lerp(viewAnimSpeed[i], rawAnim,
+                                                  1f - Mathf.Exp(-AnimSpeedSmoothRate * Time.deltaTime));
                 }
                 ViewKind kind = viewKinds[i];
                 if (kind == ViewKind.Capsule)
@@ -419,7 +462,9 @@ namespace Game.View
                     // 실물 모델은 프리팹을 1m 기준으로 미리 맞춰뒀으므로 wrapper 스케일 = e.height 하나로 충분.
                     // Flying은 원점이 모델 중심(=캡슐과 동일하게 절반 올림), 나머지 바이페드는 원점이 발 근처지만
                     // 살짝 위라 종류별 FeetLift만큼 더 들어올려야 발이 바닥에 파묻히지 않는다.
-                    float visualScale = e.height * VisualMul(kind);
+                    // ★ 돌진몹 몸집 확대(ChargeBodyMul)는 렌더 전용 — 히트박스(e.height)엔 안 들어가고 여기서만 곱한다.
+                    float visualScale = e.height * VisualMul(kind)
+                                      * (kind == ViewKind.Charge ? AIConfig.ChargeBodyMul : 1f);
                     float feetLift = kind == ViewKind.Melee ? MeleeFeetLift
                                     : kind == ViewKind.Ranged ? RangedFeetLift
                                     : ChargeFeetLift;
@@ -488,35 +533,28 @@ namespace Game.View
                 }
                 enemyViews[i].rotation = Quaternion.Euler(0f, bodyYaw, 0f);
 
+                // ── 돌진몹 애니메이터 파라미터/배속 ──
+                //   러쉬 레이어(UseRushLegs): 돌진 3단계에도 Animator를 켜둔 채 다리는 클립(러쉬/Idle)이 굴리고,
+                //   ChargeAnim이 상체만 덮는다. 컨트롤러가 상태를 고르게 여기서 파라미터를 던진다.
+                //   러쉬 제거(UseRushLegs=false)면 ChargeAnim이 Animator를 꺼 다리를 고정하므로 손대지 않는다.
                 if (kind == ViewKind.Charge)
                 {
                     Animator anim = viewAnimators[i];
-                    // ★ TraversalPhase.Airborne/DescentPhase.Leaping은 특정 도약 메커니즘 하나만 감지해서
-                    // 턱을 넘거나 일반 낙하로 뜰 때는 안 걸려 Jump가 안 나가는 원인이었다. e.grounded는
-                    // Charge 몹의 모든 이동 경로(추격/도약/돌진)에서 매 틱 실측되는 값이라 이걸로 통일한다.
-                    anim.SetBool("IsCharging", isChargeRun);
-                    // IsAirborne 은 ApplyOptionalParams가 처리한다(돌진몹은 이미 파라미터가 있어 그대로 동작).
-                    ApplyOptionalParams(i, anim, in e, viewSpeed[i]);
-
-                    // 실제 이동 속도에 맞춰 재생 속도를 맞춰 "미끄러지는" 느낌을 없앤다.
-                    // ★ 이전엔 분모로 SimConfig.EnemyMoveSpeed/AIConfig.ChargeSpeed(=현재 속도 그 자체)를 써서
-                    //   비율이 항상 ~1로 나와 사실상 아무 효과가 없었다. 여기선 모션 클립이 "제자리 걸음"이라
-                    //   실제 보폭 속도를 알 수 없으므로, 자연스러워 보이는 걷기/달리기 기준 속도를 따로 가정해
-                    //   실제 이동 속도와의 비율만큼 재생 속도를 올린다.
-                    // ★ 공중(Jump)에서는 배속을 건드리면 안 된다.
-                    //   점프 모션은 발 속도와 무관한데, 수평속도로 나누면 제자리 점프 시
-                    //   0.6배속까지 떨어져 짧은 체공 안에 클립이 다 안 나온다("점프가 재생 안 됨"의 원인).
-                    if (!e.grounded)
+                    bool chargePhase = ChargeAnimEnabled && ChargeAnim.IsChargePhase(in e);
+                    if (!(chargePhase && !ChargeAnim.UseRushLegs))
                     {
-                        anim.speed = 1f;
-                    }
-                    else
-                    {
-                        float horizSpeed = viewSpeed[i];   // ★ e.vel.x/z는 항상 0 — 틱 차분 실측값을 쓴다
-                        float clipPace = isChargeRun ? RunClipPace : WalkClipPace;
-                        anim.speed = isChargeRun
-                            ? Mathf.Clamp(horizSpeed / clipPace, RunSpeedClampMin, RunSpeedClampMax)
-                            : Mathf.Clamp(horizSpeed / clipPace, WalkSpeedClampMin, WalkSpeedClampMax);
+                        // ChargeRun → 러쉬(Charge 상태), Windup/Recovery → Idle. 비-돌진이면 속도로 걷기/idle 판정.
+                        bool wantCharge = chargePhase ? (e.ai.state == EnemyState.ChargeRun) : isChargeRun;
+                        bool wantIdle   = chargePhase
+                            ? (e.ai.state == EnemyState.Windup || e.ai.state == EnemyState.Recovery)
+                            : (viewSpeed[i] < IdleSpeedThreshold);
+                        anim.SetBool("IsCharging", wantCharge);
+                        anim.SetBool("IsIdle", wantIdle);
+                        ApplyOptionalParams(i, anim, in e, viewSpeed[i]);   // IsAirborne
+                        if (chargePhase || !e.grounded) anim.speed = 1f;    // 러쉬·Idle·점프는 등속
+                        else if (isChargeRun) anim.speed = Mathf.Clamp(viewAnimSpeed[i] / RunClipPace, RunSpeedClampMin, RunSpeedClampMax);
+                        else if (!wantIdle)   anim.speed = Mathf.Clamp(viewAnimSpeed[i] / WalkClipPace, WalkSpeedClampMin, WalkSpeedClampMax);
+                        else                  anim.speed = 1f;              // Idle 등속
                     }
                 }
                 else if (kind == ViewKind.Melee)
@@ -526,11 +564,7 @@ namespace Game.View
                     // ★ 점프·달리기·피격·사망은 파라미터가 있으면 자동으로 켜진다(AnimCaps 참고).
                     //   클립을 넣고 컨트롤러에 파라미터만 추가하면 코드 수정 없이 동작한다.
                     ApplyOptionalParams(i, anim, in e, viewSpeed[i]);
-                    if (!isAttacking)
-                    {
-                        float horizSpeed = viewSpeed[i];   // ★ e.vel.x/z는 항상 0 — 틱 차분 실측값을 쓴다
-                        anim.speed = Mathf.Clamp(horizSpeed / WalkClipPace, WalkSpeedClampMin, WalkSpeedClampMax);
-                    }
+                    if (!isAttacking) ApplyWalkOrIdle(i, anim, viewAnimSpeed[i]);
                     else anim.speed = 1f;   // 공격 모션은 판정 타이밍과 맞춰야 하니 배속 없이 그대로 재생.
                 }
                 else if (kind == ViewKind.Ranged)
@@ -540,11 +574,7 @@ namespace Game.View
                     // ★ 위 Melee와 동일 — 파라미터가 생기면 자동으로 켜진다.
                     //   ※ MonolithSentinel_AimTurn.fbx 는 임포트만 되고 아직 컨트롤러에 안 붙어 있다.
                     ApplyOptionalParams(i, anim, in e, viewSpeed[i]);
-                    if (!isAiming)
-                    {
-                        float horizSpeed = viewSpeed[i];   // ★ e.vel.x/z는 항상 0 — 틱 차분 실측값을 쓴다
-                        anim.speed = Mathf.Clamp(horizSpeed / WalkClipPace, WalkSpeedClampMin, WalkSpeedClampMax);
-                    }
+                    if (!isAiming) ApplyWalkOrIdle(i, anim, viewAnimSpeed[i]);
                     else anim.speed = 1f;
                 }
 
@@ -640,6 +670,23 @@ namespace Game.View
                     viewFoot[i] = fs;
                 }
 
+                // ── 돌진 전신 절차(준비·돌진·이후): Animator를 끄고 전신을 직접 구동 ──
+                //   이 단계에선 시선추적·텔레그래프·이동자세·녹슨관절을 모두 건너뛴다(ChargeAnim 단독 구동).
+                if (kind == ViewKind.Charge)
+                {
+                    var ca = viewCharge[i];
+                    // 단계 중이거나, 단계가 끝났어도 아직 자세가 남아 감쇠 중이면(꼬리 페이드) 계속 상체를 덮는다.
+                    if (ChargeAnimEnabled && ca.HasBones && (ChargeAnim.IsChargePhase(in e) || ca.Settling))
+                    {
+                        chargeSettings.enabled = true;
+                        ca.Apply(view, in e, in chargeSettings, dt, Time.time);   // 단계 종료 시 목표 0으로 스프링 복귀
+                        viewCharge[i] = ca;
+                        continue;
+                    }
+                    ca.Release();          // 완전히 잦아들면 릴리즈 — 이후 클립(Walk/Idle)이 상체까지 되찾는다
+                    viewCharge[i] = ca;
+                }
+
                 // ── 시선 추적: 본이 있는 바이페드만 ──
                 if (!LookAtEnabled) continue;
                 if (!IsBiped(kind)) continue;          // 캡슐·비행은 본이 없다(비행은 별도 설계)
@@ -686,7 +733,9 @@ namespace Game.View
                         moveSettings.enabled = MoveposeEnabled;
                         var tag = kind == ViewKind.Flying ? ViewKindTag.Flying
                                 : kind == ViewKind.Charge ? ViewKindTag.Charge : ViewKindTag.Other;
-                        mv.Apply(view, in e, tag, viewSpeed[i], viewDir[i], viewVertSpeed[i],
+                        // ★ 속도는 스무딩본(viewAnimSpeed)을 넘긴다 — 가감속 자세(미분)·벽막힘(게이트)이
+                        //   경사에서 틱당 속도 노이즈에 덜컹대는 것을 막는다. 방향(viewDir)은 원본 유지.
+                        mv.Apply(view, in e, tag, viewAnimSpeed[i], viewDir[i], viewVertSpeed[i],
                                  in moveSettings, dt, Time.time);
                     }
                     viewMove[i] = mv;
@@ -736,10 +785,43 @@ namespace Game.View
             if (!caps.probed) { caps = AnimCaps.Probe(anim); viewCaps[i] = caps; }
 
             // 없는 파라미터에 쓰면 매 프레임 경고가 쏟아지므로 반드시 있을 때만 건드린다.
-            if (caps.airborne) anim.SetBool("IsAirborne", !e.grounded);
+            // ★ IsAirborne 디바운스: 경사에서 grounded가 1~2틱 깜빡여도 Jump 클립으로 튀지 않게,
+            //   일정 시간 이상 <b>연속으로</b> 공중일 때만 참으로 본다(진짜 점프·낙하는 그보다 길다).
+            if (caps.airborne)
+            {
+                viewAirTime[i] = e.grounded ? 0f : viewAirTime[i] + Time.deltaTime;
+                anim.SetBool("IsAirborne", viewAirTime[i] >= AirborneDebounceTime);
+            }
             if (caps.running)  anim.SetBool("IsRunning",  speed >= RunThresholdSpeed);
             if (caps.hurt)     anim.SetBool("IsHurt",     e.combat.stunTicks > 0);
             if (caps.dead)     anim.SetBool("IsDead",     !e.alive);
+            if (caps.moving)   anim.SetBool("IsMoving",   speed >= IdleSpeedThreshold);
+        }
+
+        /// <summary>
+        /// 지상 걷기 배속 + 정지(Idle) 처리.
+        ///   ① 움직이면 실측 속도에 맞춰 걷기 배속.
+        ///   ② 서 있고 컨트롤러에 IsMoving+Idle이 있으면 → Idle 클립이 알아서 재생(배속 1).
+        ///   ③ 서 있는데 아직 Idle이 없으면(임시) → 걷기를 정지시켜 제자리걸음을 막는다(프레임0로 스냅).
+        /// 팀원이 Idle 클립 + IsMoving 파라미터만 넣으면 ②로 자동 전환된다(코드 수정 불필요).
+        /// </summary>
+        void ApplyWalkOrIdle(int i, Animator anim, float speed)
+        {
+            if (anim == null) return;
+            if (speed >= IdleSpeedThreshold)
+            {
+                anim.speed = Mathf.Clamp(speed / WalkClipPace, WalkSpeedClampMin, WalkSpeedClampMax);
+                return;
+            }
+            if (viewCaps[i].moving)     // Idle 클립 보유 → 정상 재생
+            {
+                anim.speed = 1f;
+                return;
+            }
+            // 임시: Idle 클립 없음 → 걷기 정지(제자리걸음 차단) + 프레임0로 스냅
+            anim.speed = 0f;
+            var st = anim.GetCurrentAnimatorStateInfo(0);
+            anim.Play(st.fullPathHash, 0, 0f);
         }
 
         /// <summary>관절 고착+스프링 적용. 기능이 꺼져 있으면 상태만 재동기화하고 빠진다.</summary>
@@ -757,7 +839,7 @@ namespace Game.View
 
             if (!rj.bound) rj.Bind(view, i, in rustSettings);
             // 걷거나 뛸 때만 — 속도가 낮으면 게이트가 닫혀 자동으로 원본 자세가 나온다
-            if (rj.HasJoints) rj.Apply(in rustSettings, dt, Time.time, viewSpeed[i]);
+            if (rj.HasJoints) rj.Apply(in rustSettings, dt, Time.time, viewAnimSpeed[i]);   // 스무딩본 — 경사 게이트 떨림 방지
             viewRusty[i] = rj;
         }
 
@@ -771,10 +853,12 @@ namespace Game.View
             viewMotion.Add(default);
             viewGlow.Add(default);
             viewPrevHp.Add(int.MinValue);
+            viewSpawnedId.Add(int.MinValue);
             viewFoot.Add(default);
             viewRusty.Add(default);
             viewPose.Add(default);
             viewMove.Add(default);
+            viewCharge.Add(default);
             viewDir.Add(Vector3.forward);
             viewVertSpeed.Add(0f);
             viewAimBase.Add(initialYaw);
@@ -782,6 +866,8 @@ namespace Game.View
             viewAimWas.Add(false);
             viewCaps.Add(default);
             viewSpeed.Add(0f);
+            viewAnimSpeed.Add(0f);
+            viewAirTime.Add(0f);
             ReplaceView(enemyViews.Count - 1, name, kind, initialYaw);
         }
 
@@ -796,6 +882,7 @@ namespace Game.View
             viewRusty[i]  = default;   // 모델이 바뀌면 본 캐시도 새로 잡아야 한다
             viewPose[i]   = default;
             viewMove[i]   = default;
+            viewCharge[i] = default;
             viewAimTwist[i] = 0f; viewAimWas[i] = false; viewAimBase[i] = initialYaw;
             viewCaps[i]   = default;   // 모델이 바뀌면 파라미터를 다시 조사한다
 
@@ -841,6 +928,15 @@ namespace Game.View
             viewKinds[i]      = kind;
             viewRenderers[i]  = r;
             viewAnimators[i]  = a;
+
+            // 돌진몹: 지금(Instantiate 직후, Animator가 아직 안 돈 상태)이 프리팹 바인드 포즈라
+            // 여기서 rest 자세를 캡처해 둔다. 이후 돌진 3단계에서 이 자세로 리셋하며 전신을 그린다.
+            if (kind == ViewKind.Charge && a != null)
+            {
+                var ca = viewCharge[i];
+                ca.BindRest(a);
+                viewCharge[i] = ca;
+            }
         }
 
         GameObject MakeCapsule()
