@@ -16,7 +16,7 @@ namespace Game.Sim
     ///   버그 수정·연출 작업의 우선순위에서 제외합니다.
     ///   뷰도 이미 전용 모델이 없어 근접/원거리와 같은 모습으로 그려집니다(EntityViews.KindFor).
     /// </summary>
-    public enum MobilityType : byte { Ground = 0, Charge = 1, Traversal = 2, Flying = 3 }
+    public enum MobilityType : byte { Ground = 0, Charge = 1, Traversal = 2, Flying = 3, Orb = 4 }
     public enum SizeClass    : byte { Normal = 0, Large = 1 }
 
     /// <summary>
@@ -28,6 +28,7 @@ namespace Game.Sim
         Chase = 0, Windup = 1, Active = 2, Recovery = 3,   // 근접 (돌진도 Windup·Recovery 재사용)
         Reposition = 4, Aim = 5, Fire = 6,                 // 원거리
         ChargeRun = 7,                                     // 돌진 직진
+        Hide = 8, Emerge = 9,                              // 보스(Orb) 전용: 숨기(하강+30s 대기)/재등장(상승)
     }
 
     /// <summary>몹 AI 상태 묶음. ★ AI 세션 소유. EnemySim이 품기만 한다(필드 늘려도 공유파일 안 건드림).</summary>
@@ -41,6 +42,9 @@ namespace Game.Sim
         public Vector3    committedDir;   // 공격 시작 시 고정 → 예지 회피 성립
         public int        attackCooldown; // 원거리 재발사 쿨
         public bool       hitDone;        // 이번 공격 판정 1회
+        public Vector3    beamDir;        // 보스(Orb) 빔의 현재 방향. 발사 중 매 틱 플레이어로 각속도 상한 회전. 뷰도 읽음.
+        public Vector3    anchor;         // 보스(Orb) 고정 좌표(스폰 지점). x·z는 평생 이 값, y 오프셋의 기준점.
+        public bool       anchorSet;      // anchor를 첫 틱에 1회 설정했는가
 
         public static EnemyAI Spawn(CombatType combat, MobilityType mobility, SizeClass size) => new EnemyAI
         {
@@ -109,6 +113,8 @@ namespace Game.Sim
             if (e.ai.mobility == MobilityType.Charge) { StepCharge(ref w, i, in svc, dt); return; }
             // 공중몹(Flying)도 자체 기동(비행 호버 + 벽 우회) + 기존 원거리 공격 재사용
             if (e.ai.mobility == MobilityType.Flying) { StepFlying(ref w, i, in svc, dt); return; }
+            // 보스(Orb): 부유 추격 + 차지 + 추적 레이저. 자기완결 시퀀스.
+            if (e.ai.mobility == MobilityType.Orb) { StepBoss(ref w, i, in svc, dt); return; }
 
             // 런지 표적 이동봉쇄(bind): 위치·중력 동결(공중이면 공중에 얼음).
             // 공격 시퀀스는 계속 진행한다(붙잡혀도 반격 가능) — Plant/RangedMove가 내부에서 위치만 스킵.
@@ -415,6 +421,151 @@ namespace Game.Sim
             e.grounded = false;
         }
 
+        // ───────────────────────── 보스 (빛나는 구 코어 · 추적 레이저) ─────────────────────────
+
+        /// <summary>
+        /// 보스(Orb): <b>고정 포탑</b> — 이동하지 않는다(2026-07-23 개편, 이전의 부유 추격 폐기).
+        /// 스폰 지점(anchor) 위 BossRevealYOffset에 떠서 충전(Windup 5s) → 페이즈별 레이저(Fire,
+        /// 빔만 각속도 상한 추적·지형 부분 차단) → 쿨(Recovery 10s)을 반복한다.
+        /// 페이즈 전환은 CombatResolve.HitEnemy가 담당 — 누적 피해가 15씩 깎일 때마다 state=Hide로
+        /// 바꾼다 → y 하강해 30s 숨고(그동안 EMP 해제 = 예지 사용 가능) → Emerge 상승 → 다음 페이즈.
+        /// y는 숨기/재등장(및 스폰 직후 부상)에만 움직인다. 페이즈는 HP에서 파생(AIConfig.BossPhase).
+        /// 결정론: svc.Collision + 플레이어 위치 + 순수 수학(RotateTowards/MoveTowards)만 쓴다.
+        /// </summary>
+        static void StepBoss(ref SimWorld w, int i, in SimServices svc, float dt)
+        {
+            ref EnemySim e = ref w.enemies[i];
+            ref EnemyAI ai = ref e.ai;
+
+            if (!ai.anchorSet) { ai.anchorSet = true; ai.anchor = e.pos; }   // 스폰 지점 = 기준 좌표(1회)
+            float revealY = ai.anchor.y + AIConfig.BossRevealYOffset;
+            float hiddenY = ai.anchor.y + AIConfig.BossHideYOffset;
+
+            // 고정 포탑 — 밀림·관성 무효. x·z는 항상 anchor, y만 아래 상태들이 움직인다.
+            e.pos.x = ai.anchor.x; e.pos.z = ai.anchor.z;
+            e.vel = Vector3.zero; e.grounded = false;
+
+            Vector3 emitter = e.pos + Vector3.up * AIConfig.BossEmitterHeight;   // 코어 발사점
+            Vector3 target  = w.player.pos + Vector3.up * AIConfig.PlayerTorso;  // 겨냥점(플레이어 몸통)
+            Vector3 toP = w.player.pos - e.pos; toP.y = 0f;
+            float hd = toP.magnitude;
+            Vector3 faceH = hd > 1e-4f ? toP / hd : Forward(e.yaw);
+            e.yaw = Mathf.Atan2(faceH.x, faceH.z) * Mathf.Rad2Deg;   // 항상 플레이어 응시(텔레그래프)
+
+            switch (ai.state)
+            {
+                case EnemyState.Hide:     // 숨기 — 하강 후 바닥에서 BossHideTicks 대기(EMP 해제 구간)
+                    if (e.pos.y > hiddenY + 1e-3f)
+                        e.pos.y = Mathf.MoveTowards(e.pos.y, hiddenY, AIConfig.BossHideMoveSpeed * dt);
+                    else if (++ai.stateTicks >= AIConfig.BossHideTicks)
+                    { ai.state = EnemyState.Emerge; ai.stateTicks = 0; }
+                    break;
+
+                case EnemyState.Emerge:   // 재등장 — 상승(이 순간부터 EMP 재개). 도착 시 다음 페이즈 사이클
+                    e.pos.y = Mathf.MoveTowards(e.pos.y, revealY, AIConfig.BossHideMoveSpeed * dt);
+                    if (Mathf.Abs(e.pos.y - revealY) < 1e-3f)
+                    { ai.state = EnemyState.Windup; ai.stateTicks = 0; BossAimInit(ref ai, emitter, target, e.yaw); }
+                    break;
+
+                case EnemyState.Windup:   // 충전(5s) — 빔 예비 추적(조준 맞춰둠)
+                    ai.stateTicks++;
+                    ai.beamDir = RotateTowards(ai.beamDir, (target - emitter),
+                                               AIConfig.BossChargeTurnRate * dt);
+                    if (ai.stateTicks >= AIConfig.BossChargeTicks)
+                    { ai.state = EnemyState.Fire; ai.stateTicks = 0; }
+                    break;
+
+                case EnemyState.Fire:     // 발사(페이즈별 1.5/2.2/3.0s) — 빔만 각속도 상한 추적
+                    ai.stateTicks++;
+                    ai.beamDir = RotateTowards(ai.beamDir, (target - emitter),
+                                               AIConfig.BossBeamTurnRate * dt);
+                    // 부분 차단: 플레이어 발자국 단면 표본 중 하나라도 안 막히고 도달하면 피해.
+                    // 매 틱 히트 큐잉 → 무적시간이 실제 간격을 조절.
+                    if (BeamHitsPlayer(in svc, emitter, ai.beamDir, target,
+                                       AIConfig.BossBeamRadius, SimConfig.PlayerRadius))
+                        w.QueuePlayerHit(ai.beamDir, AIConfig.BossBeamDamage);
+                    if (ai.stateTicks >= AIConfig.BossFireTicksFor(AIConfig.BossPhase(e.combat.health)))
+                    { ai.state = EnemyState.Recovery; ai.stateTicks = 0; }
+                    break;
+
+                case EnemyState.Recovery: // 쿨(10s) — 플레이어 딜 타임. 끝나면 곧장 다음 충전
+                    ai.stateTicks++;
+                    if (ai.stateTicks >= AIConfig.BossRecoverTicks)
+                    { ai.state = EnemyState.Windup; ai.stateTicks = 0; BossAimInit(ref ai, emitter, target, e.yaw); }
+                    break;
+
+                default:   // Chase(스폰 초기) = 대기 — 등장 높이로 떠오른 뒤 아그로+시야면 사이클 개시
+                    e.pos.y = Mathf.MoveTowards(e.pos.y, revealY, AIConfig.BossHideMoveSpeed * dt);
+                    if (hd <= SimConfig.EnemyAggroRange && HasLOS(in e, in w.player, in svc))
+                    { ai.state = EnemyState.Windup; ai.stateTicks = 0; BossAimInit(ref ai, emitter, target, e.yaw); }
+                    break;
+            }
+        }
+
+        /// <summary>보스 빔 조준 초기화 — 현재 겨냥점 방향으로 스냅(충전이 이어서 예비 추적).</summary>
+        static void BossAimInit(ref EnemyAI ai, Vector3 emitter, Vector3 target, float yaw)
+        {
+            Vector3 aim0 = target - emitter;
+            ai.beamDir = aim0.sqrMagnitude > 1e-6f ? aim0.normalized : Forward(yaw);
+        }
+
+        /// <summary>cur를 want 방향으로 최대 maxDeg만큼만 회전(정규화). 순수 수학 → 결정론.</summary>
+        static Vector3 RotateTowards(Vector3 cur, Vector3 want, float maxDeg)
+        {
+            if (cur.sqrMagnitude < 1e-8f) cur = want;
+            Vector3 r = Vector3.RotateTowards(cur, want, maxDeg * Mathf.Deg2Rad, 0f);
+            return r.sqrMagnitude > 1e-8f ? r.normalized : cur.normalized;
+        }
+
+        /// <summary>
+        /// <b>부분 차단</b> 빔 명중 판정. 굵은 빔을 단면 여러 평행 하위광선으로 보고, <b>플레이어가 차지하는
+        /// 단면 영역</b>만 표본화한다(예측 포크 비용 억제 — 빔 전체가 아니라 플레이어 발자국만).
+        /// 표본 중 <b>하나라도</b> 지형에 안 막히고 플레이어 거리까지 도달하면 명중("조금이라도 세면 피해").
+        /// 각 하위광선이 독립적으로 막히므로 단면 일부만 가려져도 나머지는 샌다. dir은 정규화 전제.
+        /// </summary>
+        static bool BeamHitsPlayer(in SimServices svc, Vector3 emitter, Vector3 dir, Vector3 target, float R, float Pr)
+        {
+            Vector3 rel = target - emitter;
+            float t = Vector3.Dot(rel, dir);
+            if (t <= 0f) return false;                       // 발사점 뒤
+            Vector3 perp = rel - dir * t;                    // 축 → 플레이어 수직벡터
+            float sum = R + Pr;
+            if (perp.sqrMagnitude > sum * sum) return false; // 빔 단면 밖 → 완전 빗나감
+
+            BeamBasis(dir, out Vector3 u, out Vector3 v);
+            Vector3 c = ClampToRadius(perp, R);              // 플레이어 중심을 빔 원반 안으로
+            // 표본 5개: 중심 + ±Pr·u, ±Pr·v (각 원반 R 이내로 클램프, 플레이어 발자국 Pr 안인 것만 유효)
+            if (BeamSampleClear(in svc, emitter, dir, t, c,          perp, R, Pr)) return true;
+            if (BeamSampleClear(in svc, emitter, dir, t, c + u * Pr, perp, R, Pr)) return true;
+            if (BeamSampleClear(in svc, emitter, dir, t, c - u * Pr, perp, R, Pr)) return true;
+            if (BeamSampleClear(in svc, emitter, dir, t, c + v * Pr, perp, R, Pr)) return true;
+            if (BeamSampleClear(in svc, emitter, dir, t, c - v * Pr, perp, R, Pr)) return true;
+            return false;
+        }
+
+        /// <summary>표본 하나: 빔 원반 안 + 플레이어 발자국(Pr) 안이고, 그 평행광선이 플레이어 거리까지 안 막히면 true.</summary>
+        static bool BeamSampleClear(in SimServices svc, Vector3 emitter, Vector3 dir, float t,
+                                    Vector3 off, Vector3 perp, float R, float Pr)
+        {
+            off = ClampToRadius(off, R);
+            if ((off - perp).sqrMagnitude > Pr * Pr) return false;      // 플레이어 발자국 밖 표본
+            return !svc.Collision.Raycast(emitter + off, dir, t).hit;   // 안 막히고 도달
+        }
+
+        /// <summary>축 dir에 수직인 두 단위 기저(u,v). 결정론(고정 규칙).</summary>
+        static void BeamBasis(Vector3 dir, out Vector3 u, out Vector3 v)
+        {
+            Vector3 refv = Mathf.Abs(dir.y) < 0.99f ? Vector3.up : Vector3.forward;
+            u = Vector3.Normalize(Vector3.Cross(dir, refv));
+            v = Vector3.Cross(dir, u);   // dir·u 직교 단위벡터
+        }
+
+        static Vector3 ClampToRadius(Vector3 off, float R)
+        {
+            float m = off.magnitude;
+            return m > R ? off * (R / m) : off;
+        }
+
         // ───────────────────────── 원거리 솔저 ─────────────────────────
 
         static void StepRanged(ref SimWorld w, int i, in SimServices svc, float dt)
@@ -551,5 +702,27 @@ namespace Game.Sim
 
         static Vector3 Forward(float yaw)
             => new Vector3(Mathf.Sin(yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(yaw * Mathf.Deg2Rad));
+    }
+
+    /// <summary>
+    /// 보스 파생 상태 질의 — 이미 해시되는 sim 상태(alive/mobility/state)에서만 계산하는
+    /// 순수 함수라 별도 필드·해시가 필요 없다. View(예지 차단·연출)가 읽는다.
+    /// </summary>
+    public static class BossQuery
+    {
+        /// <summary>
+        /// 보스 EMP 교란이 활성인가 — 보스가 <b>드러나 있는 동안</b>(살아 있고 Hide 상태가 아닌 동안) true.
+        /// 등장 순간(Emerge 진입)부터 다시 켜지고, 숨어 있는 30s 동안만 예지를 쓸 수 있다.
+        /// </summary>
+        public static bool EmpActive(in SimWorld w)
+        {
+            for (int i = 0; i < w.enemyCount; i++)
+            {
+                ref readonly EnemySim e = ref w.enemies[i];
+                if (!e.alive || e.ai.mobility != MobilityType.Orb) continue;
+                if (e.ai.state != EnemyState.Hide) return true;
+            }
+            return false;
+        }
     }
 }

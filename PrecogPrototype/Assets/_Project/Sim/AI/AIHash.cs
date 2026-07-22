@@ -27,6 +27,9 @@ namespace Game.Sim
             h = MixF(h, a.committedDir.z);
             h = Mix(h, (ulong)a.attackCooldown);
             h = Mix(h, a.hitDone ? 1UL : 0UL);
+            h = MixF(h, a.beamDir.x); h = MixF(h, a.beamDir.y); h = MixF(h, a.beamDir.z);   // 보스 빔 방향
+            h = MixF(h, a.anchor.x); h = MixF(h, a.anchor.y); h = MixF(h, a.anchor.z);      // 보스 고정 좌표
+            h = Mix(h, a.anchorSet ? 1UL : 0UL);
             return h;
         }
 

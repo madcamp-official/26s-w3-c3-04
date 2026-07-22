@@ -108,6 +108,8 @@ namespace Game.View
         Texture2D missGlitchTexture;
         float missGlitchStartedAt;
         float missGlitchUntil;
+        // [보스 EMP, 2026-07-23] EMP로 F가 거부되거나 강제 종료된 순간의 화면 경고 표시 종료 시각.
+        float empNoticeUntil;
         /// <summary>[2026-07-22] 1인칭 뷰모델(팔+칼) 렌더러 — ToggleViewmodel이 매번 다시 채운다.</summary>
         readonly List<Renderer> viewmodelRenderers = new List<Renderer>();
         readonly List<Renderer> collectBuffer = new List<Renderer>();
@@ -296,6 +298,17 @@ namespace Game.View
             var mouse = Mouse.current;
             if (kb == null) return;
 
+            // [보스 EMP, 2026-07-23] 보스가 드러나 있는 동안(BossQuery.EmpActive) 예지가 무력화된다.
+            // 사용 중(Preview/Following)에 보스가 재등장하면 그 자리에서 강제 종료(충격파에 끊김).
+            // 보스가 숨은 30초 동안만 예지를 쓸 수 있다.
+            if (state != State.Idle && BossQuery.EmpActive(in w))
+            {
+                empNoticeUntil = Time.unscaledTime + 1.6f;
+                Debug.LogWarning("[예측] 보스 EMP 충격파 — 예지가 교란되어 강제 종료됩니다.");
+                Exit();
+                return;
+            }
+
             // 추적 방식 전환(숫자키)은 실행 중이 아닐 때만 — 도중에 바꾸면 진행 상태가 꼬인다.
             if (!inputBlocked && state != State.Following) FollowModeRegistry.PollSwitch(kb);
 
@@ -304,7 +317,12 @@ namespace Game.View
                 // 예지 자원 재충전 — 슬로모(timeScale)는 예측이 소유하므로 실시간으로 센다.
                 if (charge < 1f)
                     charge = Mathf.Min(1f, charge + Time.unscaledDeltaTime / PredictionConfig.ChargeRechargeSeconds);
-                if (!inputBlocked && kb.fKey.wasPressedThisFrame && ChargeUsable) Enter(in w);
+                if (!inputBlocked && kb.fKey.wasPressedThisFrame && ChargeUsable)
+                {
+                    // [보스 EMP] 교란 중엔 진입 거부 — 게이지는 소모하지 않고 경고만 띄운다.
+                    if (BossQuery.EmpActive(in w)) empNoticeUntil = Time.unscaledTime + 1.6f;
+                    else Enter(in w);
+                }
                 return;
             }
 
@@ -924,6 +942,7 @@ namespace Game.View
         {
             if (UiVisibility.Skip) return;   // 콘솔 `ui off` / 임시 UI 숨김을 리듬 HUD도 따른다
             DrawMissGlitch();
+            DrawEmpNotice();
             RhythmModeRuntime.DrawModeBadge(state == State.Following);
             // 박자 HUD 대신 모드 전용 HUD를 그리는 방식(자유 주행의 방향 안내, 클릭 체인의 조준점).
             if (Mode.Active && Mode.ReplacesDefaultHud)
@@ -1098,6 +1117,27 @@ namespace Game.View
                 : rhythmFeedback == "GOOD" ? "#40ffd8" : "#ff4038";
             GUI.Label(new Rect(x, y, width, 76f),
                 $"<color={color}>{rhythmFeedback}</color>", style);
+        }
+
+        /// <summary>[보스 EMP, 2026-07-23] F 거부/강제 종료 순간의 짧은 화면 경고(깜빡이는 문구).</summary>
+        void DrawEmpNotice()
+        {
+            if (Time.unscaledTime >= empNoticeUntil) return;
+            float width = Mathf.Min(980f, Screen.width - 24f);
+            float x = (Screen.width - width) * 0.5f;
+            float y = Mathf.Max(18f, Screen.height * 0.06f) + 150f;
+            var style = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 40,
+                fontStyle = FontStyle.Bold,
+                richText = true,
+            };
+            float blink = 0.6f + 0.4f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 14f));
+            Color old = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, blink);
+            GUI.Label(new Rect(x, y, width, 52f), "<color=#ff4038>예지 교란 — EMP</color>", style);
+            GUI.color = old;
         }
 
         void DrawMissGlitch()

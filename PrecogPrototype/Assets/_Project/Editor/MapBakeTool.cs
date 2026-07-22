@@ -66,6 +66,11 @@ namespace Game.EditorTools
             EditorGUILayout.Space(10);
             if (GUILayout.Button("플레이어 시작 지점 만들기 (PlayerSpawnPoint)"))
                 CreatePlayerSpawn();
+
+            EditorGUILayout.Space(6);
+            using (new EditorGUI.DisabledScope(Application.isPlaying))
+                if (GUILayout.Button("현재 씬 구운 데이터 지우기 (NavMesh + 예측 그래프)"))
+                    ClearBaked();
         }
 
         // 상태 조회는 무겁다(삼각화·씬 전수검색) → 1초 간격으로만 갱신하고 캐시를 그린다.
@@ -144,6 +149,41 @@ namespace Game.EditorTools
             int verts = tri.vertices != null ? tri.vertices.Length : 0;
             if (verts > 0) Debug.Log($"[맵 굽기] NavMesh 완료 — 정점 {verts}. 씬을 저장하십시오(Ctrl+S).");
             else Debug.LogError("[맵 굽기] NavMesh가 비었습니다 — 걸을 수 있는 콜라이더가 있는지 확인하십시오.");
+        }
+
+        // ── 구운 데이터 지우기 ──
+        // 씬의 모든 NavMeshSurface 데이터를 비우고(컴포넌트는 남김), 이 씬 이름으로 저장된
+        // NavMesh 에셋과 예측 그래프 에셋을 삭제한다. 층이동 마커(TraversalLink)는 건드리지 않는다.
+        static void ClearBaked()
+        {
+            var scene = EditorSceneManager.GetActiveScene();
+            string navPath   = $"{BakedDir}/NavMesh_{scene.name}.asset";
+            string graphPath = $"Assets/_Project/View/Nav/Resources/{PredictionGraphAsset.ResourceName(scene.name)}.asset";
+
+            if (!EditorUtility.DisplayDialog("구운 데이터 지우기",
+                    $"씬 '{scene.name}'의 구운 데이터를 지웁니다.\n\n" +
+                    "· 씬의 모든 NavMeshSurface 데이터 비우기 (컴포넌트는 남김)\n" +
+                    $"· {navPath} 삭제\n" +
+                    $"· {graphPath} 삭제\n\n" +
+                    "층이동 마커(TraversalLink)는 지우지 않습니다.", "지우기", "취소")) return;
+
+            int surfaces = 0;
+            foreach (var s in Object.FindObjectsByType<NavMeshSurface>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (s.navMeshData == null) continue;
+                s.RemoveData();          // 활성 NavMesh에서 내리고
+                s.navMeshData = null;    // 씬이 든 참조도 비운다(에셋 삭제 후 Missing 방지)
+                EditorUtility.SetDirty(s);
+                surfaces++;
+            }
+
+            int assets = 0;
+            if (AssetDatabase.LoadMainAssetAtPath(navPath)   != null && AssetDatabase.DeleteAsset(navPath))   assets++;
+            if (AssetDatabase.LoadMainAssetAtPath(graphPath) != null && AssetDatabase.DeleteAsset(graphPath)) assets++;
+
+            AssetDatabase.SaveAssets();
+            EditorSceneManager.MarkSceneDirty(scene);
+            Debug.Log($"[맵 굽기] 구운 데이터 정리 — Surface {surfaces}개 비움, 에셋 {assets}개 삭제. 씬을 저장하십시오(Ctrl+S).");
         }
 
         static void CreatePlayerSpawn()

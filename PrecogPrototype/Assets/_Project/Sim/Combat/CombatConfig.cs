@@ -93,6 +93,9 @@ namespace Game.Sim
         // 플레이어 체력·피격
         public static int PlayerMaxHp        = 3;
         public static int PlayerHitStunTicks = 0;   // 임시: 피격 경직 0(원래 30). 구조는 유지
+        // 피격 순간부터 이 틱 동안 무적(들어오는 히트 무시). 빔 등 연속피해가 매 틱 들어와도
+        // 이 간격마다 1대씩만 맞게 된다. HP=3 기준 0.75초 → 빔 완전노출 시 ~1.33dmg/s. 핵심 튜닝값.
+        public static int PlayerInvulnTicks  = 45;  // 0.75초 @60Hz
 
         // ── 타깃 런지 (우클릭): 둠 글로리킬식. 순간이동급 블링크 → 아래→위 베기. 블링크 틱만 잠금 ──
         public const byte LgNone = 0, LgWindup = 1, LgTravel = 2, LgRecovery = 3;

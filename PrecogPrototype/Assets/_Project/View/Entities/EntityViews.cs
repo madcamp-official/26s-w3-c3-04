@@ -26,7 +26,8 @@ namespace Game.View
         readonly List<EnemyMotion> viewMotion  = new List<EnemyMotion>();  // 절차 레이어(시선 추적) 개체 상태
         readonly List<EnemyGlow>   viewGlow    = new List<EnemyGlow>();    // 발광(어두운 맵 식별 + 상태 텔레그래프)
         readonly List<int>         viewPrevHp  = new List<int>();          // 피격 감지용
-        readonly List<int>         viewSpawnedId = new List<int>();        // 슬롯의 현재 몹 id — 바뀌면 새 몹(실체화 VFX 발동)
+        readonly List<int>         viewSpawnedId = new List<int>();        // 슬롯의 현재 몹 id — 바뀌면 새 몹
+        readonly List<int>         viewRevealedId = new List<int>();       // 이미 실체화 재생한 몹 id(박스당 1회 방지)
         readonly List<FootstepDetector> viewFoot = new List<FootstepDetector>();  // 발 딛는 순간 감지
 
         // ── 발자국 스파크·소리 ──
@@ -119,7 +120,10 @@ namespace Game.View
         static readonly Color AttackColor    = new Color(1f, 0.15f, 0.05f);   // 타격 순간 (강렬 빨강)
 
         // 몹 시각 종류. Traversal은 아직 실제 모델이 없어 캡슐 유지.
-        enum ViewKind { Capsule, Flying, Charge, Melee, Ranged }
+        enum ViewKind { Capsule, Flying, Charge, Melee, Ranged, Orb }
+
+        // 보스(Orb) 발광 구 렌더 크기 배율(히트박스 e.height 기준). 진짜 보스답게 크게.
+        public static float BossVisualScale = 5.0f;
 
         /// <summary>
         /// 이 애니메이터가 어떤 파라미터를 갖고 있는지 — <b>클립을 나중에 붙여도 코드를 안 고치게</b> 하는 장치.
@@ -417,19 +421,41 @@ namespace Game.View
                     ViewKind wantKind = KindFor(w.enemies[i].ai.mobility, w.enemies[i].ai.combat);
                     if (viewKinds[i] != wantKind) ReplaceView(i, $"Enemy_{i}", wantKind, w.enemies[i].yaw);
 
-                    // 스폰 실체화 VFX — 이 슬롯에 '새 몹'(id 변경)이 들어오면 재생. 트리거는 sim 순간
-                    // 상태가 아니라 '플레이어가 처음 본 순간'(SpawnMaterialize 내부 레이캐스트). 슬롯 재사용·
-                    // 스폰 방식과 무관하게 확실히 발동한다.
-                    if (w.enemies[i].alive && viewSpawnedId[i] != w.enemies[i].id)
+                    // 스폰 실체화 VFX — 팬 아래 재생 박스(SpawnRevealVolume)를 몹이 '지나는 순간' 재생.
+                    // 몹은 콜라이더가 없어 물리 트리거가 안 먹으므로, sim 위치가 박스 안에 들어왔는지로 판정.
+                    // 카메라 시야와 무관 — 팬에서 나와 박스를 통과하는 그 지점에서 확실히 뜬다.
+                    int eid = w.enemies[i].id;
+                    if (w.enemies[i].alive)
                     {
-                        viewSpawnedId[i] = w.enemies[i].id;
-                        SpawnMaterialize.Play(enemyViews[i]);
+                        if (viewSpawnedId[i] != eid)
+                        {
+                            viewSpawnedId[i] = eid;
+                            viewRevealedId[i] = int.MinValue;          // 새 몹: 아직 안 걷힘
+                            SpawnMaterialize.Prepare(enemyViews[i]);   // 즉시 숨김(오버레이 대기)
+                        }
+                        if (viewRevealedId[i] != eid && SpawnRevealVolume.Contains(w.enemies[i].pos))
+                        {
+                            viewRevealedId[i] = eid;
+                            SpawnMaterialize.Reveal(enemyViews[i]);     // 박스 통과 → 걷힘 시작
+                        }
                     }
                 }
                 enemyViews[i].gameObject.SetActive(active);
                 if (!active) continue;
                 ref readonly EnemySim e = ref w.enemies[i];
                 Vector3 ep = Vector3.Lerp(prev.enemies[i].pos, e.pos, alpha);
+
+                // 보스(Orb): 발광 구 배치 + 빔 구동만. 바이페드 애니/시선/틴트 로직 전부 건너뜀.
+                if (viewKinds[i] == ViewKind.Orb)
+                {
+                    Vector3 emitter = ep + Vector3.up * AIConfig.BossEmitterHeight;
+                    enemyViews[i].position = emitter;
+                    float os = e.height * BossVisualScale;
+                    enemyViews[i].localScale = new Vector3(os, os, os);
+                    var bv = enemyViews[i].GetComponent<BossView>();
+                    if (bv != null) bv.Set(e.ai.state, emitter, e.ai.beamDir);
+                    continue;
+                }
 
                 // 틱 차분으로 실제 수평 속도 산출(프레임레이트 무관). prevWorld는 FixedUpdate마다
                 // 갱신되므로 두 값은 정확히 한 틱 차이고, 렌더 프레임이 여러 번 돌아도 안정적이다.
@@ -604,6 +630,7 @@ namespace Game.View
 
         static ViewKind KindFor(MobilityType m, CombatType c)
         {
+            if (m == MobilityType.Orb)    return ViewKind.Orb;      // 보스(발광 구 코어)
             if (m == MobilityType.Flying) return ViewKind.Flying;
             if (m == MobilityType.Charge) return ViewKind.Charge;
             // 층이동(Traversal)은 전용 모델이 없어 한때 전부 근접 모델로 통일했었다.
@@ -854,6 +881,7 @@ namespace Game.View
             viewGlow.Add(default);
             viewPrevHp.Add(int.MinValue);
             viewSpawnedId.Add(int.MinValue);
+            viewRevealedId.Add(int.MinValue);
             viewFoot.Add(default);
             viewRusty.Add(default);
             viewPose.Add(default);
@@ -916,6 +944,16 @@ namespace Game.View
                     r = t.GetComponentInChildren<Renderer>();
                     a = t.GetComponentInChildren<Animator>();
                     break;
+                case ViewKind.Orb:
+                {
+                    // 보스: 절차적 발광 구 + 빔(BossView가 LineRenderer 구성). 별도 프리팹 없이 자족.
+                    var orb = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    Object.Destroy(orb.GetComponent<Collider>());
+                    orb.AddComponent<BossView>().Init();   // 오브 재질(발광) + 빔 라인 구성
+                    t = orb.transform;
+                    r = orb.GetComponent<Renderer>();
+                    break;
+                }
                 default:
                     t = MakeCapsule().transform;
                     r = t.GetComponent<Renderer>();

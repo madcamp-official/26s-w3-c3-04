@@ -16,6 +16,7 @@ namespace Game.View
         //   새 웨이브를 짤 때는 Grunt/Soldier를 쓰십시오.
         GruntT = 5,     // 근층 — 근접 + 층이동   [폐기 예정]
         SoldierT = 6,   // 원층 — 원거리 + 층이동 [폐기 예정]
+        Boss = 7,       // 보스 — 빛나는 구 코어, 추적 레이저(mobility=Orb)
     }
 
     /// <summary>스폰 지점 하나 = 위치(씬의 빈 오브젝트) + 그 지점에서 나올 종류.</summary>
@@ -52,6 +53,7 @@ namespace Game.View
                 case MobKind.Large:    return (CombatType.Melee,  MobilityType.Ground,    SizeClass.Large);
                 case MobKind.GruntT:   return (CombatType.Melee,  MobilityType.Traversal, SizeClass.Normal);  // 근층
                 case MobKind.SoldierT: return (CombatType.Ranged, MobilityType.Traversal, SizeClass.Normal);  // 원층
+                case MobKind.Boss:     return (CombatType.Melee,  MobilityType.Orb,       SizeClass.Normal);  // 보스
                 default:              return (CombatType.Melee,  MobilityType.Ground, SizeClass.Normal);  // Grunt
             }
         }
@@ -71,6 +73,8 @@ namespace Game.View
                 case "근층":    kind = MobKind.GruntT;   return true;
                 case "soldiert":
                 case "원층":    kind = MobKind.SoldierT; return true;
+                case "boss":
+                case "보스":    kind = MobKind.Boss;     return true;
                 default:        kind = MobKind.Grunt;   return false;
             }
         }
@@ -98,6 +102,7 @@ namespace Game.View
                 case MobKind.Large:    return new Color(1f, 0.85f, 0.2f);
                 case MobKind.GruntT:   return new Color(0.5f, 1f, 0.5f);    // 근층 = 근접색 계열 + 층이동
                 case MobKind.SoldierT: return new Color(0.2f, 1f, 0.85f);   // 원층 = 원거리색 계열 + 층이동
+                case MobKind.Boss:     return new Color(1f, 0.2f, 0.1f);    // 보스 = 강한 적색
                 default:              return Color.white;   // Grunt
             }
         }

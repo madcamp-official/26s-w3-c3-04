@@ -72,6 +72,9 @@ namespace Game.Sim
                 if (!e.alive) continue;
                 if (e.traversalPhase == TraversalPhase.Airborne) continue;   // 도약 궤적 중
                 if (e.launchTicks > 0) continue;                             // 스폰 펄스로 날아가는 중
+                // 보스(Orb): 고정 포탑 — 숨을 때 지면 아래(BossHideYOffset)로 내려가므로
+                // 여기서 밀어내면 하강과 싸운다. StepBoss가 위치를 전적으로 소유한다.
+                if (e.ai.mobility == MobilityType.Orb) continue;
                 CharacterMotor.ResolveOverlap(svc.Collision, ref e.pos, e.radius, e.height);
             }
         }
@@ -93,6 +96,7 @@ namespace Game.Sim
                 //   매 틱 XZ를 바닥으로 되당기면 탄도와 싸워 뚝뚝 끊기고, 착지에 도달하지 못한다.
                 if (e.traversalPhase != TraversalPhase.None) continue;
                 if (e.ai.mobility == MobilityType.Flying) continue;  // 공중몹
+                if (e.ai.mobility == MobilityType.Orb) continue;     // 보스(부유)
                 if (e.ai.state == EnemyState.ChargeRun) continue;    // 돌진 중(오버커밋 허용)
                 if (svc.Pathfinder.ClampToWalkable(e.pos, SimConfig.EnemyNavClampDist, out Vector3 onMesh))
                 { e.pos.x = onMesh.x; e.pos.z = onMesh.z; }
@@ -110,13 +114,14 @@ namespace Game.Sim
             for (int i = 0; i < w.enemyCount; i++) pushScratch[i] = Vector3.zero;
             Vector3 playerPush = Vector3.zero;
 
-            // 적 ↔ 적 (하강 중인 적 제외) — 개별 반경 합으로 최소거리
+            // 적 ↔ 적 (하강 중인 적 제외) — 개별 반경 합으로 최소거리.
+            // 보스(Orb)도 제외: 고정 포탑이라 밀리면 안 되고, 숨기 하강 중 플레이어·몹을 밀치면 안 된다.
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0) continue;
+                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0 || w.enemies[i].ai.mobility == MobilityType.Orb) continue;
                 for (int j = i + 1; j < w.enemyCount; j++)
                 {
-                    if (!w.enemies[j].alive || w.enemies[j].traversalPhase == TraversalPhase.Airborne || w.enemies[j].combat.gloryStage > 0) continue;
+                    if (!w.enemies[j].alive || w.enemies[j].traversalPhase == TraversalPhase.Airborne || w.enemies[j].combat.gloryStage > 0 || w.enemies[j].ai.mobility == MobilityType.Orb) continue;
                     Vector3 p = Push(w.enemies[i].pos, w.enemies[i].height,
                                      w.enemies[j].pos, w.enemies[j].height,
                                      w.enemies[i].radius + w.enemies[j].radius,
@@ -126,10 +131,10 @@ namespace Game.Sim
                 }
             }
 
-            // 적 ↔ 플레이어 (대칭) — 플레이어 반경 + 개별 적 반경
+            // 적 ↔ 플레이어 (대칭) — 플레이어 반경 + 개별 적 반경 (보스 제외 — 위와 동일 사유)
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0) continue;
+                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0 || w.enemies[i].ai.mobility == MobilityType.Orb) continue;
                 Vector3 p = Push(w.player.pos, SimConfig.PlayerHeight,
                                  w.enemies[i].pos, w.enemies[i].height,
                                  pr + w.enemies[i].radius, -1, w.enemies[i].id);
@@ -141,7 +146,7 @@ namespace Game.Sim
             w.player.pos = CharacterMotor.MoveHorizontal(svc.Collision, w.player.pos, playerPush, pr, SimConfig.PlayerHeight);
             for (int i = 0; i < w.enemyCount; i++)
             {
-                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0) continue;
+                if (!w.enemies[i].alive || w.enemies[i].traversalPhase == TraversalPhase.Airborne || w.enemies[i].combat.gloryStage > 0 || w.enemies[i].ai.mobility == MobilityType.Orb) continue;
                 w.enemies[i].pos = CharacterMotor.MoveHorizontal(svc.Collision, w.enemies[i].pos,
                                                                  pushScratch[i], w.enemies[i].radius, w.enemies[i].height);
             }

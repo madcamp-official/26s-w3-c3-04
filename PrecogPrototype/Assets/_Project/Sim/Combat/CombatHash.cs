@@ -35,6 +35,7 @@ namespace Game.Sim
             h = Mix(h, (ulong)c.attackElapsed);
             h = Mix(h, (ulong)c.hp);
             h = Mix(h, (ulong)c.hitStunTicks);
+            h = Mix(h, (ulong)c.invulnTicks);   // 다음 틱 피해판정에 영향 → 필수
             h = Mix(h, c.lungePhase);
             h = Mix(h, (ulong)c.lungeTicks);
             h = Mix(h, (ulong)(c.lungeTargetId + 1));   // -1 포함

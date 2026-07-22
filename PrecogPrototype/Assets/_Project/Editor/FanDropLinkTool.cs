@@ -41,8 +41,34 @@ namespace Game.EditorTools
             EditorGUILayout.LabelField("FanSpawn 붙은 선택", sel + "개");
 
             using (new EditorGUI.DisabledScope(sel == 0))
+            {
                 if (GUILayout.Button("드롭 링크 자동배치", GUILayout.Height(26)))
                     Place();
+                if (GUILayout.Button("선택 Fan의 드롭 링크 삭제", GUILayout.Height(22)))
+                    Clear();
+            }
+        }
+
+        void Clear()
+        {
+            int fans = 0, removed = 0;
+            foreach (var go in Selection.gameObjects)
+            {
+                var fs = go.GetComponent<FanSpawn>();
+                if (fs == null) continue;
+                fans++;
+
+                foreach (var l in new List<TraversalLink>(fs.dropLinks))
+                    if (l != null) { Undo.DestroyObjectImmediate(l.gameObject); removed++; }
+                fs.dropLinks.Clear();
+
+                // 리스트에서 빠진 고아 링크도 그룹째 정리한다.
+                var group = fs.transform.Find(fs.name + GroupSuffix);
+                if (group != null) Undo.DestroyObjectImmediate(group.gameObject);
+
+                EditorUtility.SetDirty(fs);
+            }
+            Debug.Log($"[Fan 드롭 링크] Fan {fans}개에서 링크 {removed}개 삭제(그룹 포함).");
         }
 
         void Place()

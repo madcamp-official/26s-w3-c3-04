@@ -157,5 +157,37 @@ namespace Game.Sim
         // 리드(예측) 조준: 플레이어 속도로 투사체 도달시간만큼 앞을 겨냥하되,
         // 완벽 리드(1)는 불공정 → "아주 약간"만(0.5). 0=현재위치(리드 없음), 1=완벽. 핵심 튜닝값.
         public static float LeadFactor = 0.5f;
+
+        // ── 보스 (빛나는 구 코어 · 추적 레이저) — mobility=Orb. 고정 포탑 + 3페이즈 (2026-07-23 개편) ──
+        // 이동하지 않는다(추격 없음). 스폰 지점(EnemyAI.anchor) 기준 BossRevealYOffset에 떠서
+        // 충전(5s) → 페이즈별 레이저(1.5/2.2/3.0s, 빔만 55도/s 추적) → 쿨(10s)을 반복한다.
+        // 누적 피해가 BossPhaseHp(15)씩 깎일 때마다 y를 BossHideYOffset까지 내려 30s 숨고
+        // (그동안 EMP 해제 = 예지 사용 가능) 다음 페이즈로 재등장. 총 HP 45 = 15×3,
+        // 페이즈3에서 소진되면 사망(연출 미정). 드러나 있는 동안은 EMP로 예지 무력화(BossQuery.EmpActive).
+        public static int   BossMaxHp         = 45;     // 페이즈당 15 × 3페이즈 (EnemySim.Spawn이 사용)
+        public static int   BossPhaseHp       = 15;     // 이만큼 깎일 때마다 숨음(페이즈 전환 경계 30/15/0)
+        public static float BossRevealYOffset = 3.0f;   // 드러났을 때 y = anchor.y + 이 값
+        public static float BossHideYOffset   = -10f;   // 숨었을 때 y = anchor.y + 이 값(투명벽 너머로 보임)
+        public static float BossHideMoveSpeed = 8f;     // 숨기/재등장 수직 이동 속도(m/s)
+        public static int   BossHideTicks     = 1800;   // 30.0s 숨어 있는 시간(예지 사용 가능 창)
+        public static float BossEmitterHeight = 0f;     // 오브 코어 발사점(e.pos 기준 위). 중심이 e.pos면 0
+        public static int   BossChargeTicks   = 300;    // 5.0s 차지 텔레그래프(엄폐 시간)
+        public static int   BossFireTicksP1   = 90;     // 1.5s — 페이즈1 빔 지속
+        public static int   BossFireTicksP2   = 132;    // 2.2s — 페이즈2 빔 지속
+        public static int   BossFireTicksP3   = 180;    // 3.0s — 페이즈3 빔 지속
+        public static int   BossRecoverTicks  = 600;    // 10.0s 발사 후 쿨(플레이어 딜 타임)
+        public static float BossChargeTurnRate = 90f;   // 도/s — 차지 중 예비 추적(조준 맞춰둠)
+        public static float BossBeamTurnRate  = 55f;    // 도/s — ★ 발사 중 추적 각속도(전 페이즈 동일, 회피 난이도 다이얼)
+        public static float BossBeamRange     = 45f;    // 빔 최대 길이(아그로 40보다 길게)
+        public static float BossBeamRadius    = 1.8f;   // 굵은 빔 반경(판정·시각 공통). 부분 차단 방식.
+        public static int   BossBeamDamage    = 1;      // 접촉 피해(무적시간이 간격 조절)
+
+        /// <summary>보스 현재 페이즈(1~3) — HP에서 파생(45~31=1, 30~16=2, 15~1=3). 별도 필드·해시 불필요.</summary>
+        public static int BossPhase(int health)
+            => health > BossPhaseHp * 2 ? 1 : health > BossPhaseHp ? 2 : 3;
+
+        /// <summary>페이즈별 빔 지속 틱.</summary>
+        public static int BossFireTicksFor(int phase)
+            => phase <= 1 ? BossFireTicksP1 : phase == 2 ? BossFireTicksP2 : BossFireTicksP3;
     }
 }

@@ -34,6 +34,7 @@ namespace Game.Sim
         // 체력·피격 (적용은 CombatResolve가)
         public int  hp;
         public int  hitStunTicks;       // >0이면 피격 경직(수평 조작 제한)
+        public int  invulnTicks;        // >0이면 피격 무적(들어오는 히트 무시). 매 틱 감소. 빔 등 연속피해를 조절.
 
         // 타깃 런지 (우클릭) — 시작 순간 targetId·도착점·Travel 틱 고정, 재추적 없음
         public byte    lungePhase;      // LgNone/Windup/Travel/Recovery

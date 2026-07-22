@@ -32,6 +32,9 @@ namespace Game.Sim
 
             ref PlayerCombatState pc = ref w.player.combat;
 
+            // 무적 타이머 감소(틱당 1회). 아래 히트 적용보다 먼저 — "이번 틱 피격 → 다음 틱부터 카운트다운".
+            if (pc.invulnTicks > 0) pc.invulnTicks--;
+
             // ── 평타 판정 ──
             // 즉발: 공격 시작(0틱)부터 판정창이 열린다 — 선딜을 기다리지 않는다.
             //       선딜은 연출 타이밍일 뿐이고, 캔슬해도 이미 때린 것은 유효하다.
@@ -95,10 +98,12 @@ namespace Game.Sim
             //    글로리킬 처형 중엔 무적(큐만 비움). 막기는 폐기 — 방어판정 없음.
             for (int k = 0; k < w.pendingHitCount; k++)
             {
-                if (pc.gloryPhase != CombatConfig.GlNone) break;
+                if (pc.gloryPhase != CombatConfig.GlNone) break;   // 글로리킬 처형 중 무적(기존)
+                if (pc.invulnTicks > 0) continue;                  // 무적: 이 히트 무시(HP 안 깎음)
                 pc.hp -= w.pendingHits[k].dmg;
                 if (pc.hp < 0) pc.hp = 0;
                 pc.hitStunTicks = CombatConfig.PlayerHitStunTicks;
+                pc.invulnTicks  = CombatConfig.PlayerInvulnTicks;  // 피격 순간 무적 시작 → 같은 틱 나머지 + 이후 N틱 무시
             }
             w.pendingHitCount = 0;
         }
@@ -111,6 +116,29 @@ namespace Game.Sim
         {
             ref EnemySim e = ref w.enemies[i];
             ref PlayerCombatState pc = ref w.player.combat;
+
+            // 보스(구 코어): 경직·넉백·글로리킬 없이 <b>HP만</b> 깎는다(대형 코어라 부적합).
+            // 페이즈 경계(BossPhaseHp=15씩, 30/15)를 이번 타격으로 넘으면 숨는다(Hide) —
+            // EnemyBrain.StepBoss가 하강→30s 대기→다음 페이즈로 재등장시킨다. 소진(0)되면 사망.
+            if (e.ai.mobility == MobilityType.Orb)
+            {
+                // 숨기/재등장 이동 중엔 무적 — 위치상 닿지 않지만 하강/상승 중 스침 방지 가드.
+                if (e.ai.state == EnemyState.Hide || e.ai.state == EnemyState.Emerge) return;
+                int before = e.combat.health;
+                e.combat.health -= CombatConfig.Damage;
+                if (e.combat.health <= 0)
+                {
+                    // 처치 — ★ 죽음 연출 미정(TODO): 일단 일반 제거 경로로 사라진다.
+                    e.combat.health = 0;
+                    e.alive = false;
+                    e.combat.deathTick = w.tick;
+                    return;
+                }
+                int hi = AIConfig.BossPhaseHp * 2, lo = AIConfig.BossPhaseHp;   // 30, 15
+                if ((before > hi && e.combat.health <= hi) || (before > lo && e.combat.health <= lo))
+                { e.ai.state = EnemyState.Hide; e.ai.stateTicks = 0; }   // 패턴 즉시 중단하고 숨음
+                return;
+            }
 
             if (e.ai.size == SizeClass.Large && pc.gloryPhase == CombatConfig.GlNone
                 && e.combat.health - CombatConfig.Damage <= 0)

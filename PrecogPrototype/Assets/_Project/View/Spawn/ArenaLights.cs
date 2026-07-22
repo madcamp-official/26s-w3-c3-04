@@ -43,8 +43,9 @@ namespace Game.View
         public Mood manualMood = Mood.Idle;
 
         [Header("프리셋")]
-        public Preset idle    = new Preset { lightColor = new Color(1f, 0.93f, 0.7f), lightIntensity = 2f,
-                                             emission = new Color(2.09f, 1.95f, 0.42f) };   // 노랑(에셋 기본)
+        // 기본: 소환 중=빨강(combat) / 그 외=하양(idle). 우클릭 컨텍스트 메뉴로 언제든 이 기본으로 리셋 가능.
+        public Preset idle    = new Preset { lightColor = new Color(1f, 1f, 1f),      lightIntensity = 2f,
+                                             emission = new Color(2f, 2f, 2f) };            // 하양
         public Preset combat  = new Preset { lightColor = new Color(1f, 0.25f, 0.2f),  lightIntensity = 3f,
                                              emission = new Color(3f, 0.1f, 0.1f) };        // 빨강
         public Preset cleared = new Preset { lightColor = new Color(0.3f, 0.6f, 1f),   lightIntensity = 2.2f,
@@ -92,13 +93,24 @@ namespace Game.View
         public Mood CurrentMood()
         {
             if (!useRunner || runner == null) return manualMood;
-            switch (runner.CurrentState)
-            {
-                case WaveRunner.State.Spawning:
-                case WaveRunner.State.Watching: return Mood.Combat;
-                case WaveRunner.State.Done:     return Mood.Cleared;
-                default:                        return Mood.Idle;   // Idle · WaitStart
-            }
+            // 몹 소환(Spawning) 중에만 빨강(Combat), 그 외(WaitStart·Watching·Done·Idle) 전부 하양(Idle).
+            return runner.CurrentState == WaveRunner.State.Spawning ? Mood.Combat : Mood.Idle;
+        }
+
+        /// <summary>
+        /// 프리셋을 "소환=빨강 / 그 외=하양" 기본으로 되돌린다.
+        /// 이미 배치된 인스턴스·프리팹은 직렬화된 옛 값을 갖고 있으므로, 컴포넌트 우클릭 → 이 메뉴로 한 번에 맞춘다.
+        /// (프리팹에서 리셋하면 마스터 씬의 모든 인스턴스에 전파된다.)
+        /// </summary>
+        [ContextMenu("프리셋 → 소환=빨강 / 그 외=하양")]
+        void ResetWhiteRed()
+        {
+            idle    = new Preset { lightColor = new Color(1f, 1f, 1f),     lightIntensity = 2f, emission = new Color(2f, 2f, 2f) };
+            combat  = new Preset { lightColor = new Color(1f, 0.25f, 0.2f), lightIntensity = 3f, emission = new Color(3f, 0.1f, 0.1f) };
+#if UNITY_EDITOR
+            if (!Application.isPlaying) UnityEditor.EditorUtility.SetDirty(this);
+#endif
+            if (ready) { shown = PresetOf(CurrentMood()); Apply(shown); }
         }
 
         Preset PresetOf(Mood m)

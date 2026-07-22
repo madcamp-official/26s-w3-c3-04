@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/_Project/Scenes/Level_Main.unity
+    guid: 48a1460ba268ea64ab4f1c39a567573d
+  - enabled: 1
     path: Assets/_Project/Prefabs/Arenas/Arena_3.unity
     guid: 4a7c879cc16f2f443a5f6e21fa219325
   - enabled: 1

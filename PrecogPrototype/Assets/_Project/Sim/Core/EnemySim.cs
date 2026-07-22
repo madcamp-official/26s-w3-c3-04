@@ -91,6 +91,8 @@ namespace Game.Sim
             bool large = size == SizeClass.Large;
             float scale = large ? SimConfig.EnemyLargeScale : SimConfig.EnemyNormalScale;
             int hp = large ? SimConfig.EnemyLargeHp : SimConfig.EnemyNormalHp;
+            // 보스(구 코어): 총 HP 45 = 페이즈당 15 × 3. 페이즈 전환·처치는 CombatResolve가 처리.
+            if (mobility == MobilityType.Orb) hp = AIConfig.BossMaxHp;
             // 돌진몹: 반경만 1.5배 넓다(옆으로 퍼짐).
             // ★ 몸집 확대(ChargeBodyMul)는 이제 <b>렌더 전용</b> — 히트박스는 원래 크기로 두고
             //   EntityViews.visualScale / Dismemberment에서만 모델을 키운다(얇은 다리 어색함 완화 요청).
