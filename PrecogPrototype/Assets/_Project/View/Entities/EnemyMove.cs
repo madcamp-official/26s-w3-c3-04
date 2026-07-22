@@ -136,9 +136,11 @@ namespace Game.View
                 // C3 휘청 : 돌진 후딜 진입. 명중이면 짧고 세게, 빗나감(=벽/헛침)이면 더 크게
                 if (e.ai.mobility == MobilityType.Charge && e.ai.state == EnemyState.Recovery)
                 {
+                    // 돌진 관성이 그대로 몸에 실린 채 급정거 — 앞뒤로 크게 젖혀지고 좌우로도 크게 꺾인다.
+                    // 세기는 크게, 감쇠(kickDamp)는 그대로 높아 한 번 크게 휘청였다 정착한다(버둥 금지).
                     float k = e.ai.hitDone ? s.staggerHit : s.staggerMiss;
                     kickVel.x -= k * amp;
-                    kickVel.y += (personality > 0.5f ? 1f : -1f) * k * 0.5f * amp;
+                    kickVel.y += (personality > 0.5f ? 1f : -1f) * k * 0.85f * amp;   // 좌우 비틀림 강화
                     Label = e.ai.hitDone ? "휘청(명중)" : "휘청(빗나감)";
                 }
                 // D2 반동 : 발사 순간
@@ -297,7 +299,8 @@ namespace Game.View
             bobRoll = 2.2f, bobPitch = 1.0f, bobRate = 0.9f,
             wallLean = 60f,
 
-            staggerHit = 150f, staggerMiss = 230f, recoil = 130f,
+            // 명중 280 / 빗나감 400 — 돌진 급정거를 훨씬 과격하게(기존 150/230에서 대폭 상향).
+            staggerHit = 280f, staggerMiss = 400f, recoil = 130f,
             bindShake = 4.5f, bindRate = 17f,
             lowHpDroop = 6f,
 

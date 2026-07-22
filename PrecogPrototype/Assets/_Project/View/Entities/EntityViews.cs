@@ -415,8 +415,10 @@ namespace Game.View
                     if (w.enemies[i].alive && viewSpawnedId[i] != w.enemies[i].id)
                     {
                         viewSpawnedId[i] = w.enemies[i].id;
-                        if (w.enemies[i].traversalPhase != TraversalPhase.None || w.enemies[i].launchTicks > 0)
-                            SpawnMaterialize.Play(enemyViews[i]);
+                        bool dropping = w.enemies[i].traversalPhase != TraversalPhase.None;
+                        bool launched = w.enemies[i].launchTicks > 0;
+                        if (dropping)       SpawnMaterialize.Play(enemyViews[i], 0f,   waitForDescent: true);  // 지상: 하강 시작에 맞춰
+                        else if (launched)  SpawnMaterialize.Play(enemyViews[i], 0.5f, waitForDescent: false); // 공중: 0.5초 뒤
                     }
                 }
                 enemyViews[i].gameObject.SetActive(active);
