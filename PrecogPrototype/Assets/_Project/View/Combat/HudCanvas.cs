@@ -425,12 +425,20 @@ namespace Game.View
         }
     }
 
-    /// <summary>Play 시 HUD 캔버스 자동 생성.</summary>
+    /// <summary>Play 시 HUD 자동 생성. 어느 쪽을 띄울지는 <see cref="HudStyle"/>가 정한다.</summary>
     public static class HudCanvasBoot
     {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
         {
+            // [홀로그램 HUD, 2026-07-22] 코드로 그리는 HoloHud가 기본. 아트 프레임 HUD로
+            // 되돌리려면 HudStyle.UseHologram = false.
+            if (HudStyle.UseHologram)
+            {
+                if (Object.FindFirstObjectByType<HoloHud>() == null)
+                    new GameObject("[HoloHud]").AddComponent<HoloHud>();
+                return;
+            }
             if (Object.FindFirstObjectByType<HudCanvas>() != null) return;
             new GameObject("[HudCanvas]").AddComponent<HudCanvas>();
         }
