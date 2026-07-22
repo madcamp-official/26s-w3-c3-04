@@ -69,6 +69,9 @@ namespace Game.View
         List<PredictedRoute> routes = new List<PredictedRoute>();
         int selected;
         float orbitYaw, orbitPitch;   // 미리보기 3인칭 궤도(마우스)
+        /// <summary>[2026-07-22] 미리보기 궤도 거리 — 마우스 휠로 조절한다. 예지 세션을 넘어
+        /// 유지해서, 한 번 맞춰둔 거리를 매번 다시 맞추지 않아도 되게 한다.</summary>
+        float orbitDist = PredictionConfig.CamDist;
 
         InputCmd[] followingControls;
         int followingIndex;
@@ -105,6 +108,9 @@ namespace Game.View
         Texture2D missGlitchTexture;
         float missGlitchStartedAt;
         float missGlitchUntil;
+        /// <summary>[2026-07-22] 1인칭 뷰모델(팔+칼) 렌더러 — ToggleViewmodel이 매번 다시 채운다.</summary>
+        readonly List<Renderer> viewmodelRenderers = new List<Renderer>();
+        readonly List<Renderer> collectBuffer = new List<Renderer>();
         readonly Dictionary<Renderer, Color> swordOriginalColors = new Dictionary<Renderer, Color>();
         readonly Dictionary<Transform, int> swordOriginalLayers = new Dictionary<Transform, int>();
 
@@ -359,6 +365,13 @@ namespace Game.View
                 orbitYaw += md.x * PredictionConfig.OrbitSens;
                 orbitPitch = Mathf.Clamp(orbitPitch - md.y * PredictionConfig.OrbitSens,
                                          PredictionConfig.OrbitPitchMin, PredictionConfig.OrbitPitchMax);
+
+                // 휠 줌 — 한 칸이 보통 ±120이라 정규화해서 "노치 수"로 환산한다.
+                float notches = mouse.scroll.ReadValue().y / 120f;
+                if (Mathf.Abs(notches) > 0.001f)
+                    orbitDist = Mathf.Clamp(
+                        orbitDist - notches * PredictionConfig.CamZoomPerNotch,
+                        PredictionConfig.CamDistMin, PredictionConfig.CamDistMax);
             }
 
             Render(in w);
@@ -412,7 +425,7 @@ namespace Game.View
             fx.SetExecution(false);
             fx.SetActive(true);
             CombatAudio.Prediction();   // 예지 발동음 (combat 오디오 훅)
-            ToggleSword(false);         // 3인칭이라 1인칭 칼 숨김
+            ToggleViewmodel(false);         // 3인칭이라 1인칭 칼 숨김
             SetVisible(true);
             BuildLines();
             orbitYaw = w.player.yaw; orbitPitch = PredictionConfig.OrbitPitchInit;   // 플레이어 뒤에서 시작
@@ -445,7 +458,7 @@ namespace Game.View
             fx.SetActive(false);
             RadialInvertFx.SetRadius(0f, PredictionConfig.RadialInvertMaxRadius);   // 카메라와 함께 즉시 스냅
             SetSwordExecutionStyle(false);
-            ToggleSword(true);         // 1인칭 칼 복구
+            ToggleViewmodel(true);         // 1인칭 칼 복구
             SetVisible(false);
             Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
         }
@@ -651,7 +664,8 @@ namespace Game.View
                     camPose.rotation = Quaternion.Euler(0f, w.player.yaw, 0f);
                 cameraYawVelocity = 0f;
                 ApplyFollowingVisuals();
-                ToggleSword(true);
+                // 경로 수행 중엔 1인칭 뷰모델 복구 — 단 3인칭 유지 모드(9)는 계속 숨긴다.
+                ToggleViewmodel(Mode.CameraMode == FollowCameraMode.FirstPerson);
                 SetSwordExecutionStyle(true);
                 ApplyModeCursor();
                 Debug.Log($"[예측] 루트 {selected} 확정 — {Mode.Name} · {Mode.Hint} (Esc 취소)");
@@ -683,7 +697,7 @@ namespace Game.View
             cameraYawVelocity = 0f;
             ApplyFollowingVisuals();
             // 1인칭 복귀 — 칼도 다시 보이게. 단 3인칭 유지 모드(9)는 계속 숨긴다.
-            ToggleSword(Mode.CameraMode == FollowCameraMode.FirstPerson);
+            ToggleViewmodel(Mode.CameraMode == FollowCameraMode.FirstPerson);
             SetSwordExecutionStyle(true);
             ApplyModeCursor();
             Debug.Log($"[예측] 루트 {selected} 확정 — 리듬 실행 ({r.seconds:0.0}초). " +
@@ -1192,8 +1206,13 @@ namespace Game.View
 
             if (startMarker != null)   // 정지된 플레이어 위치 = 루트 시작점
             {
-                startMarker.position = w.player.pos + Vector3.up * (SimConfig.PlayerHeight * 0.5f);
+                // [2026-07-22] 캡슐에서 실제 아바타로 바뀌면서 피벗 기준이 달라졌다 —
+                // 캡슐은 중심 피벗(반높이 보정)이지만 아바타는 발밑이라 PivotYOffset을 쓴다.
+                startMarker.position = w.player.pos + Vector3.up * PivotYOffset;
                 startMarker.rotation = Quaternion.Euler(0f, w.player.yaw, 0f);
+                // 서 있는 포즈 한 장을 구워 바인드 포즈로 굳는 걸 막는다(잔상과 같은 방식).
+                PoseGhostByTravel(startMarker, selected, 0);
+                SetMarkColor(startMarker, PredictionConfig.StartMarkerColor);
             }
 
             UpdateRevealTrails(previewRevealProgress);
@@ -1209,21 +1228,22 @@ namespace Game.View
             Vector3 pivot = w.player.pos + Vector3.up * PredictionConfig.CamLookY;
             Quaternion targetRot = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
             Vector3 direction = -(targetRot * Vector3.forward);
-            float targetDistance = PredictionConfig.CamDist;
+            // [2026-07-22] 고정 CamDist에서 휠로 조절되는 orbitDist로 교체.
+            float targetDistance = orbitDist;
             int collisionMask = Physics.DefaultRaycastLayers & ~(1 << PredictionAccentLayer);
             if (Physics.SphereCast(
                 pivot,
                 PredictionConfig.CamCollisionRadius,
                 direction,
                 out RaycastHit hit,
-                PredictionConfig.CamDist,
+                orbitDist,
                 collisionMask,
                 QueryTriggerInteraction.Ignore))
             {
                 targetDistance = Mathf.Clamp(
                     hit.distance - PredictionConfig.CamCollisionPadding,
                     PredictionConfig.CamCollisionMinDistance,
-                    PredictionConfig.CamDist);
+                    orbitDist);
             }
 
             Vector3 targetPos = pivot + direction * targetDistance;
@@ -1372,17 +1392,17 @@ namespace Game.View
             {
                 float blueAt = (1f / 3f) / p;
                 previewLineColorKeys[1] =
-                    new GradientColorKey(PredictionConfig.PreviewPathBlue, blueAt);
+                    new GradientColorKey(PredictionConfig.PreviewPathTeal, blueAt);
                 previewLineColorKeys[2] =
-                    new GradientColorKey(Color.Lerp(PredictionConfig.PreviewPathBlue, end, 0.5f),
+                    new GradientColorKey(Color.Lerp(PredictionConfig.PreviewPathTeal, end, 0.5f),
                         Mathf.Lerp(blueAt, 1f, 0.5f));
             }
             else
             {
                 previewLineColorKeys[1] = new GradientColorKey(
-                    PredictionConfig.PreviewPathBlue, (1f / 3f) / p);
+                    PredictionConfig.PreviewPathTeal, (1f / 3f) / p);
                 previewLineColorKeys[2] = new GradientColorKey(
-                    PredictionConfig.PreviewPathPurple, (2f / 3f) / p);
+                    PredictionConfig.PreviewPathBlue, (2f / 3f) / p);
             }
             previewLineColorKeys[3] = new GradientColorKey(end, 1f);
             previewLineGradient.SetKeys(previewLineColorKeys, previewLineAlphaKeys);
@@ -1451,17 +1471,19 @@ namespace Game.View
             }
         }
 
+        /// <summary>
+        /// 예지 진입 시 "지금 나" 자리에 세우는 표식.
+        ///
+        /// [2026-07-22] 예전엔 캡슐 프리미티브였다 — 경로 잔상은 전부 실제 캐릭터 아바타인데
+        /// 정작 출발점인 나만 캡슐이라 화면에서 튀었다. 잔상과 같은 <see cref="MakeGhostBody"/>
+        /// 를 써서 같은 아바타로 세운다(프리팹이 없으면 예전처럼 캡슐로 자동 폴백).
+        /// 색은 잔상과 구분되게 StartMarkerColor를 그대로 유지한다.
+        /// </summary>
         Transform MakeStartMarker()
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            go.name = "PredictStart";
-            Object.Destroy(go.GetComponent<Collider>());
-            go.transform.localScale = new Vector3(SimConfig.PlayerRadius * 2f,
-                                                  SimConfig.PlayerHeight * 0.5f,
-                                                  SimConfig.PlayerRadius * 2f);
-            go.GetComponent<Renderer>().material = SolidMat(PredictionConfig.StartMarkerColor);
-            return go.transform;
-        }
+            => MakeGhostBody("PredictStart",
+                new Vector3(SimConfig.PlayerRadius * 2f,
+                            SimConfig.PlayerHeight * 0.5f,
+                            SimConfig.PlayerRadius * 2f));
 
         /// <summary>아바타 프리팹이 설정돼 있으면 그걸 인스턴스화하고, 없으면 캡슐로 폴백.
         /// 두 경우 모두 Collider를 제거하고 모든 Renderer에 ghostMat을 덮어씌운다.</summary>
@@ -1929,16 +1951,16 @@ namespace Game.View
             if (p < 1f / 3f)
                 return Color.Lerp(
                     PredictionConfig.PreviewPathGreen,
-                    PredictionConfig.PreviewPathBlue,
+                    PredictionConfig.PreviewPathTeal,
                     p * 3f);
             if (p < 2f / 3f)
                 return Color.Lerp(
+                    PredictionConfig.PreviewPathTeal,
                     PredictionConfig.PreviewPathBlue,
-                    PredictionConfig.PreviewPathPurple,
                     (p - 1f / 3f) * 3f);
             return Color.Lerp(
-                PredictionConfig.PreviewPathPurple,
-                PredictionConfig.PreviewPathRed,
+                PredictionConfig.PreviewPathBlue,
+                PredictionConfig.PreviewPathNavy,
                 (p - 2f / 3f) * 3f);
         }
 
@@ -2217,12 +2239,44 @@ namespace Game.View
             }
         }
 
-        /// <summary>1인칭 칼(SwordView가 카메라 자식으로 만든 "SwordPivot") 표시 토글. combat 파일 미편집(이름 결합).</summary>
-        void ToggleSword(bool show)
+        /// <summary>
+        /// 1인칭 뷰모델(팔 + 칼) 표시 토글.
+        ///
+        /// [버그 수정, 2026-07-22] 예전엔 <c>SwordPivot</c> 하나만 숨겼다. 그런데 실제 1인칭
+        /// 리그는 <b>KatanaViewmodel</b>(팔까지 포함, ViewmodelCamera.FindViewmodel이 찾는 그것)
+        /// 이라, 3인칭 미리보기로 빠져도 팔과 칼이 화면에 그대로 떠 있었다.
+        ///
+        /// GameObject.SetActive 대신 <b>Renderer.enabled</b>만 끈다 — 오브젝트를 비활성화하면
+        /// ViewmodelCamera가 레이어를 다시 입힐 때 GameObject.Find로 못 찾고(비활성 제외),
+        /// SwordView/PosePlayer의 참조도 끊긴다. 보이는 것만 끄는 게 안전하다.
+        ///
+        /// 런타임에 생성되는 리그라 매번 다시 훑는다(상태 전환에서만 호출되므로 비용 무시 가능).
+        /// </summary>
+        void ToggleViewmodel(bool show)
         {
-            if (cam == null) return;
-            var sp = cam.transform.Find("SwordPivot");
-            if (sp != null) sp.gameObject.SetActive(show);
+            viewmodelRenderers.Clear();
+            if (cam != null) CollectViewmodel(cam.transform.Find("SwordPivot"));
+
+            Transform katana = cam != null ? cam.transform.Find("KatanaViewmodel") : null;
+            if (katana == null)
+            {
+                GameObject go = GameObject.Find("KatanaViewmodel");
+                if (go != null) katana = go.transform;
+            }
+            CollectViewmodel(katana);
+
+            for (int i = 0; i < viewmodelRenderers.Count; i++)
+            {
+                if (viewmodelRenderers[i] == null) continue;
+                viewmodelRenderers[i].enabled = show;
+            }
+        }
+
+        void CollectViewmodel(Transform root)
+        {
+            if (root == null) return;
+            root.GetComponentsInChildren(true, collectBuffer);
+            viewmodelRenderers.AddRange(collectBuffer);
         }
 
         void SetSwordExecutionStyle(bool active)
