@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Game.View
 {
     /// <summary>
-    /// 절차적 전투 SFX. ★ combat 소유·독립. 오디오 에셋 0개 — AudioClip.Create로 합성.
+    /// 절차적 전투 SFX. ★ combat 소유·독립. Resources/Sfx에 실제 클립 있으면 우선 사용, 없으면 AudioClip.Create로 합성.
     /// 정적 접근자(CombatAudio.Swing() 등)를 SwordView·CombatFeedback이 호출.
     /// 임시방편 아님(이 세션 확정 방식) — 다만 진짜 폴리 사운드보단 거칠다.
     /// </summary>
@@ -13,12 +13,12 @@ namespace Game.View
 
         static CombatAudio inst;
         AudioSource src;
-        AudioClip swing, hit, dash, guardRaise, block, backstrike, death;
+        AudioClip[] swing, hit, dash, guardRaise, block, backstrike, death;
         // 몹 SFX (러프·잠정). 대부분 몹 공격 SIM 상태 생기면 그쪽에서 호출.
         AudioClip enWindup, enMelee, enAim, enFire, enPain;
         AudioClip enStep;   // 발 딛는 소리 — 지금은 임시 합성음, 에셋이 오면 교체
-        AudioClip playerHurt;   // 플레이어 피격("억" + 저음 임팩트)
-        AudioClip prediction;   // 예지 발동(시간정지식 상승 시머)
+        AudioClip[] playerHurt;   // 플레이어 피격("억" + 저음 임팩트)
+        AudioClip[] prediction;   // 예지 발동(시간정지식 상승 시머)
 
         void Awake()
         {
@@ -37,13 +37,13 @@ namespace Game.View
                     cam.gameObject.AddComponent<AudioListener>();
             }
 
-            swing      = BuildSwing();
-            hit        = BuildHit();
-            dash       = BuildDash();
-            guardRaise = BuildGuardRaise();
-            block      = BuildBlock();
-            backstrike = BuildBackstrike();
-            death      = BuildDeath();
+            swing      = LoadVariants("Sfx/Swing", BuildSwing);
+            hit        = LoadVariants("Sfx/Hit", BuildHit);
+            dash       = LoadVariants("Sfx/Dash", BuildDash);
+            guardRaise = LoadVariants("Sfx/GuardRaise", BuildGuardRaise);
+            block      = LoadVariants("Sfx/Block", BuildBlock);
+            backstrike = LoadVariants("Sfx/Backstrike", BuildBackstrike);
+            death      = LoadVariants("Sfx/Death", BuildDeath);
 
             enWindup = BuildEnemyWindup();
             enMelee  = BuildEnemyMelee();
@@ -52,8 +52,17 @@ namespace Game.View
             enPain   = BuildEnemyPain();
             enStep   = BuildEnemyStep();
 
-            playerHurt = BuildPlayerHurt();
-            prediction = BuildPrediction();
+            playerHurt = LoadVariants("Sfx/PlayerHurt", BuildPlayerHurt);
+            prediction = LoadVariants("Sfx/Prediction", BuildPrediction);
+        }
+
+        /// <summary>Resources/{folder}에 여러 클립(테이크) 있으면 그걸, 파일 하나뿐이면 그거, 없으면 합성 클립으로 폴백.</summary>
+        static AudioClip[] LoadVariants(string folder, System.Func<AudioClip> fallback)
+        {
+            var many = Resources.LoadAll<AudioClip>(folder);
+            if (many != null && many.Length > 0) return many;
+            var single = Resources.Load<AudioClip>(folder);
+            return new[] { single != null ? single : fallback() };
         }
 
         // ── 정적 접근자 (null 안전) ──
@@ -70,7 +79,7 @@ namespace Game.View
         //  원거리 솔저: Aim 진입 → EnemyAim(), Fire → EnemyFire()
         //  피격 신음(EnemyPain)은 CombatFeedback이 이미 연결.
         public static void EnemyWindup() => Play(inst?.enWindup, 0.5f,  0.05f);
-        public static void EnemyMelee()  => Play(inst?.enMelee,  0.6f,  0.06f);
+        public static void EnemyMelee()  { /* 일단 비활성화 — 소리 이상해서 끔 */ }
         public static void EnemyAim()    => Play(inst?.enAim,    0.4f,  0.03f);
         public static void EnemyFire()   => Play(inst?.enFire,   0.6f,  0.05f);
         public static void EnemyPain()   => Play(inst?.enPain,   0.45f, 0.10f);
@@ -78,6 +87,15 @@ namespace Game.View
         public static void EnemyStep()   => Play(inst?.enStep,   0.22f, 0.18f);
         public static void PlayerHurt()  => Play(inst?.playerHurt, 0.75f, 0.06f);  // 플레이어 피격
         public static void Prediction()  => Play(inst?.prediction, 0.5f,  0.02f);  // 예지 발동
+
+        static void Play(AudioClip[] clips, float vol, float pitchJitter)
+        {
+            if (inst == null || clips == null || clips.Length == 0) return;
+            var clip = clips[Random.Range(0, clips.Length)];
+            if (clip == null) return;
+            inst.src.pitch = 1f + Random.Range(-pitchJitter, pitchJitter);
+            inst.src.PlayOneShot(clip, vol);
+        }
 
         static void Play(AudioClip clip, float vol, float pitchJitter)
         {

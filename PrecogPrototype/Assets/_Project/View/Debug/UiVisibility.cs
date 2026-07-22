@@ -12,7 +12,7 @@ namespace Game.View
     /// </summary>
     public static class UiVisibility
     {
-        /// <summary>게임 UI를 숨기는가.</summary>
+        /// <summary>게임 UI를 숨기는가. 실행 중엔 개발 콘솔 <c>ui off</c>/<c>ui on</c>으로 전환.</summary>
         public static bool Hidden { get; private set; }
 
         public static void Set(bool hidden) => Hidden = hidden;

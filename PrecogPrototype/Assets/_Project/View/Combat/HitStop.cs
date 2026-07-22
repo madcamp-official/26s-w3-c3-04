@@ -23,6 +23,13 @@ namespace Game.View
         /// <summary>남은 스킵 틱. Main.FixedUpdate가 매 틱 1씩 소비하며 sim을 건너뛴다.</summary>
         public static int FrozenTicks;
 
+        // [예측 추적 모드, 2026-07-22] 프리즈는 sim 틱을 통째로 건너뛰므로 뷰(파티클·애니메이션)
+        // 만 돌고 적·투사체는 멈춘다 — 평소엔 그게 타격감이지만, 런지가 거의 매 순간인 예측
+        // 추적 모드에서는 "몹만 얼어붙은" 것처럼 보인다. 그런 모드가 매 프레임 켜고 끈다
+        // (PredictionController.Tick). 예측이 아닐 때는 항상 false로 돌아온다.
+        /// <summary>true면 새 프리즈 요청을 무시하고 남은 프리즈도 즉시 해제한다.</summary>
+        public static bool Suppressed;
+
         byte prevLunge;
 
         /// <summary>얼릴 틱 요청(더 긴 요청이 우선). 여러 타격이 겹쳐도 최댓값 유지.</summary>
@@ -31,6 +38,8 @@ namespace Game.View
         void Update()
         {
             if (Main.Instance == null) return;
+
+            if (Suppressed) { FrozenTicks = 0; prevLunge = Main.Instance.World.player.combat.lungePhase; return; }
 
             ref readonly SimWorld w = ref Main.Instance.World;
 

@@ -41,6 +41,11 @@ namespace Game.EditorTools
         bool includeNormal = true, includeRestricted = true, includeDescendOnly = true;
         bool useCostDistance = true;
 
+        // ── 높이 상한 ──
+        // [2026-07-22 추가] 천장·지붕 NavMesh 제외용. 아래 Run()의 "1-b) 높이 상한" 주석 참고.
+        bool useMaxHeight = true;
+        float maxNodeHeight = 10.5f;
+
         // ── 출력 ──
         string savePath = "Assets/_Project/View/Nav/Resources";
         string report = "";
@@ -64,6 +69,14 @@ namespace Game.EditorTools
             if (!promoteMarkers)
                 EditorGUILayout.HelpBox("끄면 발판이 노드와 어긋나 엉뚱한 지점에서 도약합니다. 권장: 켬", MessageType.Warning);
             mergeRadius = EditorGUILayout.Slider("끝점 병합 반경(m)", mergeRadius, 0f, 6f);
+            useMaxHeight = EditorGUILayout.Toggle("높이 상한 사용", useMaxHeight);
+            using (new EditorGUI.DisabledScope(!useMaxHeight))
+                maxNodeHeight = EditorGUILayout.Slider("최대 노드 높이(m)", maxNodeHeight, 2f, 40f);
+            if (!useMaxHeight)
+                EditorGUILayout.HelpBox(
+                    "NavMesh는 천장·지붕 콜라이더 위에도 깔립니다. 끄면 예측이 갈 수 없는 지붕 위 " +
+                    "경로를 계획할 수 있습니다. 권장: 켬 + 플레이 영역 최고점보다 조금 높게",
+                    MessageType.Warning);
             fillSpacing = EditorGUILayout.Slider("지형 보충 간격(m)", fillSpacing, 0f, 30f);
             EditorGUILayout.LabelField(" ", "0 = 보충 안 함(마커 끝점만). 작을수록 촘촘·느림", EditorStyles.miniLabel);
             floorSplit  = EditorGUILayout.Slider("층 분리 높이차(m)", floorSplit, 0.5f, 5f);
@@ -146,6 +159,24 @@ namespace Game.EditorTools
             if (fillSpacing > 0f) FillFromTriangulation(tri, pts);
             int total = pts.Count;
 
+            // 1-b) 높이 상한 — NavMesh 베이크가 콜라이더 전체(collectObjects=All + PhysicsColliders)를
+            // 걷는 면으로 굽기 때문에 <b>천장·지붕 위에도 NavMesh가 깔린다</b>. 그대로 구우면 예측이
+            // 플레이어가 갈 수 없는 지붕 위 경로를 계획한다(Arena_3 실측: 노드 152개 중 33개가
+            // 12~23m, 실제 플레이 영역 상단은 9.4m였다). 아래 상한으로 그 노드들을 잘라낸다.
+            // NavMesh 자체는 안 건드린다 — 그건 실제 게임 길찾기가 쓰는 것이라 별개 문제다.
+            int cutByHeight = 0;
+            if (useMaxHeight)
+            {
+                for (int i = pts.Count - 1; i >= 0; i--)
+                {
+                    if (pts[i].y <= maxNodeHeight) continue;
+                    pts.RemoveAt(i);
+                    cutByHeight++;
+                    if (i < afterMarkers) afterMarkers--;
+                }
+                total = pts.Count;
+            }
+
             // 2) 노드 생성(층 id 부여)
             var nodes = new ArenaNavNode[pts.Count];
             for (int i = 0; i < pts.Count; i++)
@@ -172,6 +203,9 @@ namespace Game.EditorTools
             long fw = (long)nodes.Length * nodes.Length * nodes.Length;
             report =
                 $"노드 {nodes.Length}개 (마커 끝점 {afterMarkers} · 지형 보충 {total - afterMarkers})\n" +
+                (useMaxHeight
+                    ? $"높이 상한 {maxNodeHeight:0.0}m 초과로 제외 {cutByHeight}개 (천장·지붕)\n"
+                    : "⚠ 높이 상한 꺼짐 — 천장 위 노드가 섞일 수 있습니다\n") +
                 $"링크 {links.Count}개 (walk {walkPairs * 2} · 마커 {markerLinks})\n" +
                 $"연결 성분 {components}개" + (components > 1 ? "  ⚠ 갈라진 영역이 있습니다" : "") + "\n" +
                 (isolated > 0 ? $"⚠ 고립 노드 {isolated}개\n" : "") +

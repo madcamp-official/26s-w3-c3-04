@@ -13,15 +13,22 @@ namespace Game.View
     /// </summary>
     public static class RealRoutePreview
     {
-        public static List<PredictedRoute> Build(in SimWorld w, in SimServices services, Color[] colors)
+        /// <param name="seconds">내다볼 시간(초). 예지 게이지가 찬 만큼 길어진다 —
+        /// <see cref="PredictionSettings.ForDuration"/>이 1~5초로 자른다.</param>
+        public static List<PredictedRoute> Build(in SimWorld w, in SimServices services, Color[] colors, float seconds)
         {
             var routes = new List<PredictedRoute>();
             if (w.player.combat.hp <= 0) return routes;
 
-            // F 입력 순간 동기적으로 도는 검색이라 적이 많으면 그만큼 체감 끊김이 생긴다 —
-            // 이번 세션에 만든 동적 축소(PredictionSettings.Degrade)를 실제 적 수에 맞춰 적용한다.
+            // [예지 게이지 연결, 2026-07-22] 예전엔 항상 Full(3초 고정)이라, "게이지 양에 따라
+            // 1~5초를 내다본다"는 설계로 만들어 둔 ForDuration이 게임에서 한 번도 안 불렸다.
+            // 이제 게이지가 곧 예측 지평이다 — 아껴서 길게 볼지, 짧게 자주 쓸지가 선택이 된다.
+            // 성능상으로도 제일 비싼 5초 탐색이 "게이지를 다 채워야만" 나오는 구조가 된다.
+            // 그 위에 동적 축소(Degrade)를 실제 적 수에 맞춰 얹는다 — F 입력 순간 동기적으로
+            // 도는 검색이라 적이 많으면 그만큼 체감 끊김이 생기기 때문.
             // PlanByProfile은 안전형/기회형/공격형이 월드 확장을 공유하고 점수만 따로 계산한다.
-            PredictionSettings settings = PredictionSettings.Degrade(PredictionSettings.Full, w.enemyCount);
+            PredictionSettings settings =
+                PredictionSettings.Degrade(PredictionSettings.ForDuration(seconds), w.enemyCount);
             PredictionProfiler.Begin(w.enemyCount, in settings);
             PredictionProfiler.TotalMarker.Begin();
             CandidatePath[] plans = PredictionPlanner.PlanByProfile(in w, in services, settings);

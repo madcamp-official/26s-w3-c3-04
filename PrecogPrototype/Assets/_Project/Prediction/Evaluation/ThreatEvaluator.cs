@@ -66,6 +66,11 @@ namespace Game.Prediction
             // 살아남아 실제 처치까지 이어지도록만 돕는 작은 가점. 실제 피해/처치가 항상 더 크다.
             s.kill += obs.strikeableFlyingEnemyCount * PredictionScoreConfig.AerialOpportunityWeight;
 
+            // 대공 등반 유도: 닿는 공중 적이 이미 있으면(위 항) 그쪽이 우선이므로 등반은 안 민다.
+            // 아무도 닿지 않을 때만 "고도를 얻는 방향"에 작은 가점을 줘서 그 가지가 Beam에서 살아남게 한다.
+            if (obs.strikeableFlyingEnemyCount == 0 && obs.unreachableFlyingEnemyCount > 0)
+                s.kill += obs.aerialAscentProgress01 * PredictionScoreConfig.AerialAscentProgressWeight;
+
             // difficulty는 이번 롤백에서 비움(계약의 대시 보존/반복 페널티가 회귀 원인이라 제외).
             return s;
         }

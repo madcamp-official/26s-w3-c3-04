@@ -10,8 +10,15 @@ namespace Game.View
     /// </summary>
     public class EntityViews
     {
+        /// <summary>[2026-07-22] 예측 미리보기처럼 sim이 얼어 있는 프레임인가. Main이 매 프레임 채운다.
+        /// 켜지면 몹 Animator를 정지(speed=0)시킨다 — 세계가 멈췄는데 다리만 계속 걷던 버그 수정.
+        /// (viewSpeed가 0이어도 재생 배속이 하한 0.6에 붙어 클립이 계속 돌던 것이 원인.)</summary>
+        public static bool SimFrozen;
+
         public Transform PlayerAnchor { get; private set; }
         readonly List<Transform> enemyViews = new List<Transform>();
+        /// <summary>몹 뷰 Transform(읽기 전용). 인덱스는 SimWorld.enemies와 대응. 런지 타깃 윤곽 연출이 읽는다.</summary>
+        public IReadOnlyList<Transform> EnemyViews => enemyViews;
         readonly List<ViewKind>  viewKinds     = new List<ViewKind>();
         readonly List<Renderer>  viewRenderers = new List<Renderer>();   // 틴트용, 캐시(Charge는 자식에 있음)
         readonly List<Animator>  viewAnimators = new List<Animator>();   // Charge만 채워짐, 그 외 null
@@ -570,6 +577,12 @@ namespace Game.View
                     if (!isAiming) ApplyWalkOrIdle(i, anim, viewAnimSpeed[i]);
                     else anim.speed = 1f;
                 }
+
+                // [2026-07-22] 예측 미리보기 등 sim 정지 프레임에서는 몹 애니메이터도 얼린다.
+                // 위 세 분기(Charge/Melee/Ranged)가 배속을 하한(0.6)에 붙여 놓아 세계가 멈춰도
+                // 다리가 계속 움직였다 — speed=0으로 덮어써 완전히 정지시킨다.
+                if (SimFrozen && IsBiped(kind) && viewAnimators[i] != null)
+                    viewAnimators[i].speed = 0f;
 
                 // 우선순위: 피격/스턴 > 공격 선딜(경고) > 타격 > 하강 단계 색
                 // 실물 모델은 원래 텍스처 색을 그대로 유지 — 캡슐만 상태별로 틴트.
