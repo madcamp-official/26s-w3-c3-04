@@ -1092,6 +1092,7 @@ namespace Game.Prediction.Editor
         public bool SampleGround(Vector3 feet, float maxDown, out float groundY) { groundY = 0f; return true; }
         public bool HasLineOfSight(Vector3 from, Vector3 to) => true;
         public bool CanOccupyCapsule(Vector3 feet, float radius, float height) => true;
+        public Vector3 Depenetrate(Vector3 feet, float radius, float height) => Vector3.zero;   // 평지 가정 — 겹침 없음
     }
 
     /// <summary>from→to 직선만 반환하는 최소 IPathfinder. 씬 NavMesh 없이도 예측 시각화 데모가 돌게 한다.</summary>

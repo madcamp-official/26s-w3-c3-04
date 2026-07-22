@@ -98,6 +98,26 @@ namespace Game.Sim
             else grounded = false;
         }
 
+        /// <summary>
+        /// 겹침 해소 — 지오메트리에 파고들었으면 그만큼 밀어낸다.
+        ///
+        /// 스윕(CapsuleCast)만으로는 관통을 못 막는다. 유니티 스윕은 <b>시작 시점에 이미 겹친
+        /// 콜라이더를 무시</b>하므로, 한 번 벽 안에 들어가면 그 벽이 없는 것처럼 통과하고
+        /// 스스로 빠져나올 방법도 없다. 매 틱 이걸 돌려 "낀 상태"를 없애면 관통이 원천 차단된다.
+        ///
+        /// 한 틱에 밀 수 있는 양을 제한해, 계산이 튀어도 캐릭터가 순간이동하지 않게 한다.
+        /// </summary>
+        public static void ResolveOverlap(ICollision col, ref Vector3 pos, float radius, float height)
+        {
+            Vector3 push = col.Depenetrate(pos, radius, height);
+            float sq = push.sqrMagnitude;
+            if (sq < 1e-8f) return;
+            if (sq > MaxDepenetration * MaxDepenetration) push = push / Mathf.Sqrt(sq) * MaxDepenetration;
+            pos += push;
+        }
+
+        const float MaxDepenetration = 1f;   // 한 틱 밀어내기 상한(m) — 튐 방지
+
         public static void Capsule(Vector3 feet, float radius, float height,
                                    out Vector3 bottom, out Vector3 top)
         {

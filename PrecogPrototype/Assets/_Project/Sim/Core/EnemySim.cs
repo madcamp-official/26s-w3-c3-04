@@ -9,6 +9,11 @@ namespace Game.Sim
         Leaping = 1,   // 포물선 도약 중(시작→착지 보간 + apex). 완료 후 짧은 착지 홀드 뒤 종료
     }
 
+    /// <summary>
+    /// 층이동 도약 단계.
+    /// ★ <b>폐기 예정</b> — 층이동 특성 자체를 안 쓰기로 했습니다(2026-07-22, 확정은 아님).
+    ///   자세한 사정은 <see cref="MobilityType"/> 주석 참고. 새 작업을 붙이지 마십시오.
+    /// </summary>
     public enum TraversalPhase : byte { None, Pause, Airborne, Recovery }
 
     /// <summary>
@@ -86,7 +91,10 @@ namespace Game.Sim
             bool large = size == SizeClass.Large;
             float scale = large ? SimConfig.EnemyLargeScale : SimConfig.EnemyNormalScale;
             int hp = large ? SimConfig.EnemyLargeHp : SimConfig.EnemyNormalHp;
-            float radiusMul = mobility == MobilityType.Charge ? AIConfig.ChargeRadiusMul : 1f;   // 돌진몹 반경 1.5배(높이는 그대로)
+            // 돌진몹: 반경만 1.5배 넓고(옆으로 퍼짐), 거기에 몸집 배율(ChargeBodyMul)이 반경·높이에 함께 곱해진다.
+            bool isCharge = mobility == MobilityType.Charge;
+            float bodyMul   = isCharge ? AIConfig.ChargeBodyMul : 1f;
+            float radiusMul = (isCharge ? AIConfig.ChargeRadiusMul : 1f) * bodyMul;
             return new EnemySim
             {
                 id = id,
@@ -94,7 +102,7 @@ namespace Game.Sim
                 pos = at,
                 grounded = true,
                 radius = SimConfig.EnemyRadius * scale * radiusMul,
-                height = SimConfig.EnemyHeight * scale,
+                height = SimConfig.EnemyHeight * scale * bodyMul,
                 combat = EnemyCombatState.Spawn(hp),
                 ai = EnemyAI.Spawn(combat, mobility, size),
                 traversalSlot = -1,

@@ -193,18 +193,22 @@ namespace Game.View
         }
 
         /// <summary>슬롯 이름으로 발동(지연 포함).</summary>
-        public void Fire(string slotName)
+        /// <summary>슬롯 이름으로 발동.
+        /// delayOverride ≥ 0이면 슬롯 지연 대신 그 값을 쓴다(즉발 판정에서 "선딜 뒤 이펙트"용).
+        /// 코루틴이라 도중에 공격이 캔슬돼도 예약된 이펙트는 그대로 나온다.</summary>
+        public void Fire(string slotName, float delayOverride = -1f)
         {
             if (!active) return;
             var s = Find(slotName);
             if (s == null || !s.enabled) return;
-            if (s.delay > 0f) StartCoroutine(FireDelayed(s));
+            float d = delayOverride >= 0f ? delayOverride : s.delay;
+            if (d > 0f) StartCoroutine(FireDelayed(s, d));
             else SpawnNow(s);
         }
 
-        System.Collections.IEnumerator FireDelayed(Slot s)
+        System.Collections.IEnumerator FireDelayed(Slot s, float wait)
         {
-            yield return new WaitForSeconds(s.delay);
+            if (wait > 0f) yield return new WaitForSeconds(wait);
             SpawnNow(s);
         }
 
@@ -248,10 +252,11 @@ namespace Game.View
 
         /// <summary>피격 지점(월드)에서 사방으로 참격을 터뜨린다. 겐지식 연출.
         /// 카메라를 향해 정렬하므로 어느 방향에서 봐도 별 모양이 보인다.</summary>
-        public void BurstAt(Vector3 worldPos, Slot s = null)
+        public void BurstAt(Vector3 worldPos, Slot s = null, float delay = 0f)
         {
             s = s ?? Find("피격");
             if (!active || s == null || !s.enabled) return;
+            if (delay > 0f) { StartCoroutine(BurstDelayed(worldPos, s, delay)); return; }
             var cam = ResolveCam(); if (cam == null) return;
 
             int n = Mathf.Max(1, s.burstCount);
@@ -265,6 +270,13 @@ namespace Game.View
                 if (s.burstStagger > 0.0001f) StartCoroutine(BurstOne(worldPos, s, ang, i * s.burstStagger));
                 else SpawnRay(worldPos, s, ang);
             }
+        }
+
+        /// <summary>선딜만큼 기다렸다 터뜨린다. 코루틴이라 도중 캔슬돼도 예약분은 나온다.</summary>
+        System.Collections.IEnumerator BurstDelayed(Vector3 pos, Slot s, float wait)
+        {
+            yield return new WaitForSeconds(wait);
+            BurstAt(pos, s);
         }
 
         System.Collections.IEnumerator BurstOne(Vector3 pos, Slot s, float ang, float wait)

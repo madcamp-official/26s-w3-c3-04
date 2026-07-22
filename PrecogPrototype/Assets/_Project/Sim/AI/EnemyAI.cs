@@ -7,6 +7,15 @@ namespace Game.Sim
     /// 개별 종 나열이 아니라 조합 → 돌진·비행은 mobility 값 추가, 대형은 size 플래그만.
     /// </summary>
     public enum CombatType   : byte { Melee = 0, Ranged = 1 }
+    /// <summary>
+    /// 이동 방식.
+    ///
+    /// ★ <b>Traversal(층이동)은 사실상 폐기 예정</b>입니다 (2026-07-22 결정, 확정은 아님).
+    ///   앞으로 이 특성을 쓰지 않기로 했으므로 <b>여기에 새 기능을 붙이지 마십시오.</b>
+    ///   기존 코드(TraversalPhase·TraversalLink·그래프 링크 굽기)는 동작하므로 그대로 두지만,
+    ///   버그 수정·연출 작업의 우선순위에서 제외합니다.
+    ///   뷰도 이미 전용 모델이 없어 근접/원거리와 같은 모습으로 그려집니다(EntityViews.KindFor).
+    /// </summary>
     public enum MobilityType : byte { Ground = 0, Charge = 1, Traversal = 2, Flying = 3 }
     public enum SizeClass    : byte { Normal = 0, Large = 1 }
 
@@ -214,7 +223,10 @@ namespace Game.Sim
                 {
                     ai.stateTicks++;
                     Vector3 before = e.pos;
-                    float wish = AIConfig.ChargeSpeed * dt;
+                    // ★ 이번 틱의 이동량 = 거리곡선의 차분(∫v). 속도×dt로 잡으면 가속 구간에서 오차가 쌓인다.
+                    //   가속이 꺼져 있으면 ChargeDistAt이 선형이라 예전과 정확히 같은 값이 나온다.
+                    float tNow  = ai.stateTicks * dt;
+                    float wish  = AIConfig.ChargeDistAt(tNow) - AIConfig.ChargeDistAt(tNow - dt);
                     e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, ai.committedDir * wish, e.radius, e.height);
                     CharacterMotor.ResolveVertical(svc.Collision, ref e.pos, ref e.vel, dt, out e.grounded);
                     float moved = FlatDist(before, e.pos);
@@ -224,8 +236,11 @@ namespace Game.Sim
                     if (!ai.hitDone && FlatDist(e.pos, w.player.pos) <= contact)
                     { w.QueuePlayerHit(ai.committedDir, AIConfig.ChargeDamage); ai.hitDone = true; }
 
-                    bool wall  = moved < wish * AIConfig.ChargeWallStopFrac;   // 벽에 막힘
-                    bool maxed = ai.stateTicks * wish >= AIConfig.ChargeMaxDist;
+                    // 벽 판정: 이번 틱에 "가려던 만큼" 못 갔으면 막힌 것.
+                    // ★ 가속 초반엔 wish가 0에 가까워 이 비교가 무의미하므로, 의미 있는 이동량일 때만 본다.
+                    bool wall  = wish > 1e-4f && moved < wish * AIConfig.ChargeWallStopFrac;
+                    // 누적 거리도 곡선 적분으로 — stateTicks × wish 는 가속 구간에서 과대평가된다.
+                    bool maxed = AIConfig.ChargeDistAt(tNow) >= AIConfig.ChargeMaxDist;
                     if (ai.hitDone || wall || maxed)
                     { ai.state = EnemyState.Recovery; ai.stateTicks = 0; }
                     break;
@@ -286,20 +301,25 @@ namespace Game.Sim
                     ? Mathf.Atan2(faceP.x, faceP.z) * Mathf.Rad2Deg
                     : Mathf.Atan2(ai.committedDir.x, ai.committedDir.z) * Mathf.Rad2Deg;
                 ai.stateTicks++;
+                // ★ 공중은 지상 원거리와 타이밍을 분리한다(Fly* 상수) — 회피 난이도가 달라서.
                 if (ai.state == EnemyState.Aim)
                 {
-                    if (ai.stateTicks >= AIConfig.RangedAimTicks)
+                    if (ai.stateTicks >= AIConfig.FlyAimTicks)
                     { ai.state = EnemyState.Fire; ai.stateTicks = 0; }
                 }
                 else // Fire
                 {
                     Vector3 origin = e.pos + Vector3.up * AIConfig.EnemyEyeHeight;
                     w.SpawnProjectile(origin, ai.committedDir * AIConfig.ProjectileSpeed);
-                    ai.attackCooldown = AIConfig.RangedCooldown;
+                    ai.attackCooldown = AIConfig.FlyCooldown;
                     ai.state = EnemyState.Reposition;
                     ai.stateTicks = 0;
                 }
-                return;   // 호버(위치 유지)
+                // 호버(위치 유지). ★ 관성이 켜져 있으면 그 자리에 딱 멈추는 게 아니라
+                //   남은 속도가 drag로 잦아들며 미끄러져 멈춘다(의도 0으로 FlyMove 호출).
+                if (AIConfig.FlyInertiaOn)
+                    FlyMove(ref e, Vector3.zero, w.player.pos.y + AIConfig.FlyHoverFor(e.personality), Vector3.zero, in svc, dt);
+                return;
             }
 
             // ── Reposition: 밴드 유지 비행 + 벽 우회 → 조준 개시 ──
@@ -315,7 +335,7 @@ namespace Game.Sim
             if (hd < AIConfig.FlyBandMin)                wish = -face;   // 너무 가까움 → 후퇴
             else if (hd > AIConfig.FlyBandMax || !los)   wish =  face;   // 멀거나 시야 없음 → 접근
 
-            FlyMove(ref e, wish, w.player.pos.y + AIConfig.FlyHoverOffset, sepScratch[i], in svc, dt);
+            FlyMove(ref e, wish, w.player.pos.y + AIConfig.FlyHoverFor(e.personality), sepScratch[i], in svc, dt);
 
             if (hd >= AIConfig.FlyBandMin && hd <= AIConfig.FlyBandMax && los && ai.attackCooldown == 0)
             {
@@ -330,15 +350,68 @@ namespace Game.Sim
         static void FlyMove(ref EnemySim e, Vector3 wishDir, float targetY, Vector3 sep, in SimServices svc, float dt)
         {
             Vector3 dir = wishDir + sep * AIConfig.SeparationWeight;   // 이동 의도 + 이웃 회피
-            Vector3 horiz = dir.sqrMagnitude > 1e-6f ? dir.normalized * AIConfig.FlySpeed * dt : Vector3.zero;
-            e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, horiz, e.radius, e.height);
+            Vector3 horiz;
 
-            float step = AIConfig.FlySpeed * dt;
-            float newY = e.pos.y + Mathf.Clamp(targetY - e.pos.y, -step, step);
+            if (AIConfig.FlyInertiaOn)
+            {
+                // ── 관성 비행 ──
+                // 속도를 상태(e.vel.x/z)로 들고 가감속한다. 급선회하면 원래 가던 방향으로 미끄러진다.
+                // ★ 다른 몹은 e.vel 수평 성분을 안 쓰지만(이동은 변위로 처리) 공중몹은 여기 저장해 쓴다.
+                Vector3 v = new Vector3(e.vel.x, 0f, e.vel.z);
+                Vector3 want = dir.sqrMagnitude > 1e-6f ? dir.normalized * AIConfig.FlySpeed : Vector3.zero;
+
+                if (want.sqrMagnitude > 1e-6f)
+                    v += (want - v) * Mathf.Clamp01(AIConfig.FlyAccel * dt);   // 목표를 향해 가속
+                else
+                    v *= Mathf.Max(0f, 1f - AIConfig.FlyDrag * dt);            // 의도 없으면 관성으로 미끄러짐
+
+                v = Vector3.ClampMagnitude(v, Mathf.Max(0.01f, AIConfig.FlyMaxSpeed));
+                e.vel.x = v.x; e.vel.z = v.z;
+                horiz = v * dt;
+            }
+            else
+            {
+                // 기존 동작 — 원하는 방향으로 즉시 최고 속도
+                horiz = dir.sqrMagnitude > 1e-6f ? dir.normalized * AIConfig.FlySpeed * dt : Vector3.zero;
+                e.vel.x = e.vel.z = 0f;
+            }
+
+            Vector3 beforeXZ = e.pos;
+            e.pos = CharacterMotor.MoveHorizontal(svc.Collision, e.pos, horiz, e.radius, e.height);
+            // 벽에 막혔으면 그 방향 속도를 죽인다 — 안 그러면 벽에 붙은 채 관성이 계속 쌓인다.
+            if (AIConfig.FlyInertiaOn && horiz.sqrMagnitude > 1e-8f)
+            {
+                Vector3 movedV = e.pos - beforeXZ; movedV.y = 0f;
+                if (movedV.sqrMagnitude < horiz.sqrMagnitude * 0.25f) { e.vel.x *= 0.3f; e.vel.z *= 0.3f; }
+            }
+
+            // ── 수직 ──
+            float newY;
+            if (AIConfig.FlyInertiaOn)
+            {
+                // 수평과 같은 원리로 가감속한다. 목표 높이가 갑자기 바뀌면(플레이어 점프·낙하)
+                // 즉시 붙지 않고 지나쳤다가 되돌아온다 = 위아래로도 미끄러진다.
+                float gap = targetY - e.pos.y;
+                float wantY = Mathf.Clamp(gap * AIConfig.FlySpeed, -AIConfig.FlyMaxSpeedY, AIConfig.FlyMaxSpeedY);
+                e.vel.y += (wantY - e.vel.y) * Mathf.Clamp01(AIConfig.FlyAccelY * dt);
+                e.vel.y *= Mathf.Max(0f, 1f - AIConfig.FlyDragY * dt);
+                e.vel.y = Mathf.Clamp(e.vel.y, -AIConfig.FlyMaxSpeedY, AIConfig.FlyMaxSpeedY);
+                newY = e.pos.y + e.vel.y * dt;
+            }
+            else
+            {
+                float step = AIConfig.FlySpeed * dt;
+                newY = e.pos.y + Mathf.Clamp(targetY - e.pos.y, -step, step);
+                e.vel.y = 0f;
+            }
+
             if (svc.Collision.SampleGround(e.pos, 500f, out float gy))
-                newY = Mathf.Max(newY, gy + AIConfig.FlyMinClearance);   // 지면 아래로 안 꺼짐
+            {
+                float floor = gy + AIConfig.FlyMinClearance;
+                // 바닥에 닿으면 아래로 향한 속도를 죽인다 — 안 그러면 바닥에 붙은 채 계속 눌린다.
+                if (newY < floor) { newY = floor; if (e.vel.y < 0f) e.vel.y = 0f; }
+            }
             e.pos.y = newY;
-            e.vel = Vector3.zero;
             e.grounded = false;
         }
 

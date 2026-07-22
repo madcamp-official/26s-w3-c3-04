@@ -29,6 +29,14 @@ namespace Game.View
             if (kb == null) return;
             if (kb.backquoteKey.wasPressedThisFrame) { if (IsOpen) Close(); else Open(); }
             else if (IsOpen && kb.escapeKey.wasPressedThisFrame) Close();
+
+            // F9 — 녹슨 관절 즉시 토글. 아직 확정 전이라 콘솔을 열지 않고 켜고 끄며 비교해야 한다.
+            // (콘솔이 열려 있을 땐 타이핑을 방해하지 않게 무시)
+            if (!IsOpen && kb.f9Key.wasPressedThisFrame)
+            {
+                EntityViews.RustEnabled = !EntityViews.RustEnabled;
+                Debug.Log("[F9] 녹슨 관절 " + (EntityViews.RustEnabled ? "켬" : "끔"));
+            }
         }
 
         void Open()
@@ -74,6 +82,38 @@ namespace Game.View
                 input = "";
                 e.Use();
             }
+        }
+
+        /// <summary>
+        /// 씬에 있는 몹들의 애니메이터가 어떤 선택 파라미터를 갖췄는지 표시(콘솔 <c>animcaps</c>).
+        /// 클립을 넣은 뒤 "제대로 연결됐나"를 코드 안 보고 확인하는 용도.
+        /// </summary>
+        void PrintAnimCaps()
+        {
+            Print("몹별 애니메이터 파라미터 — 있으면 코드가 자동으로 구동합니다");
+            Print("  (이름을 정확히 IsAirborne/IsRunning/IsHurt/IsDead 로 지어야 잡힙니다)");
+            bool any = false;
+            foreach (var go in GameObject.FindObjectsByType<GameObject>(FindObjectsSortMode.None))
+            {
+                if (!go.name.StartsWith("Enemy_")) continue;
+                var a = go.GetComponentInChildren<Animator>();
+                if (a == null) { Print($"  {go.name}: Animator 없음(공중몹/캡슐)"); any = true; continue; }
+                var ctrl = a.runtimeAnimatorController;
+                var sb = new StringBuilder();
+                sb.Append("  ").Append(go.name).Append(" [")
+                  .Append(ctrl != null ? ctrl.name : "컨트롤러 없음").Append("] ");
+                foreach (var want in new[] { "IsAirborne", "IsRunning", "IsHurt", "IsDead" })
+                {
+                    bool has = false;
+                    if (ctrl != null)
+                        foreach (var pp in a.parameters)
+                            if (pp.name == want && pp.type == AnimatorControllerParameterType.Bool) { has = true; break; }
+                    sb.Append(has ? "O " : "· ").Append(want).Append("  ");
+                }
+                Print(sb.ToString());
+                any = true;
+            }
+            if (!any) Print("  몹이 없습니다 — solo grunt 등으로 소환 후 다시 실행하십시오");
         }
 
         /// <summary>anim 명령으로 켠 관찰 오버레이 — Enemy_0의 애니메이터 상태를 매 프레임 표시.</summary>
@@ -129,7 +169,7 @@ namespace Game.View
             {
                 case "help":
                     Print("spawn <종류> · solo <종류> · anim <종류>|off · clear · autospawn on|off|reload · count");
-                    Print("종류: grunt pinky soldier caco large gruntt(근층) soldiert(원층)");
+                    Print("종류: grunt pinky soldier caco large  ·  gruntt(근층)/soldiert(원층)은 폐기 예정");
                     Print("[디버그] anim <종류> = 그 몹 하나만 소환하고 화면에 애니메이터 상태 실시간 표시. anim off로 끔");
                     Print("wave list · wave start [n] · wave only <n> · wave stop · wave status  (n은 1부터)");
                     Print("  예) wave only 2 = 웨이브2만 실행 · wave start 2 = 웨이브2부터 순차");
@@ -142,6 +182,8 @@ namespace Game.View
                     Print("[포즈] seq <이름...> [loop]   예) seq 평타1_0 평타1_1 평타1_4  (간격은 F3에서 각각 조절)");
                     Print("[포즈] bind [on|off|<초>]   전투 연동 — 평타 slash1↔slash2, 찌르기 thrust1");
                     Print("[화면] ui [off|on]   게임 UI(HP바 등) 숨기기 — 개발 패널은 유지");
+                    Print("[전투] combat · combat save|load|delete   F1·F6 수치 저장 (F6=평타 2연타 콤보)");
+                    Print("[몹] <b>F10 = 몹 밸런스 패널</b> — 근접·돌진·원거리·공중 타이밍/거리 (저장·불러오기 포함)");
                     Print("[베기] fx <평타1|평타2|찌르기> · fx off|on   (각도·위치는 F4에서 조절)");
                     Print("[뷰모델] vm · vm info   뷰모델 소환·재생성 (프리팹 저장은 Tools/뷰모델/③)");
                     Print("[뷰모델] vcam · vcam auto · vcam back <m> · vcam near <m>   팔 뚫림(후퇴량·근평면)");
@@ -149,6 +191,23 @@ namespace Game.View
                     Print("[이펙트] swing 1|2|t [loop] · swing stop   (칼 애니메이션 재생)");
                     Print("[절차] proc land [강도] · proc hit · proc breathe [0~1] · proc grip [0~1] · proc pulse · proc reset");
                     Print("[전투] lunge [on|off|<거리m>]   찌르기 자유 시전 — 몹 없어도 발동·스택 무한");
+                    Print("[몹] look [on|off] · look <yaw|pitch|speed|weight> <값>   몹이 플레이어를 쳐다봄");
+                    Print("[몹] step [on|off|reset] · step <count|size|speed|life|dist|sound> <값>   발 딛을 때 스파크");
+                    Print("[몹] glow [on|off|reset] · glow all 10 · glow <base|windup|attack|charge|aim|glory> <값>");
+                    Print("     어두운 맵 식별용 발광 + 상태 텔레그래프(공격 예비 시 급격히 밝아짐)");
+                    Print("[파손] dmg <확률> · dmg <변형이름> · dmg off · dmg list   부위 떨어진 개체 소환");
+                    Print("[파손] dangle <len|weight|stiff|damp|seg|root|tip|body> <값>   대롱거림 튜닝");
+                    Print("       예) dmg MeleeEnemy_d02 → solo grunt 하면 왼팔 없는 개체가 나옴");
+                    Print("[파손] wire <본이름> · wire off · wire bones · wire <len|seg|root|tip|damp|grav|fric|spark> <값>");
+                    Print("[디버그] hitbox [on|off|body|melee|lunge|all|xray]   판정 표시 — 평타 구·찌르기 사거리·캡슐");
+                    Print("[몹] pace walk|run <값> · pace reset   보폭 기준 속도(발 미끄러짐) — 실측은 Tools/몹/걷기 속도 측정");
+                    Print("[몹] feet <m> · feet reset   몹이 떠 보일 때 렌더만 미세 조절(히트박스 그대로)");
+                    Print("[디버그] animcaps   몹 애니메이터에 IsAirborne/IsRunning/IsHurt/IsDead 가 붙었는지 확인");
+                    Print("[몹] rust [on|off|all|reset] · rust stiff|damp|stick|jitter <값>   녹슨 관절(고착+스프링)");
+                    Print("[몹] tele [on|off|reset] · tele melee|charge|aim <각도> · tele hit <세기>");
+                    Print("     ★ 텔레그래프 — 공격 예비·돌진 준비·차징·피격을 자세로 예고(언제 피할지 단서)");
+                    Print("[몹] mv [on|off|reset] · mv turn|accel|lean|bob|stagger|recoil|bind|lowhp|bank|heavy <값>");
+                    Print("     이동·상황 자세 — 급선회·가감속·경사·휘청·반동·붙잡힘·저체력·뱅킹·대형무게");
                     Print("[이펙트] timescale 0.15  (슬로우모션. 1로 원복)");
                     break;
 
@@ -204,6 +263,451 @@ namespace Game.View
                 case "count":
                     Print("생존: " + main.AliveEnemyCount());
                     break;
+
+                // 애니메이터 선택 파라미터 연결 상태 — 클립 넣고 확인용
+                case "animcaps":
+                    PrintAnimCaps();
+                    break;
+
+                // 보폭 기준 속도 — Tools/몹/걷기 속도 측정 의 결과를 여기에 넣어보며 확인
+                case "pace":
+                {
+                    if (p.Length >= 3 && float.TryParse(p[2], out float pv))
+                    {
+                        pv = Mathf.Clamp(pv, 0.2f, 20f);
+                        switch (p[1].ToLowerInvariant())
+                        {
+                            case "walk": EntityViews.WalkClipPace = pv; break;
+                            case "run":  EntityViews.RunClipPace  = pv; break;
+                            case "min":  EntityViews.WalkSpeedClampMin = pv; break;
+                            case "max":  EntityViews.WalkSpeedClampMax = pv; break;
+                            default: Print("사용: pace walk|run|min|max <값>"); break;
+                        }
+                    }
+                    else if (p.Length >= 2 && p[1] == "reset")
+                    {
+                        EntityViews.WalkClipPace = 1.8f; EntityViews.RunClipPace = 4f;
+                        EntityViews.WalkSpeedClampMin = 0.6f; EntityViews.WalkSpeedClampMax = 1.5f;
+                    }
+                    else if (p.Length >= 2) { Print("사용: pace walk|run|min|max <값> · pace reset"); break; }
+
+                    Print($"보폭 기준 — 걷기 {EntityViews.WalkClipPace:0.00} · 달리기 {EntityViews.RunClipPace:0.00}" +
+                          $" · 배속 범위 {EntityViews.WalkSpeedClampMin:0.00}~{EntityViews.WalkSpeedClampMax:0.00}\n" +
+                          "  이 값 = \"이 클립이 가정하는 이동 속도(m/s)\". 실측은 Tools/몹/걷기 속도 측정.\n" +
+                          "  맞으면 몹이 걸을 때 배속이 1 근처가 되고 발이 안 미끄러집니다.");
+                    break;
+                }
+
+                // 몹이 살짝 떠 보일 때 렌더만 미세 조절(히트박스는 그대로)
+                case "feet":
+                {
+                    if (p.Length >= 2)
+                    {
+                        if (p[1] == "reset") EntityViews.FeetTrim = EntityViews.FeetTrimDefault;
+                        else if (float.TryParse(p[1], out float fv))
+                            EntityViews.FeetTrim = Mathf.Clamp(fv, -0.3f, 0.3f);
+                        else { Print("사용: feet <m>  (음수=내림)  ·  feet reset"); break; }
+                    }
+                    Print($"발 높이 보정 {EntityViews.FeetTrim:+0.000;-0.000}m  (음수=내림)\n" +
+                          "  렌더만 움직입니다 — 히트박스·판정은 그대로. 조금씩(0.01) 바꿔가며 맞추십시오.\n" +
+                          "  hitbox 를 켜면 캡슐 바닥과 발이 맞는지 눈으로 볼 수 있습니다.");
+                    break;
+                }
+
+                // ── 발자국 스파크·소리 ──
+                case "step":
+                {
+                    ref var fc = ref EntityViews.Footstep;
+                    if (p.Length >= 3 && float.TryParse(p[2], out float sv))
+                    {
+                        switch (p[1])
+                        {
+                            case "count": fc.sparkCount = Mathf.Clamp((int)sv, 0, 20); break;
+                            case "size":  fc.sparkSize  = Mathf.Max(0.05f, sv); break;
+                            case "speed": fc.sparkSpeed = Mathf.Max(0f, sv); break;
+                            case "life":  fc.sparkLife  = Mathf.Max(0.05f, sv); break;
+                            case "dist":  fc.maxDistance = Mathf.Max(1f, sv); break;
+                            case "minspeed": fc.minSpeed = Mathf.Max(0f, sv); break;
+                            case "cool":  fc.cooldown   = Mathf.Max(0f, sv); break;
+                            case "fall":  fc.minFall    = Mathf.Max(0.0001f, sv); break;
+                            case "height": fc.maxFootHeight = Mathf.Max(0.05f, sv); break;
+                            case "sound": FootstepEvents.UseFallbackSound = sv > 0.5f; break;
+                            default: Print("항목: count size speed life dist minspeed cool fall height sound"); break;
+                        }
+                    }
+                    else if (p.Length >= 2 && p[1] == "off") { fc.enabled = false; Print("발자국 끔"); break; }
+                    else if (p.Length >= 2 && p[1] == "on")  fc.enabled = true;
+                    else if (p.Length >= 2 && p[1] == "reset") fc = FootstepSettings.Default;
+                    else if (p.Length >= 2) { Print("사용: step [on|off|reset] · step <항목> <값>"); break; }
+                    else fc.enabled = !fc.enabled;
+
+                    Print($"발자국 {(fc.enabled ? "켬" : "끔")} — 스파크 {fc.sparkCount}개 · 크기 {fc.sparkSize:0.00} · " +
+                          $"속도 {fc.sparkSpeed:0.00} · 수명 {fc.sparkLife:0.00}\n" +
+                          $"  최소속도 {fc.minSpeed:0.0}m/s · 재발동간격 {fc.cooldown:0.00}초 · 표시거리 {fc.maxDistance:0}m\n" +
+                          $"  임시 발소리 {(FootstepEvents.UseFallbackSound ? "켬" : "끔")} (step sound 1)  ★ 실제 에셋은 SoundHook에 연결");
+                    break;
+                }
+
+                // ── 파손 변형 (부위가 떨어져 전선으로 대롱거리는 개체) ──
+                case "dmg":
+                {
+                    if (p.Length < 2)
+                    {
+                        Print($"파손 확률 {EntityViews.DamagedChance:0.00}" +
+                              (string.IsNullOrEmpty(EntityViews.ForceVariant) ? " · 무작위 변형"
+                                                                              : $" · 강제 [{EntityViews.ForceVariant}]"));
+                        Print("사용: dmg <확률 0~1> · dmg <변형이름> · dmg off · dmg list");
+                        Print("  예) dmg MeleeEnemy_d02  → 소환하는 근접몹이 전부 그 변형");
+                        Print("      dmg 1              → 전부 파손 개체로");
+                        break;
+                    }
+                    if (p[1] == "off") { EntityViews.ForceVariant = "off"; Print("강제 해제 + 파손 안 나옴"); break; }
+                    if (p[1] == "list")
+                    {
+                        foreach (var b in new[] { "MeleeEnemy", "RangedEnemy", "ChargeEnemy", "FlyingEnemy" })
+                        {
+                            var sb2 = new StringBuilder(b + ": ");
+                            for (int i = 1; i <= 12; i++)
+                                if (Resources.Load<GameObject>($"Enemies/Damaged/{b}_d{i:00}") != null) sb2.Append($"d{i:00} ");
+                            Print("  " + sb2);
+                        }
+                        Print("  Tools/몹/파손 변형 생성 으로 만듭니다");
+                        break;
+                    }
+                    if (float.TryParse(p[1], out float dc))
+                    {
+                        EntityViews.DamagedChance = Mathf.Clamp01(dc);
+                        EntityViews.ForceVariant = "";
+                        Print($"파손 확률 = {EntityViews.DamagedChance:0.00} (무작위 변형)");
+                    }
+                    else
+                    {
+                        EntityViews.ForceVariant = p[1];
+                        Print($"강제 변형 = {p[1]}");
+                    }
+                    // ★ 뷰 슬롯은 종류가 바뀔 때만 재생성된다 — 같은 종류를 다시 소환해도
+                    //   기존 뷰가 재사용돼 변형이 안 바뀐다. 그래서 여기서 강제로 버린다.
+                    main.RebuildEnemyViews();
+                    Print("  현재 몹 뷰를 재생성했습니다(즉시 반영)");
+                    // 전선 길이 등은 wire 명령 값과 별개다. 여기서 같이 조절할 수 있게 해둔다.
+                    if (p.Length >= 3 && float.TryParse(p[2], out float wl))
+                    { EntityViews.WireCfg.length = Mathf.Max(0.05f, wl); Print($"  전선 길이 {EntityViews.WireCfg.length:0.00}m"); }
+                    break;
+                }
+
+                // ── 대롱거림 튜닝 (파손 부위 전선) ──
+                case "dangle":
+                {
+                    ref var wc2 = ref EntityViews.WireCfg;
+                    if (p.Length >= 3 && float.TryParse(p[2], out float dv))
+                    {
+                        switch (p[1])
+                        {
+                            case "len":    wc2.length    = Mathf.Max(0.05f, dv); break;
+                            case "weight": wc2.tipWeight = Mathf.Clamp(dv, 0f, 8f); break;   // 끝 무게 ★
+                            case "stiff":  wc2.stiffness = Mathf.Clamp((int)dv, 1, 4); break; // 뻣뻣함 ★
+                            case "damp":   wc2.damping   = Mathf.Clamp(dv, 0.80f, 0.999f); break;
+                            case "grav":   wc2.gravity   = dv; break;
+                            case "seg":    wc2.particles = Mathf.Clamp((int)dv, 3, 24); break;
+                            case "root":   wc2.rootRadius= Mathf.Max(0.002f, dv); break;
+                            case "tip":    wc2.tipRadius = Mathf.Max(0.002f, dv); break;
+                            case "body":   DanglingWire.CollideWithBody = dv > 0.5f; break;  // 몸 충돌
+                            default: Print("항목: len weight stiff damp grav seg root tip body"); break;
+                        }
+                    }
+                    else if (p.Length >= 2) { Print("사용: dangle <항목> <값>"); break; }
+
+                    Print($"길이 {wc2.length:0.00}m · 마디 {wc2.particles} · <b>끝무게 {wc2.tipWeight:0.0}</b> · <b>뻣뻣함 {wc2.stiffness}</b>\n" +
+                          $"  감쇠 {wc2.damping:0.000} · 중력 {wc2.gravity:0.0} · 굵기 {wc2.rootRadius:0.000}→{wc2.tipRadius:0.000}" +
+                          $" · 몸충돌 {(DanglingWire.CollideWithBody ? "켬" : "끔")}\n" +
+                          "  ★ 대롱거림은 끝무게↑ 뻣뻣함↓ 감쇠↑ 조합. 바꾼 뒤 solo 로 다시 소환하십시오.");
+                    break;
+                }
+
+                // ── 이동·상황 자세 (급선회·가감속·휘청·반동·뱅킹·저체력) ──
+                case "mv":
+                {
+                    ref var mset = ref EntityViews.Movepose;
+                    string sub = p.Length >= 2 ? p[1].ToLowerInvariant() : "";
+                    float v = 0f; bool hasV = p.Length >= 3 && float.TryParse(p[2], out v);
+                    switch (sub)
+                    {
+                        case "":    EntityViews.MoveposeEnabled = !EntityViews.MoveposeEnabled; break;
+                        case "on":  EntityViews.MoveposeEnabled = true;  break;
+                        case "off": EntityViews.MoveposeEnabled = false; break;
+                        case "reset": mset = EnemyMoveSettings.Default; break;
+                        case "turn":    if (hasV) mset.turnLean   = v; break;   // 급선회 기울임
+                        case "accel":   if (hasV) mset.accelLean  = v; break;   // 가감속 쏠림
+                        case "lean":    if (hasV) mset.runLean    = v; break;   // 속도 경사
+                        case "bob":     if (hasV) { mset.bobRoll = v; mset.bobPitch = v * 0.45f; } break;
+                        case "wall":    if (hasV) mset.wallLean   = v; break;   // 벽 막힘
+                        case "stagger": if (hasV) { mset.staggerHit = v; mset.staggerMiss = v * 1.5f; } break;
+                        case "recoil":  if (hasV) mset.recoil     = v; break;
+                        case "bind":    if (hasV) mset.bindShake  = v; break;
+                        case "lowhp":   if (hasV) mset.lowHpDroop = v; break;
+                        case "bank":    if (hasV) mset.bankLean   = v; break;   // 공중 뱅킹
+                        case "climb":   if (hasV) mset.climbLean  = v; break;   // 고도 변화
+                        case "dive":    if (hasV) mset.flyDiveLean = v; break;  // 진행 방향 굽힘
+                        case "wing":    if (hasV) { mset.wingBank = v; mset.wingSweep = v * 0.7f; } break;
+                        case "launch":  if (hasV) mset.launchShake = v; break;
+                        case "heavy":   if (hasV) { mset.heavyLag = v; mset.heavyAmp = v * 0.45f; } break;
+                        case "jitter":  if (hasV) mset.jitter     = Mathf.Clamp01(v); break;
+                        default:
+                            Print("사용: mv [on|off|reset]");
+                            Print("  이동: mv turn 0.035 · mv accel 0.5 · mv lean 7 · mv bob 2.2 · mv wall 60");
+                            Print("  전투: mv stagger 150(휘청) · mv recoil 130(반동) · mv bind 4.5(붙잡힘)");
+                            Print("  상태: mv lowhp 6(저체력) · mv launch 9(스폰펄스)");
+                            Print("  공중: mv bank 3.2(뱅킹) · mv climb 2.4(고도) · mv dive 2.8(진행방향 굽힘) · mv wing 5(팔=날개)");
+                            Print("  개체: mv heavy 0.8(대형 무게) · mv jitter 0.25(개체 편차)");
+                            break;
+                    }
+                    Print($"이동자세 {(EntityViews.MoveposeEnabled ? "켬" : "끔")}" +
+                          $" · 급선회 {mset.turnLean:0.000} · 가감속 {mset.accelLean:0.00} · 경사 {mset.runLean:0}°" +
+                          $" · 휘청 {mset.staggerHit:0}/{mset.staggerMiss:0} · 반동 {mset.recoil:0}\n" +
+                          $"  뱅킹 {mset.bankLean:0.0} · 저체력 {mset.lowHpDroop:0}° · 대형 {mset.heavyLag:0.0} · 편차 ±{mset.jitter * 100f:0}%");
+                    break;
+                }
+
+                // ── 상태 텔레그래프 (예비·준비·차징·피격) ──
+                case "tele":
+                {
+                    ref var t = ref EntityViews.Pose;
+                    string sub = p.Length >= 2 ? p[1].ToLowerInvariant() : "";
+                    float v = 0f; bool hasV = p.Length >= 3 && float.TryParse(p[2], out v);
+                    switch (sub)
+                    {
+                        case "":    EntityViews.PoseEnabled = !EntityViews.PoseEnabled; break;
+                        case "on":  EntityViews.PoseEnabled = true;  break;
+                        case "off": EntityViews.PoseEnabled = false; break;
+                        case "reset": t = EnemyPoseSettings.Default; break;
+                        case "melee":  if (hasV) t.meleeLean  = v; break;
+                        case "charge": if (hasV) t.chargeLean = v; break;
+                        case "aim":    if (hasV) t.aimLean    = v; break;
+                        case "hit":    if (hasV) t.hitKick    = v; break;
+                        case "shake":  if (hasV) { t.meleeShake = v; t.chargeShake = v * 1.8f; t.aimShake = v * 1.3f; } break;
+                        case "crouch": if (hasV) t.chargeCrouch = v; break;
+                        default:
+                            Print("사용: tele [on|off|reset] · tele melee|charge|aim <각도> · tele hit <세기>");
+                            Print("      tele shake <폭> · tele crouch <m>");
+                            Print("  근접 선딜 0.4s · 돌진 준비 0.75s · 조준 2.0s 동안 자세로 예고합니다");
+                            break;
+                    }
+                    Print($"텔레그래프 {(EntityViews.PoseEnabled ? "켬" : "끔")}" +
+                          $" · 근접젖힘 {t.meleeLean:0}° · 돌진젖힘 {t.chargeLean:0}°(웅크림 {t.chargeCrouch:0.00}m)" +
+                          $" · 차징젖힘 {t.aimLean:0}° · 피격킥 {t.hitKick:0}");
+                    break;
+                }
+
+                // ── 녹슨 관절 (고착 + 스프링) ──
+                case "rust":
+                {
+                    ref var r = ref EntityViews.Rust;
+                    string sub = p.Length >= 2 ? p[1].ToLowerInvariant() : "";
+                    float v = 0f; bool hasV = p.Length >= 3 && float.TryParse(p[2], out v);
+                    switch (sub)
+                    {
+                        case "":     EntityViews.RustEnabled = !EntityViews.RustEnabled; break;
+                        case "on":   EntityViews.RustEnabled = true;  break;
+                        case "off":  EntityViews.RustEnabled = false; break;
+                        // 종류별 — 확정 전이라 하나씩 껐다 켜며 본다
+                        case "melee":  EntityViews.RustMelee  = !EntityViews.RustMelee;  break;
+                        case "ranged": EntityViews.RustRanged = !EntityViews.RustRanged; break;
+                        case "charge": case "pinky":
+                                       EntityViews.RustCharge = !EntityViews.RustCharge; break;
+                        case "all":  EntityViews.RustMelee = EntityViews.RustRanged = EntityViews.RustCharge = true; break;
+                        case "none": EntityViews.RustMelee = EntityViews.RustRanged = EntityViews.RustCharge = false; break;
+                        case "reset": r = RustyJointSettings.Default; break;
+                        // 값은 "말단(tip)" 기준으로 받고, 몸통은 기본값과 같은 비율로 자동 배분한다
+                        case "stiff":  if (hasV) { r.stiffBody = v * 2.1f; r.stiffTip = v; } break;
+                        case "damp":   if (hasV) { r.dampBody  = v * 2f;   r.dampTip  = v; } break;
+                        case "stick":  if (hasV) { r.stickBody = v * 2.2f; r.stickTip = v; } break;
+                        case "jitter": if (hasV) r.jitter = Mathf.Clamp01(v); break;
+                        case "wobble": if (hasV) r.stickWobble = Mathf.Clamp01(v); break;
+                        case "back":   if (hasV) r.releaseEnd = Mathf.Max(0.1f, v); break;   // 다시 고착되는 각도
+                        // 이동 게이트 — 이 속도(m/s)를 넘어야 효과가 붙는다(서 있을 땐 원본 자세)
+                        case "move":   if (hasV) { r.moveMin = Mathf.Max(0f, v); r.moveFull = r.moveMin + 1.3f; } break;
+                        case "speed":  Print("몹 실측 속도: " + EntityViews.SpeedReport()); break;
+                        default:
+                            Print("사용: rust [on|off]  (F9 로도 토글) · rust reset");
+                            Print("      종류별: rust melee(근·근층) · rust ranged(원·원층) · rust charge(핑키) · rust all|none");
+                            Print("      rust stick 10 · rust stiff 200 · rust damp 8 · rust back 3 · rust jitter 0.45");
+                            Print("  ★ stick = 이만큼 벌어져야 툭 풀림(도). 뚝딱 느낌의 핵심 — 키울수록 크게 버팀");
+                            Print("  stiff=따라잡는 힘(낮을수록 굼뜸) · damp=출렁임 잦아듦(낮을수록 오래 흔들림)");
+                            Print("  back=이 각도 안으로 따라잡으면 다시 고착(키우면 툭·툭 자주 반복)");
+                            Print("  (값은 말단 기준. 몸통은 자동으로 2배쯤 뻑뻑하게 배분됩니다)");
+                            break;
+                    }
+                    if (sub == "speed") break;   // 속도만 찍고 끝
+                    Print($"녹슨 관절 <b>{(EntityViews.RustEnabled ? "켬" : "끔")}</b>  (F9 로도 토글)\n" +
+                          $"  대상: 근·근층 {(EntityViews.RustMelee ? "O" : "X")}" +
+                          $" · 원·원층 {(EntityViews.RustRanged ? "O" : "X")}" +
+                          $" · 핑키(돌진) {(EntityViews.RustCharge ? "O" : "X")}\n" +
+                          $"  강성 {r.stiffTip:0}~{r.stiffBody:0} · 감쇠 {r.dampTip:0}~{r.dampBody:0}" +
+                          $" · 고착 {r.stickTip:0.0}~{r.stickBody:0.0}° · 편차 ±{r.jitter * 100f:0}%\n" +
+                          $"  이동 게이트: {r.moveMin:0.0}m/s 부터 → {r.moveFull:0.0}m/s 에서 최대 (걷거나 뛸 때만)");
+                    break;
+                }
+
+                // ── 몹 발광 (어두운 맵 식별 + 상태 텔레그래프) ──
+                case "glow":
+                {
+                    ref var g = ref EntityViews.Glow;
+                    if (p.Length >= 3 && float.TryParse(p[2], out float gv))
+                    {
+                        switch (p[1])
+                        {
+                            case "base":   g.baseIntensity   = gv; break;
+                            case "windup": g.windupIntensity = gv; break;
+                            case "attack": g.attackIntensity = gv; break;
+                            case "charge": g.chargeIntensity = gv; break;
+                            case "aim":    g.aimIntensity    = gv; break;
+                            case "glory":  g.gloryIntensity  = gv; break;
+                            case "flash":  g.flashIntensity  = gv; break;
+                            case "speed":  g.followSpeed     = gv; break;
+                            case "jitter": g.colorJitter     = gv; break;
+                            case "dirt":   g.grungeScale     = Mathf.Clamp01(gv); break;   // 녹·얼룩(개체마다 편차)
+                            case "dist":   g.distanceBoost   = gv; break;
+                            case "all":    // 전체를 한 번에 비례 조절
+                                g.baseIntensity = gv; g.windupIntensity = gv * 3.5f;
+                                g.attackIntensity = gv * 5f; g.chargeIntensity = gv * 2.8f;
+                                g.aimIntensity = gv * 2f; g.gloryIntensity = gv * 3.2f;
+                                break;
+                            default: Print("항목: base windup attack charge aim glory flash speed jitter dist all"); break;
+                        }
+                    }
+                    else if (p.Length >= 2 && p[1] == "off") { EntityViews.GlowEnabled = false; Print("발광 끔"); break; }
+                    else if (p.Length >= 2 && p[1] == "on")  EntityViews.GlowEnabled = true;
+                    else if (p.Length >= 2 && p[1] == "reset") g = EnemyGlowSettings.Default;
+                    else if (p.Length >= 2) { Print("사용: glow [on|off|reset] · glow <항목> <값>"); break; }
+                    else EntityViews.GlowEnabled = !EntityViews.GlowEnabled;
+
+                    Print($"발광 {(EntityViews.GlowEnabled ? "켬" : "끔")} — " +
+                          $"평상 {g.baseIntensity:0.0} · 예비 {g.windupIntensity:0.0} · 타격 {g.attackIntensity:0.0} · " +
+                          $"돌진 {g.chargeIntensity:0.0} · 조준 {g.aimIntensity:0.0} · 처형 {g.gloryIntensity:0.0}\n" +
+                          $"  전이속도 {g.followSpeed:0.0} · 피격깜빡 {g.flashIntensity:0.0} · 색편차 {g.colorJitter:0.00} · 원거리보정 ×{1f + g.distanceBoost:0.0}\n" +
+                          $"  녹·얼룩 {g.grungeScale:0.00} (glow dirt 0~1, 개체마다 난수 편차)\n" +
+                          "  ★ 빨간 부분만 빛납니다(Game/EnemyBody 셰이더). Bloom threshold 1.05 — 1 이하면 안 번짐.");
+                    break;
+                }
+
+                // ── 대롱거리는 전선 (파손 연출 1단계 테스트) ──
+                case "wire":
+                {
+                    var wt = WireTester.Instance;
+                    if (wt == null) { Print("WireTester 없음"); break; }
+
+                    if (p.Length < 2) { Print(wt.IsOn ? $"전선 {wt.Count}개 부착 중 (wire off로 제거)" : "사용: wire <본이름> · wire off · wire bones · wire <항목> <값>"); break; }
+
+                    switch (p[1])
+                    {
+                        case "off":   wt.Clear(); Print("전선 제거"); break;
+                        case "bones":
+                        {
+                            var bs = WireTester.ListBones();
+                            if (bs.Count == 0) Print("몹이 없습니다 — 먼저 소환하십시오(solo grunt)");
+                            else { Print($"본 {bs.Count}개:"); foreach (var b in bs) Print("  " + b); }
+                            break;
+                        }
+                        case "len": case "seg": case "root": case "tip":
+                        case "damp": case "grav": case "fric": case "spark":
+                        {
+                            if (p.Length < 3 || !float.TryParse(p[2], out float v)) { Print("값이 필요합니다"); break; }
+                            switch (p[1])
+                            {
+                                case "len":   wt.cfg.length     = Mathf.Max(0.1f, v); break;
+                                case "seg":   wt.cfg.particles  = Mathf.Clamp((int)v, 3, 24); break;
+                                case "root":  wt.cfg.rootRadius = Mathf.Max(0.001f, v); break;
+                                case "tip":   wt.cfg.tipRadius  = Mathf.Max(0.001f, v); break;
+                                case "damp":  wt.cfg.damping    = Mathf.Clamp(v, 0.80f, 0.999f); break;
+                                case "grav":  wt.cfg.gravity    = v; break;
+                                case "fric":  wt.cfg.groundFriction = Mathf.Clamp01(v); break;
+                                case "spark": wt.cfg.sparks = v > 0.5f; break;
+                            }
+                            int n = wt.Rebuild();
+                            // 이름 'c'는 case "spawn"의 out var c와 겹친다(switch 전체가 한 스코프).
+                            var wc = wt.cfg;
+                            Print($"길이 {wc.length:0.00}m · 마디 {wc.particles} · 굵기 {wc.rootRadius:0.000}→{wc.tipRadius:0.000} · " +
+                                  $"감쇠 {wc.damping:0.000} · 중력 {wc.gravity:0.0} · 마찰 {wc.groundFriction:0.00} · 스파크 {(wc.sparks ? "켬" : "끔")}" +
+                                  (n > 0 ? $"  (전선 {n}개 갱신)" : ""));
+                            break;
+                        }
+                        default:
+                        {
+                            wt.boneName = p[1];
+                            int n = wt.Attach();
+                            Print(n > 0 ? $"'{wt.boneName}' 본에 전선 {n}개 부착 — 길이 {wt.cfg.length:0.00}m"
+                                        : $"'{p[1]}' 본을 못 찾았습니다. wire bones 로 목록을 확인하십시오.");
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                // ── 충돌 캡슐 표시 (모델 크기 대조용) ──
+                case "hitbox":
+                {
+                    var hb = HitboxView.Instance;
+                    if (hb == null) { Print("HitboxView 없음"); break; }
+                    string sub = p.Length >= 2 ? p[1].ToLowerInvariant() : "";
+                    switch (sub)
+                    {
+                        case "":      hb.showBodies = !hb.showBodies; break;   // 인자 없으면 몸통 토글
+                        case "on":    hb.showBodies = true;  break;
+                        case "off":   hb.showBodies = false; hb.showCone = false; hb.showLunge = false; break;
+                        case "body":  hb.showBodies = !hb.showBodies; break;
+                        case "cone":                                          // 옛 이름 유지
+                        case "atk":
+                        case "melee": hb.showCone   = !hb.showCone;   break;
+                        case "lunge":
+                        case "thrust": hb.showLunge = !hb.showLunge;  break;
+                        case "all":   hb.showBodies = hb.showCone = hb.showLunge = true; break;
+                        case "xray":  hb.xray = !hb.xray; break;
+                        default:
+                            Print("사용: hitbox [on|off|body|melee|lunge|all|xray]");
+                            Print("  body=몹·플레이어 캡슐 · melee=평타 판정 · lunge=찌르기 사거리 · xray=모델 뚫고 보기");
+                            break;
+                    }
+                    Print("히트박스 — " + hb.Status);
+                    if (hb.showBodies)
+                        Print("  초록=몹 · 파랑=플레이어 · 노랑=처형가능   (Sim 실제 판정 크기)");
+                    if (hb.showCone)
+                        Print(CombatConfig.UseSphereMelee
+                            ? $"  평타=빨간 구 · 눈앞 {CombatConfig.MeleeOffset:0.00}m에 반지름 {CombatConfig.MeleeRadius:0.00}m" +
+                              $" (실효 {CombatConfig.MeleeReach:0.00}m)\n  판정 틱에만 진해집니다 — 흐리면 아직 판정 전"
+                            : $"  평타=빨간 부채꼴 · {CombatConfig.AttackConeRange:0.00}m / 총 {CombatConfig.AttackConeHalfAngle * 2f:0}°");
+                    if (hb.showLunge)
+                        Print($"  찌르기=바닥 원 · 주황({CombatConfig.LungeMinRange:0.00}m 안쪽은 발동 안 함)" +
+                              $" · 하늘색(최대 {CombatConfig.LungeMaxRange:0.00}m) · 선=조준 방향");
+                    break;
+                }
+
+                // ── 몹 시선 추적 (절차 애니메이션 1단계) ──
+                case "look":
+                {
+                    if (p.Length >= 2 && p[1] == "off")     EntityViews.LookAtEnabled = false;
+                    else if (p.Length >= 2 && p[1] == "on") EntityViews.LookAtEnabled = true;
+                    else if (p.Length >= 3 && float.TryParse(p[2], out float lv))
+                    {
+                        ref var bs = ref EntityViews.BipedLook;
+                        ref var cs = ref EntityViews.ChargeLook;
+                        switch (p[1])
+                        {
+                            case "yaw":   bs.maxYaw = lv;    cs.maxYaw = lv * 0.65f;  break;
+                            case "pitch": bs.maxPitch = lv;  cs.maxPitch = lv * 0.7f; break;
+                            case "speed": bs.turnSpeed = lv; cs.turnSpeed = lv * 0.6f; break;
+                            case "weight": bs.weight = Mathf.Clamp01(lv); cs.weight = Mathf.Clamp01(lv); break;
+                            default: Print("항목: yaw pitch speed weight"); break;
+                        }
+                    }
+                    else if (p.Length >= 2) { Print("사용: look [on|off] · look <yaw|pitch|speed|weight> <값>"); break; }
+                    else EntityViews.LookAtEnabled = !EntityViews.LookAtEnabled;
+
+                    var b = EntityViews.BipedLook;
+                    Print($"몹 시선 추적 {(EntityViews.LookAtEnabled ? "켬" : "끔")} — " +
+                          $"좌우 ±{b.maxYaw:0}° 상하 ±{b.maxPitch:0}° 속도 {b.turnSpeed:0}°/s 가중치 {b.weight:0.00}\n" +
+                          "  돌진몹은 더 좁고 느리게 자동 적용됩니다.");
+                    break;
+                }
 
                 // ── 찌르기 자유 시전 (몹 없이 애니메이션 확인) ──
                 case "lunge":
@@ -347,6 +851,61 @@ namespace Game.View
                     }
                     sf.SpawnNow(slot);
                     Print($"이펙트: {slot.name}  roll {slot.roll:0}° pitch {slot.pitch:0}° yaw {slot.yaw:0}° · F4에서 조절");
+                    break;
+                }
+
+                case "thrust":
+                {
+                    // 찌르기 연출 — 둠식/예전 전환 + 세부 튜닝
+                    var cc = CombatCamera.Instance;
+                    if (p.Length >= 2)
+                    {
+                        string a = p[1].ToLowerInvariant();
+                        if (a == "doom" || a == "old" || a == "legacy")
+                        {
+                            bool doom = a == "doom";
+                            CombatConfig.LungeDoomStyle = doom;              // Sim — 예지 영향
+                            if (cc != null) cc.doomStyle = doom;             // View — 예지 무해
+                            Print($"찌르기 = {(doom ? "둠식(돌진 8틱 ease-out)" : "예전(블링크 3틱 등속)")}\n" +
+                                  "  ★ 이동 틱은 Sim 값이라 예지 결과가 함께 바뀝니다.");
+                            break;
+                        }
+                        if (cc != null && p.Length >= 3 && float.TryParse(p[2], out float tv))
+                        {
+                            switch (a)
+                            {
+                                case "aim":     cc.aimHeightRatio = Mathf.Clamp(tv, 0.2f, 1.2f); break;
+                                case "pitch":   cc.pitchWeight    = Mathf.Clamp01(tv);           break;
+                                case "limit":   cc.pitchDownLimit = tv;                          break;
+                                case "rate":    cc.enterRate      = Mathf.Max(1f, tv);           break;
+                                case "restore": cc.exitRestore    = Mathf.Max(0f, tv);           break;
+                                case "ticks":   CombatConfig.LungeTravelTicksDoom = Mathf.Max(1, (int)tv); break;
+                                default: Print("모르는 항목: " + a); break;
+                            }
+                        }
+                    }
+                    Print($"이동 {CombatConfig.LungeTravel}틱 ({CombatConfig.LungeTravel * SimConfig.TickDelta:0.000}초)" +
+                          $" · 히트스톱 {CombatConfig.LungeHitStopTicks}틱 · FOV킥 {CombatConfig.LungeFovKick:0}°\n" +
+                          (cc != null ? "  카메라: " + cc.Status : "  CombatCamera 없음") + "\n" +
+                          "  사용: thrust doom|old · thrust aim 0.85 · thrust pitch 0.35 · thrust limit 20\n" +
+                          "        thrust rate 55 · thrust restore 0.18 · thrust ticks 8");
+                    break;
+                }
+
+                case "combat":
+                {
+                    // 전투 수치 저장/불러오기 (F1·F6에서 맞춘 값)
+                    if (p.Length >= 2 && p[1] == "save")
+                    { Print(CombatTuningSave.Save() ? "전투 수치 저장 — 다음 Play에 자동 적용" : "저장 실패"); break; }
+                    if (p.Length >= 2 && p[1] == "load")
+                    { Print(CombatTuningSave.Load() ? "저장값 불러옴" : "저장 파일 없음"); break; }
+                    if (p.Length >= 2 && p[1] == "delete")
+                    { CombatTuningSave.Delete(); Print("저장 파일 삭제 — 다음 Play는 코드 기본값"); break; }
+
+                    Print($"평타1 {CombatConfig.Atk1WindupTicks}/{CombatConfig.Atk1ActiveTicks}/{CombatConfig.Atk1RecoveryTicks} (선딜/판정/후딜)\n" +
+                          $"평타2 {CombatConfig.Atk2WindupTicks}/{CombatConfig.Atk2ActiveTicks}/{CombatConfig.Atk2RecoveryTicks}\n" +
+                          $"콤보창 {CombatConfig.ComboWindowTicks}틱 · 사거리 {CombatConfig.AttackConeRange:0.00}m · 반각 {CombatConfig.AttackConeHalfAngle:0}°\n" +
+                          $"저장 파일 {(CombatTuningSave.Exists ? "있음" : "없음")}  ·  사용: combat save|load|delete");
                     break;
                 }
 

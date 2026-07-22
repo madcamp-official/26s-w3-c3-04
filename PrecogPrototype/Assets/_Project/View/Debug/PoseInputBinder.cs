@@ -49,7 +49,7 @@ namespace Game.View
         {
             var dc = FindFirstObjectByType<DevConsole>();
             if (dc != null && dc.IsOpen) return true;
-            return PoseTunePanel.AnyOpen || PoseSeqPanel.AnyOpen || SlashFxPanel.AnyOpen;
+            return DevPanels.BlocksPoseDriver;   // 판단 기준을 한곳(DevPanels)으로 모은다
         }
 
         /// <summary>좌클릭 — slash1 / slash2 번갈아.</summary>

@@ -20,6 +20,7 @@ namespace Game.View
         float dLgMin, dLgMax, dLgAim, dLgStop, dLgHeight, dLgFov, dLgUp;
         int dJumpBuf, dAirBoostT, dDashTicks, dDashCharges, dDashRecharge, dDashReserve;
         int dAtkW, dAtkA, dAtkR, dLgW, dLgTravel, dLgR, dLgCool, dLgBind, dLgHitStop, dLgStacks, dLgReserve, dHp, dHitStun;
+        int dAtk2W, dAtk2A, dAtk2R, dCombo;   // 2연타 콤보
 
         void Capture()
         {
@@ -27,7 +28,9 @@ namespace Game.View
             dJumpBuf = SimConfig.JumpBufferTicks; dAirBoost = SimConfig.AirJumpBoost; dAirBoostT = SimConfig.AirJumpBoostTicks;
             dDashInit = SimConfig.DashInitialSpeed; dDashTicks = SimConfig.DashDurationTicks; dDashDecay = SimConfig.DashDecay;
             dDashCharges = SimConfig.DashMaxCharges; dDashRecharge = SimConfig.DashRechargeTicks; dDashReserve = SimConfig.DashReserveWindow;
-            dAtkW = CombatConfig.AttackWindupTicks; dAtkA = CombatConfig.AttackActiveTicks; dAtkR = CombatConfig.AttackRecoveryTicks;
+            dAtkW = CombatConfig.Atk1WindupTicks; dAtkA = CombatConfig.Atk1ActiveTicks; dAtkR = CombatConfig.Atk1RecoveryTicks;
+            dAtk2W = CombatConfig.Atk2WindupTicks; dAtk2A = CombatConfig.Atk2ActiveTicks; dAtk2R = CombatConfig.Atk2RecoveryTicks;
+            dCombo = CombatConfig.ComboWindowTicks;
             dAtkRange = CombatConfig.AttackConeRange; dAtkAngle = CombatConfig.AttackConeHalfAngle; dAtkHeight = CombatConfig.AttackHeightTolerance;
             dLgW = CombatConfig.LungeWindupTicks; dLgTravel = CombatConfig.LungeTravelTicks;
             dLgR = CombatConfig.LungeRecoveryTicks; dLgCool = CombatConfig.LungeCooldownTicks;
@@ -45,7 +48,9 @@ namespace Game.View
             SimConfig.JumpBufferTicks = dJumpBuf; SimConfig.AirJumpBoost = dAirBoost; SimConfig.AirJumpBoostTicks = dAirBoostT;
             SimConfig.DashInitialSpeed = dDashInit; SimConfig.DashDurationTicks = dDashTicks; SimConfig.DashDecay = dDashDecay;
             SimConfig.DashMaxCharges = dDashCharges; SimConfig.DashRechargeTicks = dDashRecharge; SimConfig.DashReserveWindow = dDashReserve;
-            CombatConfig.AttackWindupTicks = dAtkW; CombatConfig.AttackActiveTicks = dAtkA; CombatConfig.AttackRecoveryTicks = dAtkR;
+            CombatConfig.Atk1WindupTicks = dAtkW; CombatConfig.Atk1ActiveTicks = dAtkA; CombatConfig.Atk1RecoveryTicks = dAtkR;
+            CombatConfig.Atk2WindupTicks = dAtk2W; CombatConfig.Atk2ActiveTicks = dAtk2A; CombatConfig.Atk2RecoveryTicks = dAtk2R;
+            CombatConfig.ComboWindowTicks = dCombo;
             CombatConfig.AttackConeRange = dAtkRange; CombatConfig.AttackConeHalfAngle = dAtkAngle; CombatConfig.AttackHeightTolerance = dAtkHeight;
             CombatConfig.LungeWindupTicks = dLgW; CombatConfig.LungeTravelTicks = dLgTravel;
             CombatConfig.LungeRecoveryTicks = dLgR; CombatConfig.LungeCooldownTicks = dLgCool;
@@ -60,8 +65,8 @@ namespace Game.View
         {
             var kb = Keyboard.current;
             if (kb == null) return;
-            // F2는 포즈 재생 패널이 쓰므로 NavMesh 시각화는 F6으로 옮겼다(같이 토글되던 충돌 해소).
-            if (kb.f6Key.wasPressedThisFrame)
+            // F2=포즈 재생, F6=콤보 튜닝이 쓰므로 NavMesh 시각화는 F7이다.
+            if (kb.f7Key.wasPressedThisFrame)
             {
                 var v = NavMeshDebugView.Toggle();
                 Debug.Log(v != null
@@ -102,13 +107,47 @@ namespace Game.View
             SimConfig.DashRechargeTicks = ISlider("재충전(틱)", SimConfig.DashRechargeTicks, 20, 180);
             SimConfig.DashReserveWindow = ISlider("예약 구간(막판 틱)", SimConfig.DashReserveWindow, 0, 20);
 
-            GUILayout.Label("<b>평타</b>", Rich());
-            CombatConfig.AttackWindupTicks = ISlider("선딜(틱)", CombatConfig.AttackWindupTicks, 1, 20);
-            CombatConfig.AttackActiveTicks = ISlider("판정(틱)", CombatConfig.AttackActiveTicks, 1, 10);
-            CombatConfig.AttackRecoveryTicks = ISlider("후딜(틱)", CombatConfig.AttackRecoveryTicks, 2, 40);
-            CombatConfig.AttackConeRange = FSlider("사거리(m)", CombatConfig.AttackConeRange, 1f, 4f);
-            CombatConfig.AttackConeHalfAngle = FSlider("반각(도)", CombatConfig.AttackConeHalfAngle, 20f, 90f);
-            CombatConfig.AttackHeightTolerance = FSlider("높이 허용(m)", CombatConfig.AttackHeightTolerance, 0.3f, 3f);
+            // 대시 연출 — 방향별로 다르게(앞=넓어짐 / 뒤=좁아짐 / 옆=롤). View 전용이라 예지 무해.
+            var fb = CombatFeedback.Instance;
+            if (fb != null)
+            {
+                GUILayout.Label("<size=11><b>대시 연출</b> (앞=FOV 좁아짐 · 뒤=넓어짐 · 옆=기울임)</size>", Rich());
+
+                // 실측 표시 — "넓어져야 하는데 좁아 보인다" 같은 체감 문제를 숫자로 가른다
+                var vcamNow = Main.Instance != null ? Main.Instance.GameplayVcam : null;
+                GUILayout.Label(
+                    $"<size=10>마지막 대시 <b>{DashLabel(fb.LastDashFwd, fb.LastDashSide)}</b>  " +
+                    $"앞뒤 <b>{fb.LastDashFwd:+0.00;-0.00}</b>  좌우 <b>{fb.LastDashSide:+0.00;-0.00}</b>\n" +
+                    $"지금 FOV 변화 <b>{fb.FovDeltaNow:+0.0;-0.0}°</b>  (대시 {FovKickPart(fb):+0.0;-0.0} · " +
+                    $"찌르기 {fb.LungeFovNow:+0.0;-0.0} · 해제 {fb.ReleaseNow:+0.0;-0.0})  롤 {fb.RollNow:+0.0;-0.0}°" +
+                    (vcamNow != null ? $"\n실제 FOV {vcamNow.Lens.FieldOfView:0.0}°" : "") + "</size>", Rich());
+
+                fb.dashFovInvert = GUILayout.Toggle(fb.dashFovInvert, " FOV 부호 뒤집기 (체감이 반대면)");
+                fb.dashFovFwd       = FSlider("앞뒤 FOV 킥",   fb.dashFovFwd,       0f, 3f);
+                fb.dashFovBackScale = FSlider("뒤 비율",       fb.dashFovBackScale, 0f, 4f);
+                fb.fovKickAttack    = FSlider("들어가는 속도", fb.fovKickAttack,    1f, 40f);
+                fb.fovKickDecay     = FSlider("풀리는 속도",   fb.fovKickDecay,     0.5f, 20f);
+                fb.dashRoll         = FSlider("옆 기울임(도)", fb.dashRoll,         0f, 20f);
+                fb.dashRollDecay    = FSlider("기울임 복귀",   fb.dashRollDecay,    1f, 20f);
+
+                GUILayout.Label("<size=11><b>찌르기 FOV</b> (이동 시작에 좁아져 유지 → 히트스톱 풀리면 복귀)</size>", Rich());
+                fb.lungeZoomIn        = FSlider("좁힘(도)",          fb.lungeZoomIn,        0f, 40f);
+                fb.lungeZoomInTime    = FSlider("좁아지는 시간(초)", fb.lungeZoomInTime,    0.01f, 0.5f);
+                fb.lungeZoomOutTime   = FSlider("복귀 시간(초)",     fb.lungeZoomOutTime,   0.05f, 1.5f);
+                GUILayout.Label($"<size=10>지금 찌르기 FOV <b>{fb.LungeFovNow:+0.0;-0.0}°</b>" +
+                                "   시간은 <b>초</b> — 클수록 느리다.</size>", Rich());
+
+                GUILayout.Label("<size=10>아래는 해제 순간 한 번 터지는 추가 확장 — 기본 0(안 씀)</size>", Rich());
+                fb.lungeZoomOut       = FSlider("해제 확장(도)",     fb.lungeZoomOut,       0f, 40f);
+                if (fb.lungeZoomOut > 0.01f)
+                {
+                    fb.lungeReleaseRise = FSlider("벌어지는 시간(초)", fb.lungeReleaseRise, 0f, 0.4f);
+                    fb.lungeReleaseFall = FSlider("돌아오는 시간(초)", fb.lungeReleaseFall, 0.05f, 1.5f);
+                }
+            }
+
+            GUILayout.Label("<b>평타</b>  <size=10>틱·콤보·판정은 전부 <b>F6</b>으로 옮겼습니다</size>", Rich());
+            GUILayout.Label($"<size=10>현재 방식: {(CombatConfig.UseSphereMelee ? $"구 오버랩 · 실효 {CombatConfig.MeleeReach:0.00}m" : $"부채꼴 · {CombatConfig.AttackConeRange:0.00}m / {CombatConfig.AttackConeHalfAngle * 2f:0}°")}</size>", Rich());
 
             GUILayout.Label("<b>타깃 런지</b>", Rich());
             CombatConfig.LungeMaxRange = FSlider("최대 사거리(m)", CombatConfig.LungeMaxRange, 4f, 20f);
@@ -157,6 +196,7 @@ namespace Game.View
 
             GUILayout.Space(8f);
             if (GUILayout.Button("기본값으로 리셋")) ResetAll();
+            if (GUILayout.Button("저장")) CombatTuningSave.Save();
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
@@ -192,6 +232,17 @@ namespace Game.View
             int nv = Mathf.RoundToInt(GUILayout.HorizontalSlider(v, min, max));
             GUILayout.EndHorizontal();
             return nv;
+        }
+
+        /// <summary>합산된 FOV 변화에서 대시 몫만 떼어낸다(표시용).</summary>
+        static float FovKickPart(CombatFeedback fb) => fb.FovDeltaNow - fb.LungeFovNow - fb.ReleaseNow;
+
+        /// <summary>마지막 대시 방향을 사람이 읽을 이름으로 — "뒤로 쳤는데 반응이 없다"를 가른다.</summary>
+        static string DashLabel(float f, float s)
+        {
+            if (Mathf.Abs(f) < 0.01f && Mathf.Abs(s) < 0.01f) return "없음";
+            if (Mathf.Abs(f) >= Mathf.Abs(s)) return f > 0f ? "앞" : "<color=#ffb060>뒤</color>";
+            return s > 0f ? "오른쪽" : "왼쪽";
         }
 
         static GUIStyle Rich()

@@ -33,7 +33,18 @@ namespace Game.View
     {
         public static bool AnyOpen =>
             PoseTunePanel.AnyOpen || PoseSeqPanel.AnyOpen || SlashFxPanel.AnyOpen ||
-            MotionTunePanel.AnyOpen || TuningPanelOpen;
+            MotionTunePanel.AnyOpen || ComboTunePanel.AnyOpen || EnemyVisualPanel.AnyOpen ||
+            MobBalancePanel.AnyOpen || TuningPanelOpen;
+
+        /// <summary>
+        /// 전투 연동(PoseCombatDriver)이 포즈를 재생하면 안 되는 상태인가.
+        ///
+        /// PosePlayer를 직접 조작하는 패널(F2 재생·F3 시퀀스·F5 이펙트)이 열려 있을 때만 막는다.
+        /// F6(콤보)은 <b>공격을 눈으로 봐야 하므로 막으면 안 된다</b> — 예전엔 AnyOpen으로
+        /// 싸잡아 막아서 F6의 콤보 자동 반복을 눌러도 칼이 안 움직였다.
+        /// </summary>
+        public static bool BlocksPoseDriver =>
+            PoseTunePanel.AnyOpen || PoseSeqPanel.AnyOpen || SlashFxPanel.AnyOpen;
 
         /// <summary>F1(전투 튜닝) 등 AnyOpen 플래그가 없는 패널이 직접 설정.</summary>
         public static bool TuningPanelOpen;

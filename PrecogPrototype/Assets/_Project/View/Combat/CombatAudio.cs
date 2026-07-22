@@ -16,6 +16,7 @@ namespace Game.View
         AudioClip swing, hit, dash, guardRaise, block, backstrike, death;
         // 몹 SFX (러프·잠정). 대부분 몹 공격 SIM 상태 생기면 그쪽에서 호출.
         AudioClip enWindup, enMelee, enAim, enFire, enPain;
+        AudioClip enStep;   // 발 딛는 소리 — 지금은 임시 합성음, 에셋이 오면 교체
         AudioClip playerHurt;   // 플레이어 피격("억" + 저음 임팩트)
         AudioClip prediction;   // 예지 발동(시간정지식 상승 시머)
 
@@ -49,6 +50,7 @@ namespace Game.View
             enAim    = BuildEnemyAim();
             enFire   = BuildEnemyFire();
             enPain   = BuildEnemyPain();
+            enStep   = BuildEnemyStep();
 
             playerHurt = BuildPlayerHurt();
             prediction = BuildPrediction();
@@ -72,6 +74,8 @@ namespace Game.View
         public static void EnemyAim()    => Play(inst?.enAim,    0.4f,  0.03f);
         public static void EnemyFire()   => Play(inst?.enFire,   0.6f,  0.05f);
         public static void EnemyPain()   => Play(inst?.enPain,   0.45f, 0.10f);
+        /// <summary>몹이 발을 딛는 소리. 자주 나므로 볼륨을 낮게, 피치 편차를 넓게 준다.</summary>
+        public static void EnemyStep()   => Play(inst?.enStep,   0.22f, 0.18f);
         public static void PlayerHurt()  => Play(inst?.playerHurt, 0.75f, 0.06f);  // 플레이어 피격
         public static void Prediction()  => Play(inst?.prediction, 0.5f,  0.02f);  // 예지 발동
 
@@ -313,6 +317,34 @@ namespace Game.View
         }
 
         /// <summary>피격 신음: 짧은 유기적 그런트(하강).</summary>
+        /// <summary>
+        /// 발 딛는 소리 — 무거운 금속 발이 바닥을 치는 짧은 "쿵". 저음 임팩트 + 금속 잔향.
+        /// ★ 임시 합성음이다. 실제 에셋이 오면 이 함수 대신 클립을 물리면 된다.
+        /// </summary>
+        static AudioClip BuildEnemyStep()
+        {
+            const float dur = 0.13f;
+            int n = (int)(dur * SR);
+            var s = new float[n];
+            var rng = new System.Random(31);
+            float ph = 0f, ph2 = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / n;
+                // 저음 쿵 — 빠르게 떨어지는 사인
+                float f = Mathf.Lerp(120f, 55f, t);
+                ph += 6.2832f * f / SR;
+                float thud = Mathf.Sin(ph) * Mathf.Exp(-t * 26f);
+                // 금속 잔향 — 높은 배음이 짧게
+                ph2 += 6.2832f * 1900f / SR;
+                float ring = Mathf.Sin(ph2) * Mathf.Exp(-t * 55f) * 0.18f;
+                // 접촉 순간의 잡음
+                float grit = (float)(rng.NextDouble() * 2 - 1) * Mathf.Exp(-t * 90f) * 0.22f;
+                s[i] = (thud + ring + grit) * 0.8f;
+            }
+            return Clip("cai_en_step", s);
+        }
+
         static AudioClip BuildEnemyPain()
         {
             const float dur = 0.15f;
