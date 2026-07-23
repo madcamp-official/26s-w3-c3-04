@@ -1,4 +1,4 @@
-﻿%YAML 1.1
+%YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
 --- !u!1 &30227120602486479
 GameObject:
@@ -2678,9 +2678,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.ArenaGate
   door: {fileID: 2481217643941251927}
+  closedLocalPos: {x: 0, y: 0, z: 0}
   openOffset: {x: 0, y: 8.299999, z: 0}
+  positionsRecorded: 0
   moveSeconds: 0.8
   startState: 1
+  openSound: {fileID: 0}
 --- !u!1 &1588828300911838866
 GameObject:
   m_ObjectHideFlags: 0
@@ -5774,9 +5777,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.ArenaGate
   door: {fileID: 8446848192242877242}
+  closedLocalPos: {x: 0, y: 0, z: 0}
   openOffset: {x: 0, y: 7.9415827, z: 0}
+  positionsRecorded: 0
   moveSeconds: 0.8
   startState: 0
+  openSound: {fileID: 0}
 --- !u!1 &3309109056311697012
 GameObject:
   m_ObjectHideFlags: 0
@@ -6769,9 +6775,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.ArenaGate
   door: {fileID: 2735725135386178953}
+  closedLocalPos: {x: 0, y: 0, z: 0}
   openOffset: {x: 0, y: 7.9415827, z: 0}
+  positionsRecorded: 0
   moveSeconds: 0.8
   startState: 0
+  openSound: {fileID: 0}
 --- !u!1 &4102481503386979278
 GameObject:
   m_ObjectHideFlags: 0
@@ -10038,6 +10047,7 @@ MonoBehaviour:
         isGap: 0
     advance: 1
     advanceValue: 3
+  loop: 0
   cleanup:
     enabled: 1
     triggerRemaining: 3
@@ -10058,6 +10068,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.WaveRunner
   config: {fileID: 8449132069083980533}
+  autoStart: 0
 --- !u!1 &6291541250285706994
 GameObject:
   m_ObjectHideFlags: 0
@@ -13707,9 +13718,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.ArenaGate
   door: {fileID: 8678789623133377368}
+  closedLocalPos: {x: 0, y: 0, z: 0}
   openOffset: {x: 0, y: 8.299999, z: 0}
+  positionsRecorded: 0
   moveSeconds: 0.8
   startState: 1
+  openSound: {fileID: 0}
 --- !u!1 &8356148415858832779
 GameObject:
   m_ObjectHideFlags: 0
@@ -21633,7 +21647,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5791000453186234587, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_StaticEditorFlags
-      value: 4
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6563456143312220769, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_LocalPosition.x
@@ -37151,7 +37165,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5791000453186234587, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_StaticEditorFlags
-      value: 4
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6563456143312220769, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_LocalPosition.x
@@ -66783,7 +66797,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5791000453186234587, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_StaticEditorFlags
-      value: 4
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6563456143312220769, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_LocalPosition.x
@@ -82827,7 +82841,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5791000453186234587, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_StaticEditorFlags
-      value: 4
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6563456143312220769, guid: 54d7f526f28238c4d9fc328c92758f2e, type: 3}
       propertyPath: m_LocalPosition.x

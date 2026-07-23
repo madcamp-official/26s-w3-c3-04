@@ -108,6 +108,9 @@ namespace Game.View
         float yaw0;
         float eyeHeight = 1.25f;
 
+        /// <summary>착지 컷신 캐릭터 렌더 크기(PlayerGhost 프리팹은 1). 너무 작게 나오던 것 → 1.6.</summary>
+        public static float ActorScale = 1.6f;
+
         float t;                 // 컷신 경과(unscaled)
         bool ready, finished;
         bool impacted;
@@ -674,6 +677,7 @@ namespace Game.View
             var root = new GameObject("IntroActor");
             root.transform.SetParent(transform, false);
             actorRoot = root.transform;
+            actorRoot.localScale = Vector3.one * ActorScale;   // 착지 컷신 캐릭터 크기(PlayerGhost 프리팹은 1)
 
             var body = Instantiate(prefab, actorRoot);
             body.name = "Actor";
