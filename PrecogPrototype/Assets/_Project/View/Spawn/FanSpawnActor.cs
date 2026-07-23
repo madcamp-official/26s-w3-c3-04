@@ -47,6 +47,15 @@ namespace Game.View
         /// <summary>몹 한 마리 소환 시 기계식으로 한 번 '나왔다 들어감'. WaveRunner가 부른다.</summary>
         public void Punch() => punchU = 0f;
 
+        /// <summary>새 게임 시작 시 진행 중이던 팬 연출을 대기 위치로 즉시 복구한다.</summary>
+        public void ResetToStartState()
+        {
+            phase = Phase.Up;
+            phaseT = 0f;
+            punchU = 2f;
+            if (ready) transform.position = restPos;
+        }
+
         void Start()
         {
             runner = Object.FindFirstObjectByType<WaveRunner>();

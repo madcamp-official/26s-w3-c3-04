@@ -138,6 +138,13 @@ namespace Game.View
             started = false; IsActive = false; IsLocked = false; IsCleared = false;
         }
 
+        /// <summary>사망 후 재시작 시 방과 웨이브를 첫 진입 전 상태로 되돌린다.</summary>
+        public void ResetProgress()
+        {
+            if (runner != null) runner.ResetProgress();
+            ReArm();
+        }
+
         void OnDrawGizmosSelected()
         {
             var c = zone != null ? zone : GetComponent<Collider>();

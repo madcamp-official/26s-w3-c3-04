@@ -72,10 +72,12 @@ namespace Game.View
         //   사방으로 레이를 쏴 <b>가장 트인 쪽</b>에서 찍기 시작한다.
         // 착지 거리는 <b>자세가 읽히는</b> 거리다. 5.0m에선 무릎 꿇은 실루엣이 너무 작아
         // 공들인 자세가 안 보였다(렌더로 확인) — 좁으면 VisibleDist가 알아서 도로 줄인다.
-        const float DistFallWant = 9.5f, DistImpactWant = 3.4f;
+        // PlayerGhost의 실측 키는 약 1.9m다. 이전 값(9.5m / 3.4m)은 넓은 FOV와 겹쳐
+        // 주인공이 배경 소품처럼 작게 보였으므로 인물 중심 구도로 당긴다.
+        const float DistFallWant = 7.0f, DistImpactWant = 2.4f;
         const float DistMin = 1.6f;         // 이보다 좁혀지면 구도가 죽는다 — 벽을 뚫는 게 차라리 낫다
         const float WallMargin = 0.5f;
-        const float FovFall = 78f, FovImpact = 66f;
+        const float FovFall = 70f, FovImpact = 58f;
 
         float thetaStart = 34f;             // 실측으로 채운다
         float thetaEnd = 180f;              // 등 뒤가 막혀 있으면 여기서 줄인다

@@ -28,15 +28,23 @@ namespace Game.View
         Vector3 closedPos;   // 배치된(닫힌) 로컬 위치
         float t;             // 0=닫힘, 1=열림 (진행도)
         float target;
+        bool initialized;
 
         public bool IsOpen => target > 0.5f;
 
         void Awake()
         {
-            if (door == null) door = transform;
-            closedPos = door.localPosition;
+            EnsureInitialized();
             t = target = startState == StartState.Open ? 1f : 0f;
             Apply();
+        }
+
+        void EnsureInitialized()
+        {
+            if (initialized) return;
+            if (door == null) door = transform;
+            closedPos = door.localPosition;
+            initialized = true;
         }
 
         /// <summary>문 열기 — ArenaRoom.onUnlock에 연결.</summary>
@@ -44,6 +52,14 @@ namespace Game.View
         /// <summary>문 닫기 — ArenaRoom.onLock에 연결.</summary>
         public void Close() => target = 0f;
         public void Toggle() => target = IsOpen ? 0f : 1f;
+
+        /// <summary>새 게임의 Inspector 시작 상태로 즉시 복구한다.</summary>
+        public void ResetToStartState()
+        {
+            EnsureInitialized();
+            t = target = startState == StartState.Open ? 1f : 0f;
+            Apply();
+        }
 
         void Update()
         {

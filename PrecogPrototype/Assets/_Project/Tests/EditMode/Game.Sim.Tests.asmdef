@@ -5,6 +5,7 @@
         "Game.Sim",
         "Game.Prediction",
         "Game.Bridge",
+        "Game.View",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

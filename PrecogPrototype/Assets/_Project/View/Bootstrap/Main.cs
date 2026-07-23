@@ -153,6 +153,18 @@ namespace Game.View
             spawnTimer = SimConfig.SpawnIntervalTicks;   // 첫 틱부터 다시 소환
             nextSpawn = 0;
             fixedAccum = 0f;
+
+            // 씬을 다시 로드하지 않으므로 MonoBehaviour가 들고 있는 런 진행도도 직접 초기화한다.
+            // 방에 연결되지 않은 개발용 WaveRunner도 있을 수 있어 둘 다 훑는다.
+            foreach (var runner in FindObjectsByType<WaveRunner>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                runner.ResetProgress();
+            foreach (var room in FindObjectsByType<ArenaRoom>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                room.ResetProgress();
+            foreach (var gate in FindObjectsByType<ArenaGate>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                gate.ResetToStartState();
+            foreach (var fan in FindObjectsByType<FanSpawnActor>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                fan.ResetToStartState();
+
             views.InvalidateViews();      // 적 뷰를 버려 새 월드 기준으로 다시 만들게 한다
         }
 
