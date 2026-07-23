@@ -155,11 +155,12 @@ namespace Game.View
             fixedAccum = 0f;
             views.InvalidateViews();      // 적 뷰를 버려 새 월드 기준으로 다시 만들게 한다
 
-            // ★ 웨이브·아레나·게이트도 시작 상태로 되돌린다 — sim만 리셋하면
-            //   이미 클리어한 아레나가 startOnce 때문에 다시 안 열리고 게이트도 마지막 상태로 남는다.
-            foreach (var wr in FindObjectsByType<WaveRunner>(FindObjectsSortMode.None)) wr.Stop();
-            foreach (var room in FindObjectsByType<ArenaRoom>(FindObjectsSortMode.None)) room.ReArm();
-            foreach (var gate in FindObjectsByType<ArenaGate>(FindObjectsSortMode.None)) gate.ResetToStart();
+            // ★ sim만 리셋하면 웨이브·아레나·게이트·보스소환기 등이 마지막 상태로 남는다.
+            //   IRunResettable을 구현한 모든 컴포넌트를 한 번에 되돌린다 — 컴포넌트가 자기 리셋을
+            //   소유하므로, 새 컴포넌트를 추가해도 이 목록을 고칠 필요가 없다(누락 불가).
+            //   비활성 오브젝트까지 포함해 놓친 아레나가 없게 한다.
+            foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (mb is IRunResettable r) r.ResetForRestart();
         }
 
         /// <summary>플레이어 체력을 최대로 — 아레나 클리어(ArenaRoom.OnUnlock) 시 호출.</summary>

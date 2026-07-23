@@ -15,9 +15,12 @@ namespace Game.View
     /// (sim 이동·레이캐스트가 Unity 콜라이더를 조회하므로 sim에서도 막힌다).
     /// </summary>
     [DisallowMultipleComponent]
-    public class ArenaGate : MonoBehaviour
+    public class ArenaGate : MonoBehaviour, IRunResettable
     {
         public enum StartState { Open, Closed }
+
+        /// <summary>재시작 시 문을 시작 위치로 스냅한다.</summary>
+        public void ResetForRestart() => ResetToStart();
 
         [Tooltip("움직일 문. 비우면 자기 자신을 움직인다.")]
         public Transform door;

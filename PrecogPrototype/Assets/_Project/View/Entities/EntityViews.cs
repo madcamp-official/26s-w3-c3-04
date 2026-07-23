@@ -28,6 +28,7 @@ namespace Game.View
         readonly List<int>         viewPrevHp  = new List<int>();          // 피격 감지용
         readonly List<int>         viewSpawnedId = new List<int>();        // 슬롯의 현재 몹 id — 바뀌면 새 몹
         readonly List<int>         viewRevealedId = new List<int>();       // 이미 실체화 재생한 몹 id(박스당 1회 방지)
+        readonly List<float>       viewSpawnTime  = new List<float>();      // 스폰(숨김) 시각(Time.time). 박스 못 닿아도 타임아웃 실체화용
         readonly List<FootstepDetector> viewFoot = new List<FootstepDetector>();  // 발 딛는 순간 감지
 
         // ── 발자국 스파크·소리 ──
@@ -168,6 +169,10 @@ namespace Game.View
         // IsAirborne 디바운스 시간(초). grounded가 이 시간 이상 연속 false여야 Jump로 본다.
         // 경사에서 1~2틱(<0.05s) 깜빡이는 건 무시하고, 진짜 점프·낙하(>0.15s)만 잡는다.
         const float AirborneDebounceTime = 0.1f;
+
+        // 스폰 후 재생 박스(SpawnRevealVolume)에 이 시간(게임 초) 안에 못 닿으면 박스에 닿은 셈 치고
+        // 강제로 실체화한다. 경로 문제로 몹이 박스를 못 지나 영영 투명해지는 것을 막는 안전장치.
+        const float SpawnRevealTimeout = 4f;
 
         // 정지(Idle) 판정 속도(m/s). 이 미만이면 "서 있음"으로 보고 IsMoving=false를 던진다.
         //   컨트롤러에 IsMoving+Idle이 있으면 Idle 클립이 재생되고,
@@ -430,12 +435,17 @@ namespace Game.View
                         {
                             viewSpawnedId[i] = eid;
                             viewRevealedId[i] = int.MinValue;          // 새 몹: 아직 안 걷힘
+                            viewSpawnTime[i] = Time.time;              // 타임아웃 기준(게임 시간 — 슬로모/정지 시 멈춤)
                             SpawnMaterialize.Prepare(enemyViews[i]);   // 즉시 숨김(오버레이 대기)
                         }
-                        if (viewRevealedId[i] != eid && SpawnRevealVolume.Contains(w.enemies[i].pos))
+                        // 재생 박스를 지나면 그 지점에서 걷힌다. 못 지나도 SpawnRevealTimeout 뒤엔
+                        // '박스에 닿은 셈' 치고 강제로 걷힌다(경로 문제로 영영 투명한 몹 방지).
+                        if (viewRevealedId[i] != eid &&
+                            (SpawnRevealVolume.Contains(w.enemies[i].pos)
+                             || Time.time - viewSpawnTime[i] >= SpawnRevealTimeout))
                         {
                             viewRevealedId[i] = eid;
-                            SpawnMaterialize.Reveal(enemyViews[i]);     // 박스 통과 → 걷힘 시작
+                            SpawnMaterialize.Reveal(enemyViews[i]);     // 박스 통과(또는 타임아웃) → 걷힘 시작
                         }
                     }
                 }
@@ -881,6 +891,7 @@ namespace Game.View
             viewPrevHp.Add(int.MinValue);
             viewSpawnedId.Add(int.MinValue);
             viewRevealedId.Add(int.MinValue);
+            viewSpawnTime.Add(0f);
             viewFoot.Add(default);
             viewRusty.Add(default);
             viewPose.Add(default);

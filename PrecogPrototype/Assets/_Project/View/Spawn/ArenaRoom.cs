@@ -22,8 +22,11 @@ namespace Game.View
     ///   (runner·zone·player를 자기 기준으로 찾으므로).
     /// </summary>
     [DisallowMultipleComponent]
-    public class ArenaRoom : MonoBehaviour
+    public class ArenaRoom : MonoBehaviour, IRunResettable
     {
+        /// <summary>재시작 시 방을 미진입·미클리어 상태로 되돌린다(재진입하면 다시 잠기고 시작).</summary>
+        public void ResetForRestart() => ReArm();
+
         [Header("참조 (비우면 자동 탐색)")]
         [Tooltip("이 방의 웨이브. 비우면 자기/자식에서 찾는다.")]
         public WaveRunner runner;

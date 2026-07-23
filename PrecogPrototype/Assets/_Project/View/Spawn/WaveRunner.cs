@@ -12,9 +12,12 @@ namespace Game.View
     /// 설계 문서: docs/shared/웨이브_시스템_설계.md
     /// </summary>
     [DisallowMultipleComponent]
-    public class WaveRunner : MonoBehaviour
+    public class WaveRunner : MonoBehaviour, IRunResettable
     {
         public enum State { Idle, WaitStart, Spawning, Watching, Done }
+
+        /// <summary>재시작 시 진행 중이던 웨이브를 멈춘다(ArenaRoom이 재진입 시 다시 시작한다).</summary>
+        public void ResetForRestart() => Stop();
 
         [Tooltip("비워두면 같은 오브젝트의 ArenaWaves를 자동으로 쓴다.")]
         public ArenaWaves config;

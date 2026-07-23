@@ -17,7 +17,7 @@ namespace Game.View
     /// 순수 View — sim에 1회 주입할 뿐.
     /// </summary>
     [DisallowMultipleComponent]
-    public class BossEntrySpawner : MonoBehaviour
+    public class BossEntrySpawner : MonoBehaviour, IRunResettable
     {
         [Tooltip("씬 시작 시 자동 소환. 마스터 씬(아레나 여럿)에선 끄고 ArenaRoom.onLock → SpawnNow로 연결하라.")]
         public bool spawnOnStart = true;
@@ -39,6 +39,14 @@ namespace Game.View
         {
             if (done) return;
             armed = true;
+            elapsed = 0f;
+        }
+
+        /// <summary>재시작 시 '이미 소환함' 잠금을 풀어 다시 소환될 수 있게 한다.</summary>
+        public void ResetForRestart()
+        {
+            done = false;
+            armed = spawnOnStart;   // 자동소환이면 재무장, onLock 방식이면 다음 진입까지 대기
             elapsed = 0f;
         }
 

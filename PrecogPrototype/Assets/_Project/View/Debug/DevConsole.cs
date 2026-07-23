@@ -1243,6 +1243,21 @@ namespace Game.View
                     break;
                 }
 
+                case "bossend":
+                case "ending":
+                {
+                    // 보스 처치 엔딩(슬로모→암전→구도전환→맵 폭발)을 즉시 재생. 보스가 없어도 동작(테스트용).
+                    // 'skip'/'now' 인자면 슬로모를 건너뛰고 곧장 암전→폭발.
+                    var dir = UnityEngine.Object.FindFirstObjectByType<BossDeathDirector>();
+                    if (dir == null) { Print("BossDeathDirector 없음 — [BossDeathDirector] 오브젝트를 배치하십시오"); break; }
+                    bool skip = p.Length >= 2 && (p[1] == "skip" || p[1] == "now");
+                    Print(dir.TriggerFromConsole(skip)
+                        ? (skip ? "보스 엔딩 재생 (슬로모 생략 → 암전→폭발)"
+                                : "보스 엔딩 재생 (슬로모→암전→구도→폭발)")
+                        : "재생 불가 (이미 진행 중)");
+                    break;
+                }
+
                 case "vfx":
                 {
                     if (p.Length >= 2 && p[1] == "list")

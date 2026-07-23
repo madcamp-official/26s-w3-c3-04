@@ -102,7 +102,7 @@ namespace Game.Sim
         public static float FlyHoverOffset  = 2.3f;  // 플레이어 y + 이만큼 위를 유지(기준값) ★ 미확정
         // 개체마다 호버 높이를 흩뜨린다 — 전부 같은 높이에 뜨면 한 줄로 늘어선 것처럼 보인다.
         // EnemySim.personality(id 해시, 0~1)를 쓰므로 <b>같은 몹은 항상 같은 높이</b>이고 결정론도 유지된다.
-        public static float FlyHoverJitter  = 0.7f;  // ±이만큼 (기준 2.3m면 1.6~3.0m) ★ 미확정
+        public static float FlyHoverJitter  = 0.4f;  // ±이만큼 (기준 2.3m면 1.9~2.7m) ★ 미확정
 
         /// <summary>이 개체가 유지할 호버 높이(플레이어 y 기준). personality 0~1 → −jitter~+jitter.</summary>
         public static float FlyHoverFor(float personality)
@@ -147,7 +147,7 @@ namespace Game.Sim
         public static int   RangedDamage    = 1;
 
         // 투사체 (유도 없음 → 회피 가능)
-        public static float ProjectileSpeed  = 19f;   // [2026-07-22] 상향(12→19) — 더 빠르게
+        public static float ProjectileSpeed  = 22.8f;   // [2026-07-22] 상향(12→19), [추가] ×1.2 = 22.8 — 더 빠르게
         public static float ProjectileRadius = 0.25f;
         public static int   ProjectileTtl    = 300;  // 5s 안전 소멸
 

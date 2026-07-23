@@ -16,7 +16,7 @@ namespace Game.View
         // 붙일 수치가 없었다 — 발동 시 전부 소모하고 실시간으로 재충전되는 게이지를 둔다.
         // Idle일 때만 차오르며(미리보기·자동실행 중엔 멈춤), 슬로모와 무관하게 실시간이다.
         /// <summary>0 → 100%까지 걸리는 실시간 초.</summary>
-        public const float ChargeRechargeSeconds = 12f;
+        public const float ChargeRechargeSeconds = 30f;
         /// <summary>예지 진입 시 남기는 잔량(0 = 전부 소모).</summary>
         public const float ChargeAfterEnter = 0f;
         /// <summary>이만큼은 차야 F가 먹는다. 게이지가 곧 예측 지평이라 너무 적게 남은 상태로

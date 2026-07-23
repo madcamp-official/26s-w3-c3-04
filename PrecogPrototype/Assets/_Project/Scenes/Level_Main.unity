@@ -5678,6 +5678,11 @@ MonoBehaviour:
   slotSpread: 1.4
   validateForLargeMobs: 0
   showCapsules: 1
+--- !u!4 &596815557 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 681809069849526757, guid: e5ee5fdccab1d24449a27494ef45f361, type: 3}
+  m_PrefabInstance: {fileID: 208333026}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &598697556 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 2810143049266274488, guid: e5ee5fdccab1d24449a27494ef45f361, type: 3}
@@ -6312,8 +6317,7 @@ PrefabInstance:
       value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
-    m_RemovedGameObjects:
-    - {fileID: 4991600522637566996, guid: 56830f6f1ef06cb4b9c866385ad7e14b, type: 3}
+    m_RemovedGameObjects: []
     m_AddedGameObjects:
     - targetCorrespondingSourceObject: {fileID: 4498101283486814491, guid: 56830f6f1ef06cb4b9c866385ad7e14b, type: 3}
       insertIndex: -1
@@ -10357,6 +10361,66 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.SpawnRevealVolume
   size: {x: 7, y: 5, z: 7}
+--- !u!1 &1125252685
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1125252687}
+  - component: {fileID: 1125252686}
+  m_Layer: 0
+  m_Name: '[BossDeathDirector]'
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1125252686
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1125252685}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a99c815389f3f0641a934b650741bf1e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.View::Game.View.BossDeathDirector
+  arenaRoot: {fileID: 450036086}
+  runner: {fileID: 1151764684}
+  slowMoScale: 0.15
+  slowMoMaxSeconds: 3
+  blackoutSeconds: 1
+  pieceSpeedMin: 15
+  pieceSpeedMax: 60
+  pieceGravity: 9.8
+  pieceSpinMax: 540
+  upwardBias: 0
+  outwardBias: 0
+  flashCount: 14
+  shakeAmp: 0.5
+  shakeSeconds: 1.5
+  explosionSeconds: 4
+  endFadeSeconds: 2.5
+--- !u!4 &1125252687
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1125252685}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1130766400
 GameObject:
   m_ObjectHideFlags: 0
@@ -10648,6 +10712,7 @@ GameObject:
   - component: {fileID: 1151764686}
   - component: {fileID: 1151764685}
   - component: {fileID: 1151764684}
+  - component: {fileID: 1151764687}
   m_Layer: 0
   m_Name: _Waves
   m_TagString: Untagged
@@ -10683,7 +10748,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.View::Game.View.ArenaWaves
   waves:
   - name: "\uBC18\uBCF5 \uC7A1\uBAB9(\uADFC15/\uC6D015/\uACF515/\uB3CC15)"
-    startDelay: 0
+    startDelay: 3
     pipes:
     - marker: {fileID: 339500557}
       startDelay: 0
@@ -10950,6 +11015,82 @@ Transform:
   m_Children: []
   m_Father: {fileID: 450036086}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1151764687
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1151764683}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eebf954d6e6d633408690ceb458c2434, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.View::Game.View.AirshipFlyby
+  runner: {fileID: 1151764684}
+  realShip: {fileID: 596815557}
+  travelDirection: {x: 1, y: 0, z: 0}
+  approachDistance: 120
+  departDistance: 120
+  departSeconds: 3
+  minRevealSeconds: 1.5
+  approachCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0.2
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.7
+      value: 0.88
+      inSlope: 2
+      outSlope: 2
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0.12
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  departCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0.15
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 2.5
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
 --- !u!1 &1154782393
 GameObject:
   m_ObjectHideFlags: 0
@@ -19904,3 +20045,4 @@ SceneRoots:
   - {fileID: 2058015802}
   - {fileID: 1190611005}
   - {fileID: 374282046}
+  - {fileID: 1125252687}

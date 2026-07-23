@@ -49,6 +49,13 @@ namespace Game.View
                                        || (state == State.Following && !UsesLiveLookCamera);
         // <<< [자유 주행 끝]
 
+        // [보스 엔딩, 2026-07-23] 외부 연출(BossDeathDirector 슬로모)이 배속을 잠시 소유할 때 0 이상.
+        // -1 = 소유 안 함(평소). UpdateRhythmTimeScale이 매 프레임 배속을 쓰므로 이 훅 없이는
+        // 외부 슬로모가 즉시 1로 되돌려진다. Domain Reload 꺼짐 — 매 플레이 리셋을 명시적으로 한다.
+        public static float CutsceneTimeScaleOverride = -1f;
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetCutsceneOverride() => CutsceneTimeScaleOverride = -1f;
+
         // [HUD 게이지, 2026-07-22] 예지 자원(0~1). HUD의 PREDICTION 다이얼이 이 값을 읽는다.
         // Idle 동안만 실시간으로 차오르고, 진입에 성공하면 소모된다.
         float charge = 1f;
@@ -207,6 +214,10 @@ namespace Game.View
         float enterTransitionStartRealTime;
         Vector3 enterStartCamPos;
         Quaternion enterStartCamRot;
+        // [끊김 완화 A안, 2026-07-23] Enter는 연출만 즉시 켜고 무거운 예측 검색(Build)은
+        // 다음 프레임 FinishEnter로 미룬다. 그 사이(이 플래그가 true인 동안) Preview는
+        // 입력·표시 없이 대기한다.
+        bool buildPending;
 
         public void Init(Camera camera, Transform pose)
         {
@@ -319,8 +330,10 @@ namespace Game.View
                     charge = Mathf.Min(1f, charge + Time.unscaledDeltaTime / PredictionConfig.ChargeRechargeSeconds);
                 if (!inputBlocked && kb.fKey.wasPressedThisFrame && ChargeUsable)
                 {
+                    // [보스 엔딩] 컷신·엔딩 연출 중엔 무시 — 보스가 죽어 EMP가 풀려도 예지가 열리면 안 됨.
+                    if (Cutscene.Active || CutsceneTimeScaleOverride >= 0f) { }
                     // [보스 EMP] 교란 중엔 진입 거부 — 게이지는 소모하지 않고 경고만 띄운다.
-                    if (BossQuery.EmpActive(in w)) empNoticeUntil = Time.unscaledTime + 1.6f;
+                    else if (BossQuery.EmpActive(in w)) empNoticeUntil = Time.unscaledTime + 1.6f;
                     else Enter(in w);
                 }
                 return;
@@ -365,6 +378,10 @@ namespace Game.View
             }
 
             // ── Preview 중 ──
+            // [끊김 완화 A안] Enter가 연출만 켜둔 상태 — 이 프레임에 무거운 Build를 돌리고 끝낸다.
+            // 이 프레임은 입력·표시를 건너뛴다(다음 프레임부터 정상 미리보기). 이미 흑백/정지가
+            // 켜져 있어 여기서 생기는 연산 프레임이 시각적으로 가려진다.
+            if (buildPending) { FinishEnter(in w); return; }
             if (inputBlocked) return;
             if (kb.escapeKey.wasPressedThisFrame) { Exit(); return; }
             if (mouse != null && mouse.leftButton.wasPressedThisFrame) { Confirm(in w); return; }
@@ -410,6 +427,29 @@ namespace Game.View
                 enterStartCamRot = Quaternion.Euler(p, w.player.yaw, 0f);
             }
 
+            // [끊김 완화 A안, 2026-07-23] 무거운 예측 검색(Build)은 다음 프레임(FinishEnter)으로
+            // 미루고, 이 프레임에는 연출만 즉시 켠다 — 3인칭 전환·발동음·흑백·시간정지(state=Preview로
+            // Main이 sim 틱을 멈춤). 발동 순간의 "부왕" 연출이 매끄럽게 나가고, Build 프레임의 끊김은
+            // 이미 켜진 흑백/정지 화면 뒤로 숨는다. 실제 경로 표시는 FinishEnter가 채운다.
+            state = State.Preview;
+            buildPending = true;
+            fx.SetExecution(false);
+            fx.SetActive(true);
+            PredictionAudio.Enter();    // 예지 발동음(산데비스탄) — 드론도 여기서 뜬다
+            ToggleViewmodel(false);         // 3인칭이라 1인칭 칼 숨김
+            orbitYaw = w.player.yaw; orbitPitch = PredictionConfig.OrbitPitchInit;   // 플레이어 뒤에서 시작
+            Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;        // 마우스=궤도 회전
+            enterTransitionStartRealTime = -1f; // Build 끝난 다음 프레임부터 전환 타이머 시작(Build 프레임 건너뜀)
+        }
+
+        /// <summary>
+        /// [끊김 완화 A안] Enter가 켠 연출 뒤, 다음 프레임에 실제 예측을 만들어 미리보기를 완성한다.
+        /// 유효 경로가 없으면 이미 켠 연출을 원복하고 종료한다.
+        /// </summary>
+        void FinishEnter(in SimWorld w)
+        {
+            buildPending = false;
+
             // [진단, 2026-07-22] "미리보기가 공중 적을 안 노린다" 원인 특정용 — 원인을 잡으면
             // 이 줄과 AerialTargetingDiagnostic.cs를 함께 지운다.
             AerialTargetingDiagnostic.Report(in w, Main.Instance.Services);
@@ -418,13 +458,8 @@ namespace Game.View
             routes = RealRoutePreview.Build(in w, Main.Instance.Services, PredictionConfig.RouteColors, ChargeSeconds);
             if (routes.Count == 0)
             {
-                state = State.Idle;
-                fx.SetExecution(false);
-                fx.SetActive(false);
-                RadialInvertFx.SetRadius(0f, PredictionConfig.RadialInvertMaxRadius);
-                SetVisible(false);
-                RestoreNormalTimeScale();
                 Debug.LogWarning("[예측] 유효한 경로를 만들지 못해 미리보기를 취소했습니다.");
+                Exit();   // Enter가 켠 연출(흑백·드론·3인칭·칼 숨김)을 원복
                 return;
             }
             BuildRouteDistances();   // 이동 잔상 클립 위상(거리 기반) 계산용
@@ -439,17 +474,9 @@ namespace Game.View
             }
             previewRevealProgress = 0f;
             charge = PredictionConfig.ChargeAfterEnter;   // 경로 확보에 성공한 경우에만 소모
-            state = State.Preview;
-            fx.SetExecution(false);
-            fx.SetActive(true);
-            PredictionAudio.Enter();    // 예지 발동음(산데비스탄) — 드론도 여기서 뜬다
-            ToggleViewmodel(false);         // 3인칭이라 1인칭 칼 숨김
             SetVisible(true);
             BuildLines();
-            orbitYaw = w.player.yaw; orbitPitch = PredictionConfig.OrbitPitchInit;   // 플레이어 뒤에서 시작
-            Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;        // 마우스=궤도 회전
             previewRevealStartRealTime = Time.unscaledTime;
-            enterTransitionStartRealTime = -1f; // 다음 프레임부터 전환 타이머 시작(Build 연산 프레임 건너뜀)
             Debug.Log($"[예측] 진입 — 사정권 {PredictionConfig.Range}, 루트 {routes.Count}개. (F 순환 · 좌클릭 확정 · Esc 취소)");
             LogSelected();
         }
@@ -464,6 +491,7 @@ namespace Game.View
             if (state != State.Idle) PredictionAudio.Exit();
             Mode.End();   // 모드가 Active일 때만 실제로 정리한다(각 구현이 자체 가드)
             HitStop.Suppressed = false;
+            buildPending = false;   // [끊김 완화 A안] 미완성 진입 중 종료돼도 대기 플래그를 남기지 않는다
             state = State.Idle;
             followingControls = null;
             followingRoute = null;
@@ -489,6 +517,11 @@ namespace Game.View
 
         void UpdateRhythmTimeScale()
         {
+            // [보스 엔딩, 2026-07-23] 외부 연출이 배속을 소유 중이면 그 값을 그대로 쓰고 끝
+            // — 아래 로직이 매 프레임 1로 되돌리는 것을 막는다(BossDeathDirector 슬로모).
+            if (CutsceneTimeScaleOverride >= 0f)
+            { Time.timeScale = CutsceneTimeScaleOverride; return; }
+
             float target = 1f;
             // [추적 방식 추상화, 2026-07-22] 배속을 모드가 직접 소유하는 방식들(자유 주행의
             // 처치 슬로모, 클릭 체인의 조준 포켓)은 아래 리듬 페이싱을 통째로 건너뛴다.
