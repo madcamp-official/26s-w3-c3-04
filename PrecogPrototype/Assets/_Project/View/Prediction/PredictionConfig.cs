@@ -54,6 +54,14 @@ namespace Game.View
         // 갈수록 감속하는 완급(ease-out)을 줘서 자연스럽게 3인칭으로 빠져나가게 한다.
         public const float EnterOrbitPullbackSeconds = 0.55f;
 
+        // [끊김 완화 로딩 연출, 2026-07-23] 진입 후 예측 검색(Build)이 끝나 잔상이 뜨기 전까지,
+        // 초록 물결(RadialInvertFx)을 0→최대 톱니파로 반복 재생해 "스캔/로딩" 펄스를 보여준다.
+        // 무거운 Build는 이 반복 구간이 끝나는 순간 실행돼 끊김이 펄스에 묻힌다.
+        public const float RippleLoopSeconds   = 0.9f;    // 잔상 뜨기 전까지 물결을 반복하는 총 시간
+        public const float RipplePeriodSeconds = 0.4f;    // 물결 한 펄스(0→최대) 주기
+        // 잔상(투사주법 분신)이 켜질 때 알파를 0→목표로 올리는 페이드인 시간.
+        public const float AfterimageFadeInSeconds = 0.25f;
+
         // 루트 색 (순서: PredictionPlanner.PlanByProfile이 고정하는 안전형/기회형/공격형)
         public static readonly Color[] RouteColors =
         {

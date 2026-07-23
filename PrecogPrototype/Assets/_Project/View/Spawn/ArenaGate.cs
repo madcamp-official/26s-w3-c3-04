@@ -117,7 +117,7 @@ namespace Game.View
                 sfx2D.playOnAwake = false;
                 sfx2D.spatialBlend = 0f;   // 2D
             }
-            sfx2D.PlayOneShot(clip);
+            sfx2D.PlayOneShot(clip, 2.5f);   // 게이트 소리만 2.5배
         }
 
         void Update()

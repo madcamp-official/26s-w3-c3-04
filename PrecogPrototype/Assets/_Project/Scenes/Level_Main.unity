@@ -6288,6 +6288,18 @@ PrefabInstance:
       propertyPath: m_LocalPosition.x
       value: 4.74806
       objectReference: {fileID: 0}
+    - target: {fileID: 8449132069083980533, guid: 56830f6f1ef06cb4b9c866385ad7e14b, type: 3}
+      propertyPath: waves.Array.size
+      value: 4
+      objectReference: {fileID: 0}
+    - target: {fileID: 8449132069083980533, guid: 56830f6f1ef06cb4b9c866385ad7e14b, type: 3}
+      propertyPath: waves.Array.data[3].advance
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8449132069083980533, guid: 56830f6f1ef06cb4b9c866385ad7e14b, type: 3}
+      propertyPath: waves.Array.data[3].advanceValue
+      value: 3
+      objectReference: {fileID: 0}
     - target: {fileID: 8678789623133377368, guid: 56830f6f1ef06cb4b9c866385ad7e14b, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0.75
@@ -10395,12 +10407,14 @@ MonoBehaviour:
   slowMoScale: 0.15
   slowMoMaxSeconds: 3
   blackoutSeconds: 1
-  pieceSpeedMin: 15
-  pieceSpeedMax: 60
+  revealHoldSeconds: 1.2
+  pieceSpeedNear: 60
+  pieceSpeedFar: 12
   pieceGravity: 9.8
   pieceSpinMax: 540
+  directionJitter: 0.12
   upwardBias: 0
-  outwardBias: 0
+  explosionSlowScale: 0.3
   flashCount: 14
   shakeAmp: 0.5
   shakeSeconds: 1.5
@@ -10747,7 +10761,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.View::Game.View.ArenaWaves
   waves:
-  - name: "\uBC18\uBCF5 \uC7A1\uBAB9(\uADFC15/\uC6D015/\uACF515/\uB3CC15)"
+  - name: "\uBC18\uBCF5 \uC7A1\uBAB9(\uADFC10/\uC6D07/\uACF55/\uB3CC5)"
     startDelay: 3
     pipes:
     - marker: {fileID: 339500557}
@@ -10760,12 +10774,6 @@ MonoBehaviour:
       - kind: 1
         intervalOverride: -1
         isGap: 0
-      - kind: 3
-        intervalOverride: -1
-        isGap: 0
-      - kind: 2
-        intervalOverride: -1
-        isGap: 0
     - marker: {fileID: 1273658883}
       startDelay: 0.3
       interval: 0.8
@@ -10774,12 +10782,6 @@ MonoBehaviour:
         intervalOverride: -1
         isGap: 0
       - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
         intervalOverride: -1
         isGap: 0
     - marker: {fileID: 1554274092}
@@ -10792,12 +10794,6 @@ MonoBehaviour:
       - kind: 2
         intervalOverride: -1
         isGap: 0
-      - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
     - marker: {fileID: 1936399698}
       startDelay: 0.90000004
       interval: 0.8
@@ -10806,12 +10802,6 @@ MonoBehaviour:
         intervalOverride: -1
         isGap: 0
       - kind: 3
-        intervalOverride: -1
-        isGap: 0
-      - kind: 2
-        intervalOverride: -1
-        isGap: 0
-      - kind: 0
         intervalOverride: -1
         isGap: 0
     - marker: {fileID: 1241099590}
@@ -10824,12 +10814,6 @@ MonoBehaviour:
       - kind: 1
         intervalOverride: -1
         isGap: 0
-      - kind: 3
-        intervalOverride: -1
-        isGap: 0
-      - kind: 2
-        intervalOverride: -1
-        isGap: 0
     - marker: {fileID: 1062066038}
       startDelay: 1.5
       interval: 0.8
@@ -10838,12 +10822,6 @@ MonoBehaviour:
         intervalOverride: -1
         isGap: 0
       - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
         intervalOverride: -1
         isGap: 0
     - marker: {fileID: 154111403}
@@ -10856,23 +10834,11 @@ MonoBehaviour:
       - kind: 2
         intervalOverride: -1
         isGap: 0
-      - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
     - marker: {fileID: 992076035}
       startDelay: 2.1000001
       interval: 0.8
       mobs:
       - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
-        intervalOverride: -1
-        isGap: 0
-      - kind: 2
         intervalOverride: -1
         isGap: 0
       - kind: 0
@@ -10883,12 +10849,6 @@ MonoBehaviour:
       interval: 0.8
       mobs:
       - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
         intervalOverride: -1
         isGap: 0
       - kind: 2
@@ -10904,12 +10864,6 @@ MonoBehaviour:
       - kind: 0
         intervalOverride: -1
         isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
-        intervalOverride: -1
-        isGap: 0
     - marker: {fileID: 208333031}
       startDelay: 3
       interval: 0.8
@@ -10917,13 +10871,7 @@ MonoBehaviour:
       - kind: 3
         intervalOverride: -1
         isGap: 0
-      - kind: 2
-        intervalOverride: -1
-        isGap: 0
       - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
         intervalOverride: -1
         isGap: 0
     - marker: {fileID: 208333030}
@@ -10931,12 +10879,6 @@ MonoBehaviour:
       interval: 0.8
       mobs:
       - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
-        intervalOverride: -1
-        isGap: 0
-      - kind: 2
         intervalOverride: -1
         isGap: 0
       - kind: 0
@@ -10949,29 +10891,11 @@ MonoBehaviour:
       - kind: 0
         intervalOverride: -1
         isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
-        intervalOverride: -1
-        isGap: 0
-      - kind: 2
-        intervalOverride: -1
-        isGap: 0
     - marker: {fileID: 208333028}
       startDelay: 3.9
       interval: 0.8
       mobs:
       - kind: 2
-        intervalOverride: -1
-        isGap: 0
-      - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
-      - kind: 3
         intervalOverride: -1
         isGap: 0
     - marker: {fileID: 208333027}
@@ -10981,17 +10905,8 @@ MonoBehaviour:
       - kind: 3
         intervalOverride: -1
         isGap: 0
-      - kind: 2
-        intervalOverride: -1
-        isGap: 0
-      - kind: 0
-        intervalOverride: -1
-        isGap: 0
-      - kind: 1
-        intervalOverride: -1
-        isGap: 0
     advance: 3
-    advanceValue: 30
+    advanceValue: 45
   loop: 1
   cleanup:
     enabled: 1
@@ -15089,6 +15004,18 @@ PrefabInstance:
     - target: {fileID: 6800826475167251124, guid: e2091d8bc754dcb4a94653c9f9d791ac, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7102242821873490808, guid: e2091d8bc754dcb4a94653c9f9d791ac, type: 3}
+      propertyPath: waves.Array.size
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 7102242821873490808, guid: e2091d8bc754dcb4a94653c9f9d791ac, type: 3}
+      propertyPath: waves.Array.data[2].advance
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7102242821873490808, guid: e2091d8bc754dcb4a94653c9f9d791ac, type: 3}
+      propertyPath: waves.Array.data[2].advanceValue
+      value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 8209798716175635718, guid: e2091d8bc754dcb4a94653c9f9d791ac, type: 3}
       propertyPath: m_LocalPosition.x

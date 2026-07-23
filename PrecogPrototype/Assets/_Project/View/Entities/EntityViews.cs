@@ -460,6 +460,15 @@ namespace Game.View
                     Vector3 emitter = ep + Vector3.up * AIConfig.BossEmitterHeight;
                     enemyViews[i].position = emitter;
                     float os = e.radius * 2f;   // 구 지름 = sim 히트박스(e.radius)와 동일 → 비주얼=히트박스.
+                    // 페이즈 전환 숨기(Hide)·재등장(Emerge) 중엔 보이는 반지름을 0.5배까지 선형 축소.
+                    // 아래로 내려갈수록(anchor+RevealYOffset → anchor+HideYOffset) 작아진다.
+                    if ((e.ai.state == EnemyState.Hide || e.ai.state == EnemyState.Emerge) && e.ai.anchorSet)
+                    {
+                        float revealY = e.ai.anchor.y + AIConfig.BossRevealYOffset;
+                        float hiddenY = e.ai.anchor.y + AIConfig.BossHideYOffset;
+                        float f = Mathf.InverseLerp(revealY, hiddenY, ep.y);   // 0=드러남, 1=완전히 숨음
+                        os *= Mathf.Lerp(1f, 0.5f, f);
+                    }
                     enemyViews[i].localScale = new Vector3(os, os, os);
                     var bv = enemyViews[i].GetComponent<BossView>();
                     if (bv != null) bv.Set(e.ai.state, emitter, e.ai.beamDir, e.combat.health);

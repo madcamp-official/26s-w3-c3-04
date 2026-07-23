@@ -27,6 +27,19 @@ namespace Game.View
         public static void Set(bool hidden) => Hidden = hidden;
         public static bool Toggle() { Hidden = !Hidden; return Hidden; }
 
+        /// <summary>
+        /// 플레이 시작마다 표시 상태를 되돌린다. ★도메인 리로드를 끈 환경(EnterPlayMode
+        /// DisableDomainReload)에선 static이 플레이 사이에 리셋되지 않는다 — 엔딩 등에서 켠
+        /// Hidden이 다음 플레이까지 남아 UI가 계속 꺼져 보이던 문제를 여기서 막는다.
+        /// (SuppressedByMenu는 곧이어 TitleScreen.Awake가 다시 설정하므로 여기서 false로 둬도 안전.)
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void ResetOnPlay()
+        {
+            Hidden = false;
+            SuppressedByMenu = false;
+        }
+
         /// <summary>OnGUI 맨 앞에서 호출 — true면 그리지 말 것.</summary>
         public static bool Skip => Hidden || SuppressedByMenu;
     }

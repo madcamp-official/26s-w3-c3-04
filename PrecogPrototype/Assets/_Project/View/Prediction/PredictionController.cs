@@ -194,6 +194,9 @@ namespace Game.View
         Transform playerBody;
         readonly List<Transform> revealGhosts = new List<Transform>();       // 경로별 이동 트레일 헤드
         readonly List<List<Transform>> revealAfterimagesByRoute = new List<List<Transform>>();
+        // [잔상 페이드인, 2026-07-23] 각 분신이 처음 켜진 실시간 시각. 알파를 0→목표로 올리는 데 쓴다.
+        // 숨을 때 제거해 재등장 시 다시 페이드한다. FinishEnter에서 새 예측마다 초기화.
+        readonly Dictionary<Transform, float> afterimageFadeStart = new Dictionary<Transform, float>();
         // [예측 세션 수정, 2026-07-20] 매 프레임 new Gradient()를 만들면 GC 압박으로 프레임이
         // 튀어 트레일이 "한 번에 나타나는" 것처럼 보인다 — 선택/비선택 그라디언트를 경로당
         // 한 번만 만들어 캐싱한다(색은 경로 인덱스에 고정이라 재계산할 필요가 없다).
@@ -378,10 +381,20 @@ namespace Game.View
             }
 
             // ── Preview 중 ──
-            // [끊김 완화 A안] Enter가 연출만 켜둔 상태 — 이 프레임에 무거운 Build를 돌리고 끝낸다.
-            // 이 프레임은 입력·표시를 건너뛴다(다음 프레임부터 정상 미리보기). 이미 흑백/정지가
-            // 켜져 있어 여기서 생기는 연산 프레임이 시각적으로 가려진다.
-            if (buildPending) { FinishEnter(in w); return; }
+            // [끊김 완화 로딩 연출] Enter가 켠 3인칭 풀백을 유지하면서, 초록 물결(RadialInvertFx)을
+            // 0→최대 톱니파로 <b>반복</b> 재생한다("스캔/로딩" 펄스). 이 반복이 끝나는 순간(잔상 뜨기
+            // 직전) 무거운 Build를 돌려 그 프레임의 끊김을 펄스 뒤로 숨기고, FinishEnter가 잔상을
+            // 페이드인으로 띄운다. 반복 동안은 입력·경로표시 없이 카메라·물결만 갱신한다.
+            if (buildPending)
+            {
+                PlaceCamera(in w);   // 카메라 풀백(RadialInvert 반경은 아래서 반복 펄스로 덮어씀)
+                float loopElapsed = Time.unscaledTime - enterTransitionStartRealTime;
+                float phase = (loopElapsed % PredictionConfig.RipplePeriodSeconds)
+                              / PredictionConfig.RipplePeriodSeconds;   // 0→1 반복
+                RadialInvertFx.SetRadius(phase, PredictionConfig.RadialInvertMaxRadius);
+                if (loopElapsed >= PredictionConfig.RippleLoopSeconds) FinishEnter(in w);
+                return;
+            }
             if (inputBlocked) return;
             if (kb.escapeKey.wasPressedThisFrame) { Exit(); return; }
             if (mouse != null && mouse.leftButton.wasPressedThisFrame) { Confirm(in w); return; }
@@ -439,7 +452,11 @@ namespace Game.View
             ToggleViewmodel(false);         // 3인칭이라 1인칭 칼 숨김
             orbitYaw = w.player.yaw; orbitPitch = PredictionConfig.OrbitPitchInit;   // 플레이어 뒤에서 시작
             Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;        // 마우스=궤도 회전
-            enterTransitionStartRealTime = -1f; // Build 끝난 다음 프레임부터 전환 타이머 시작(Build 프레임 건너뜀)
+            // [끊김 완화 A안 개선] 전환(초록 퍼짐+3인칭 풀백) 타이머를 지금 시작하고 이 프레임에
+            // 곧바로 한 번 그려, 1인칭에서부터 연출을 즉시 재생한다. 무거운 Build는 이 연출이
+            // 끝까지 재생된 뒤(FinishEnter) 돈다 — 그래야 끊김이 정지된 연출 화면에 가려진다.
+            enterTransitionStartRealTime = Time.unscaledTime;
+            PlaceCamera(in w);
         }
 
         /// <summary>
@@ -473,6 +490,7 @@ namespace Game.View
                 break;
             }
             previewRevealProgress = 0f;
+            afterimageFadeStart.Clear();   // [잔상 페이드인] 새 예측 — 분신들이 처음부터 다시 페이드인
             charge = PredictionConfig.ChargeAfterEnter;   // 경로 확보에 성공한 경우에만 소모
             SetVisible(true);
             BuildLines();
@@ -1984,7 +2002,14 @@ namespace Game.View
                     // 헤드가 아직 그 지점을 지나지 않았거나, 경로 자체가 거기까지 안 가면 숨김.
                     bool afterVisible = stampDistance <= totalDistance && stampDistance <= headDistance;
                     afterimage.gameObject.SetActive(afterVisible);
-                    if (!afterVisible) continue;
+                    if (!afterVisible) { afterimageFadeStart.Remove(afterimage); continue; }
+
+                    // [잔상 페이드인] 이 분신이 처음 켜진 시각을 기록하고, 그로부터 경과에 따라 알파를 올린다.
+                    if (!afterimageFadeStart.TryGetValue(afterimage, out float shownAt))
+                    { shownAt = Time.unscaledTime; afterimageFadeStart[afterimage] = shownAt; }
+                    float fadeIn = PredictionConfig.AfterimageFadeInSeconds > 0.001f
+                        ? Mathf.Clamp01((Time.unscaledTime - shownAt) / PredictionConfig.AfterimageFadeInSeconds)
+                        : 1f;
 
                     float afterScaled = PathIndexAtDistance(ri, stampDistance);
                     float afterProgress = route.path.Count > 1
@@ -1997,7 +2022,8 @@ namespace Game.View
                     PlaceRevealBody(afterimage, route, afterScaled, PivotYOffset, placement);
                     Color afterColor = PreviewPathColor(afterProgress);
                     afterColor.a = PredictionConfig.PreviewAfterimageHeadAlpha
-                        * (sel ? 1f : PredictionConfig.RouteDimMul);
+                        * (sel ? 1f : PredictionConfig.RouteDimMul)
+                        * fadeIn;   // [잔상 페이드인] 등장 직후 0→목표로 알파 램프
                     SetMarkColor(afterimage, afterColor);
                 }
             }
