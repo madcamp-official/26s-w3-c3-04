@@ -39,14 +39,13 @@ namespace Game.View
 
         float t;             // 0=닫힘, 1=열림 (진행도)
         float target;
+        bool initialized;
 
         public bool IsOpen => target > 0.5f;
 
         void Awake()
         {
-            if (door == null) door = transform;
-            // 기록 안 했으면 지금 배치된 자리를 닫힘으로 본다(기존 게이트 호환).
-            if (!positionsRecorded) closedLocalPos = door.localPosition;
+            EnsureInitialized();
             t = target = startState == StartState.Open ? 1f : 0f;
             Apply();
         }
@@ -57,6 +56,15 @@ namespace Game.View
             if (door == null) door = transform;
             t = target = startState == StartState.Open ? 1f : 0f;
             Apply();
+        }
+
+        /// <summary>초기화 1회 — door 확보 + 미기록이면 현재 위치를 닫힘으로. (Awake·팀원 재시작 훅이 호출)</summary>
+        void EnsureInitialized()
+        {
+            if (initialized) return;
+            if (door == null) door = transform;
+            if (!positionsRecorded) closedLocalPos = door.localPosition;
+            initialized = true;
         }
 
         /// <summary>문 열기 — ArenaRoom.onUnlock에 연결. 닫힘→열림 전환 시 소리 재생.</summary>
@@ -118,6 +126,14 @@ namespace Game.View
                 sfx2D.spatialBlend = 0f;   // 2D
             }
             sfx2D.PlayOneShot(clip, 2.5f);   // 게이트 소리만 2.5배
+        }
+
+        /// <summary>새 게임의 Inspector 시작 상태로 즉시 복구한다.</summary>
+        public void ResetToStartState()
+        {
+            EnsureInitialized();
+            t = target = startState == StartState.Open ? 1f : 0f;
+            Apply();
         }
 
         void Update()

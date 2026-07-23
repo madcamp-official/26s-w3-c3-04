@@ -87,6 +87,18 @@ namespace Game.View
         /// <summary>진행 중(대기·소환·감시)인가 — 콘솔에서 '현재 아레나'를 찾을 때 쓴다.</summary>
         public bool IsRunning => CurrentState != State.Idle && CurrentState != State.Done;
 
+        /// <summary>새 게임을 시작할 때 웨이브 진행 기록을 최초 상태로 되돌린다.</summary>
+        public void ResetProgress()
+        {
+            CurrentState = State.Idle;
+            CurrentWave = -1;
+            waveWaitTicks = 0;
+            spawnedSoFar = 0;
+            sequential = false;
+            cursors = new PipeCursor[0];
+            spawnedIds.Clear();
+        }
+
         public string Status()
         {
             if (config == null) return $"[{name}] ArenaWaves 없음";
